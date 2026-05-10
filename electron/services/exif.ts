@@ -1,4 +1,5 @@
 import Exifr from 'exifr';
+import sharp from 'sharp';
 
 export interface ExifData {
   takenAt: Date | null;
@@ -36,8 +37,32 @@ export class ExifService {
         ],
       });
 
+      let width: number | null = null;
+      let height: number | null = null;
+
+      if (exif?.ExifImageWidth || exif?.ImageWidth) {
+        width = exif.ExifImageWidth || exif.ImageWidth;
+      }
+      if (exif?.ExifImageHeight || exif?.ImageHeight) {
+        height = exif.ExifImageHeight || exif.ImageHeight;
+      }
+
+      if (!width || !height) {
+        try {
+          const metadata = await sharp(filePath).metadata();
+          width = metadata.width || width;
+          height = metadata.height || height;
+        } catch {
+          // sharp 无法读取此文件格式
+        }
+      }
+
       if (!exif) {
-        return this.getEmptyExif();
+        return {
+          ...this.getEmptyExif(),
+          width,
+          height,
+        };
       }
 
       const latitude = this.convertGPS(
@@ -59,8 +84,8 @@ export class ExifService {
         takenAt,
         latitude,
         longitude,
-        width: exif.ExifImageWidth || exif.ImageWidth || null,
-        height: exif.ExifImageHeight || exif.ImageHeight || null,
+        width,
+        height,
         camera,
         aperture: exif.FNumber ? `f/${exif.FNumber}` : null,
         shutterSpeed: exif.ExposureTime ? `1/${Math.round(1 / exif.ExposureTime)}s` : null,
