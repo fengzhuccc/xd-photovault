@@ -106,6 +106,25 @@ export class DatabaseService {
     stmt.run(id);
   }
 
+  deletePhotosByFolder(folderId: string): void {
+    const deletePhotoDuplicates = this.db.prepare(`
+      DELETE FROM photo_duplicates WHERE photo_id IN (
+        SELECT id FROM photos WHERE folder_id = ?
+      )
+    `);
+    deletePhotoDuplicates.run(folderId);
+
+    const deleteDuplicateGroups = this.db.prepare(`
+      DELETE FROM duplicate_groups WHERE id NOT IN (
+        SELECT DISTINCT group_id FROM photo_duplicates
+      )
+    `);
+    deleteDuplicateGroups.run();
+
+    const deletePhotos = this.db.prepare('DELETE FROM photos WHERE folder_id = ?');
+    deletePhotos.run(folderId);
+  }
+
   getFolders(): any[] {
     const stmt = this.db.prepare('SELECT * FROM folders ORDER BY added_at DESC');
     return stmt.all() as any[];

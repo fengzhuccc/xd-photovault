@@ -54,6 +54,8 @@ export class ScannerService {
       throw new Error('Folder not found');
     }
 
+    this.db.deletePhotosByFolder(folderId);
+
     const files = await this.getAllImageFiles(folder.path);
     const total = files.length;
     let duplicates = 0;
@@ -87,6 +89,8 @@ export class ScannerService {
         const photoId = uuidv4();
         const thumbnailPath = await this.thumbnailService.getThumbnail(photoId, filePath);
 
+        const takenAt = exifData.takenAt || stats.mtime;
+
         photos.push({
           id: photoId,
           folderId,
@@ -95,7 +99,7 @@ export class ScannerService {
           fileSize: stats.size,
           fileHash,
           perceptualHash: fileHash.substring(0, 16),
-          takenAt: exifData.takenAt?.toISOString() || null,
+          takenAt: takenAt.toISOString(),
           latitude: exifData.latitude,
           longitude: exifData.longitude,
           width: exifData.width,

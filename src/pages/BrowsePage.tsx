@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Filter, Grid3X3, Calendar, MapPin, Camera, X, ChevronLeft, ChevronRight, Clock, Pencil, Check, MapPinned } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
@@ -7,18 +7,28 @@ import type { Photo, PhotoDetail } from '@/types';
 
 export function BrowsePage() {
   const navigate = useNavigate();
-  const { photos, stats, loadPhotos, loadStats, currentFilter, setCurrentFilter } = useAppStore();
+  const { 
+    photos, 
+    stats, 
+    loadPhotos, 
+    loadStats, 
+    currentFilter, 
+    setCurrentFilter,
+    thumbnails,
+    originalImages,
+    setThumbnails,
+    setOriginalImages,
+  } = useAppStore();
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [photoDetail, setPhotoDetail] = useState<PhotoDetail | null>(null);
   const [showFilters, setShowFilters] = useState(false);
-  const [thumbnails, setThumbnails] = useState<Map<string, string>>(new Map());
-  const [originalImages, setOriginalImages] = useState<Map<string, string>>(new Map());
   const [editingDate, setEditingDate] = useState(false);
   const [editingLocation, setEditingLocation] = useState(false);
   const [editDateValue, setEditDateValue] = useState('');
   const [editLatValue, setEditLatValue] = useState('');
   const [editLngValue, setEditLngValue] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const loadingRef = useRef(false);
 
   useEffect(() => {
     loadPhotos();
@@ -27,9 +37,17 @@ export function BrowsePage() {
 
   useEffect(() => {
     const loadThumbnails = async () => {
-      const thumbMap = new Map<string, string>();
-      const origMap = new Map<string, string>();
-      for (const photo of photos.slice(0, 100)) {
+      if (loadingRef.current) return;
+      
+      const photosToLoad = photos.filter(p => !thumbnails.has(p.id)).slice(0, 50);
+      if (photosToLoad.length === 0) return;
+      
+      loadingRef.current = true;
+      
+      const thumbMap = new Map(thumbnails);
+      const origMap = new Map(originalImages);
+      
+      for (const photo of photosToLoad) {
         try {
           const thumb = await window.api.thumbnail.get(photo.id, photo.path);
           thumbMap.set(photo.id, thumb);
@@ -39,13 +57,16 @@ export function BrowsePage() {
           origMap.set(photo.id, `https://picsum.photos/seed/${photo.image_seed || photo.id}/1200/800`);
         }
       }
+      
       setThumbnails(thumbMap);
       setOriginalImages(origMap);
+      loadingRef.current = false;
     };
+    
     if (photos.length > 0) {
       loadThumbnails();
     }
-  }, [photos]);
+  }, [photos, thumbnails.size, originalImages.size]);
 
   useEffect(() => {
     if (selectedPhoto?.taken_at) {

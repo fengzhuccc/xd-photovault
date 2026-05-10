@@ -1,6 +1,9 @@
 import { join } from 'path';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
 import sharp from 'sharp';
+
+const THUMBNAIL_SIZE = 512;
+const THUMBNAIL_QUALITY = 90;
 
 export class ThumbnailService {
   private thumbnailDir: string;
@@ -21,11 +24,11 @@ export class ThumbnailService {
 
     try {
       await sharp(photoPath)
-        .resize(256, 256, {
+        .resize(THUMBNAIL_SIZE, THUMBNAIL_SIZE, {
           fit: 'inside',
           withoutEnlargement: true,
         })
-        .webp({ quality: 80 })
+        .webp({ quality: THUMBNAIL_QUALITY })
         .toFile(thumbnailPath);
 
       return `file:///${thumbnailPath.replace(/\\/g, '/')}`;
@@ -35,13 +38,12 @@ export class ThumbnailService {
     }
   }
 
-  async generateThumbnail(photoPath: string, outputPath: string): Promise<void> {
-    await sharp(photoPath)
-      .resize(256, 256, {
-        fit: 'inside',
-        withoutEnlargement: true,
-      })
-      .webp({ quality: 80 })
-      .toFile(outputPath);
+  async clearThumbnails(): Promise<void> {
+    const files = readdirSync(this.thumbnailDir);
+    for (const file of files) {
+      if (file.endsWith('.webp')) {
+        unlinkSync(join(this.thumbnailDir, file));
+      }
+    }
   }
 }

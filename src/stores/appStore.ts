@@ -12,6 +12,8 @@ interface AppState {
   currentFilter: PhotoFilter;
   sidebarCollapsed: boolean;
   activeTab: 'library' | 'browse' | 'duplicates' | 'map';
+  thumbnails: Map<string, string>;
+  originalImages: Map<string, string>;
   
   setFolders: (folders: Folder[]) => void;
   addFolder: (folder: Folder) => void;
@@ -30,6 +32,9 @@ interface AppState {
   setSidebarCollapsed: (collapsed: boolean) => void;
   setActiveTab: (tab: 'library' | 'browse' | 'duplicates' | 'map') => void;
   
+  setThumbnails: (thumbnails: Map<string, string>) => void;
+  setOriginalImages: (originalImages: Map<string, string>) => void;
+  
   loadFolders: () => Promise<void>;
   loadStats: () => Promise<void>;
   loadPhotos: (filter?: PhotoFilter) => Promise<void>;
@@ -47,6 +52,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   currentFilter: {},
   sidebarCollapsed: false,
   activeTab: 'library',
+  thumbnails: new Map(),
+  originalImages: new Map(),
 
   setFolders: (folders) => set({ folders }),
   addFolder: (folder) => set((state) => ({ folders: [folder, ...state.folders] })),
@@ -64,6 +71,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   setCurrentFilter: (filter) => set({ currentFilter: filter }),
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   setActiveTab: (tab) => set({ activeTab: tab }),
+
+  setThumbnails: (thumbnails) => set({ thumbnails }),
+  setOriginalImages: (originalImages) => set({ originalImages }),
 
   loadFolders: async () => {
     const folders = await window.api.folder.getAll();
