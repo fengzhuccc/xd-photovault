@@ -31,7 +31,7 @@ export function BrowsePage() {
   const loadingRef = useRef(false);
 
   useEffect(() => {
-    loadPhotos();
+    loadPhotos({});
     loadStats();
   }, [loadPhotos, loadStats]);
 
@@ -39,34 +39,34 @@ export function BrowsePage() {
     const loadThumbnails = async () => {
       if (loadingRef.current) return;
       
-      const photosToLoad = photos.filter(p => !thumbnails.has(p.id)).slice(0, 50);
+      const photosToLoad = photos.filter(p => !(p.id in thumbnails)).slice(0, 50);
       if (photosToLoad.length === 0) return;
       
       loadingRef.current = true;
       
-      const thumbMap = new Map(thumbnails);
-      const origMap = new Map(originalImages);
+      const newThumbs: Record<string, string> = {};
+      const newOrigins: Record<string, string> = {};
       
       for (const photo of photosToLoad) {
         try {
           const thumb = await window.api.thumbnail.get(photo.id, photo.path);
-          thumbMap.set(photo.id, thumb);
-          origMap.set(photo.id, `file:///${photo.path.replace(/\\/g, '/')}`);
+          newThumbs[photo.id] = thumb;
+          newOrigins[photo.id] = `file:///${photo.path.replace(/\\/g, '/')}`;
         } catch {
-          thumbMap.set(photo.id, `https://picsum.photos/seed/${photo.image_seed || photo.id}/400/400`);
-          origMap.set(photo.id, `https://picsum.photos/seed/${photo.image_seed || photo.id}/1200/800`);
+          newThumbs[photo.id] = `https://picsum.photos/seed/${photo.image_seed || photo.id}/400/400`;
+          newOrigins[photo.id] = `https://picsum.photos/seed/${photo.image_seed || photo.id}/1200/800`;
         }
       }
       
-      setThumbnails(thumbMap);
-      setOriginalImages(origMap);
+      setThumbnails({ ...thumbnails, ...newThumbs });
+      setOriginalImages({ ...originalImages, ...newOrigins });
       loadingRef.current = false;
     };
     
     if (photos.length > 0) {
       loadThumbnails();
     }
-  }, [photos, thumbnails.size, originalImages.size]);
+  }, [photos, Object.keys(thumbnails).length]);
 
   useEffect(() => {
     if (selectedPhoto?.taken_at) {
@@ -293,7 +293,7 @@ export function BrowsePage() {
                         className="aspect-square cursor-pointer group relative overflow-hidden rounded-lg bg-zinc-800"
                       >
                         <img
-                          src={thumbnails.get(photo.id) || `https://picsum.photos/seed/${photo.image_seed || photo.id}/400/400`}
+                          src={thumbnails[photo.id] || `https://picsum.photos/seed/${photo.image_seed || photo.id}/400/400`}
                           alt={photo.filename}
                           className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
                           loading="lazy"
@@ -367,7 +367,7 @@ export function BrowsePage() {
           <div className="flex h-full w-full">
             <div className="flex-1 flex items-center justify-center p-4">
               <img
-                src={originalImages.get(selectedPhoto.id) || `file:///${selectedPhoto.path.replace(/\\/g, '/')}`}
+                src={originalImages[selectedPhoto.id] || `file:///${selectedPhoto.path.replace(/\\/g, '/')}`}
                 alt={selectedPhoto.filename}
                 className="max-w-full max-h-full object-contain"
               />
