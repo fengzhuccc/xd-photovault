@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu } from 'electron';
 import { join } from 'path';
 import { DatabaseService } from './services/database';
 import { ScannerService } from './services/scanner';
@@ -16,6 +16,8 @@ let thumbnailService: ThumbnailService;
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 function createWindow() {
+  Menu.setApplicationMenu(null);
+  
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,

@@ -336,7 +336,7 @@ function DuplicateCard({ group, isSelected, onToggle, thumbnails, formatDate, fo
               )}
             >
               <div 
-                className="aspect-square relative cursor-pointer hover:opacity-80 transition-opacity"
+                className="aspect-square relative cursor-pointer hover:opacity-80 transition-opacity group"
                 onClick={(e) => onPhotoClick(photo, group, e)}
               >
                 <img
@@ -349,6 +349,9 @@ function DuplicateCard({ group, isSelected, onToggle, thumbnails, formatDate, fo
                     <Star size={12} className="text-zinc-900" />
                   </div>
                 )}
+                <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-2">
+                  <p className="text-xs text-zinc-200 text-center break-all">{photo.path}</p>
+                </div>
               </div>
               <div className="p-2 bg-zinc-800">
                 <p className="text-xs text-zinc-300 truncate" title={photo.path}>{photo.filename}</p>
