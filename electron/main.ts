@@ -128,6 +128,10 @@ function setupIpcHandlers() {
   ipcMain.handle('thumbnail:get', async (_event, photoId: string, photoPath: string) => {
     return await thumbnailService.getThumbnail(photoId, photoPath);
   });
+
+  ipcMain.handle('thumbnail:clear', async () => {
+    return await thumbnailService.clearThumbnails();
+  });
 }
 
 app.whenReady().then(async () => {

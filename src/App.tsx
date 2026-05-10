@@ -4,6 +4,7 @@ import { LibraryPage } from '@/pages/LibraryPage';
 import { BrowsePage } from '@/pages/BrowsePage';
 import { DuplicatesPage } from '@/pages/DuplicatesPage';
 import { MapPage } from '@/pages/MapPage';
+import { SettingsPage } from '@/pages/SettingsPage';
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
           <Route path="browse" element={<BrowsePage />} />
           <Route path="duplicates" element={<DuplicatesPage />} />
           <Route path="map" element={<MapPage />} />
+          <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>
     </Router>

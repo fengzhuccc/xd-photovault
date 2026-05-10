@@ -36,6 +36,7 @@ export const api = {
   thumbnail: {
     get: (photoId: string, photoPath: string) => 
       ipcRenderer.invoke('thumbnail:get', photoId, photoPath),
+    clear: () => ipcRenderer.invoke('thumbnail:clear'),
   },
 };
 

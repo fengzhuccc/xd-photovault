@@ -5,7 +5,8 @@ import {
   Copy, 
   Map, 
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Settings
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { cn } from '@/lib/utils';
@@ -59,24 +60,41 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {!sidebarCollapsed && stats && (
-        <div className="p-4 border-t border-zinc-800">
-          <div className="text-xs text-zinc-500 space-y-1">
-            <div className="flex justify-between">
-              <span>照片总数</span>
-              <span className="text-zinc-300">{stats.total.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>有位置</span>
-              <span className="text-zinc-300">{stats.withLocation.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>重复</span>
-              <span className="text-amber-500">{stats.duplicates.toLocaleString()}</span>
+      <div className="border-t border-zinc-800">
+        {!sidebarCollapsed && stats && (
+          <div className="p-4">
+            <div className="text-xs text-zinc-500 space-y-1">
+              <div className="flex justify-between">
+                <span>照片总数</span>
+                <span className="text-zinc-300">{stats.total.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>有位置</span>
+                <span className="text-zinc-300">{stats.withLocation.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>重复</span>
+                <span className="text-amber-500">{stats.duplicates.toLocaleString()}</span>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+
+        <NavLink
+          to="/settings"
+          className={({ isActive }) =>
+            cn(
+              'flex items-center gap-3 px-4 py-2.5 mx-2 mb-2 rounded-lg transition-colors',
+              isActive
+                ? 'bg-amber-500/10 text-amber-500'
+                : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+            )
+          }
+        >
+          <Settings size={20} />
+          {!sidebarCollapsed && <span className="text-sm font-medium">设置</span>}
+        </NavLink>
+      </div>
     </aside>
   );
 }
