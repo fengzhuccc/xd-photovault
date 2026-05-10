@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { AlertTriangle, Check, Trash2, Star, MapPin, Calendar, HardDrive } from 'lucide-react';
+import { AlertTriangle, Check, Trash2, Star, MapPin, Calendar, HardDrive, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { cn } from '@/lib/utils';
 import type { DuplicateGroup, Photo } from '@/types';
@@ -7,8 +7,11 @@ import type { DuplicateGroup, Photo } from '@/types';
 export function DuplicatesPage() {
   const { duplicates, loadDuplicates, stats } = useAppStore();
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
-  const [thumbnails, setThumbnails] = useState<Map<string, string>>(new Map());
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+  const [originalImages, setOriginalImages] = useState<Record<string, string>>({});
   const [isDeleting, setIsDeleting] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
+  const [currentGroup, setCurrentGroup] = useState<DuplicateGroup | null>(null);
 
   useEffect(() => {
     loadDuplicates();
@@ -16,17 +19,21 @@ export function DuplicatesPage() {
 
   useEffect(() => {
     const loadThumbnails = async () => {
-      const map = new Map<string, string>();
+      const thumbMap: Record<string, string> = {};
+      const origMap: Record<string, string> = {};
       const allPhotos = duplicates.flatMap(g => g.photos);
       for (const photo of allPhotos) {
         try {
           const thumb = await window.api.thumbnail.get(photo.id, photo.path);
-          map.set(photo.id, thumb);
+          thumbMap[photo.id] = thumb;
+          origMap[photo.id] = `file:///${photo.path.replace(/\\/g, '/')}`;
         } catch {
-          map.set(photo.id, `https://picsum.photos/seed/${photo.id}/256/256`);
+          thumbMap[photo.id] = `https://picsum.photos/seed/${photo.id}/256/256`;
+          origMap[photo.id] = `https://picsum.photos/seed/${photo.id}/800/600`;
         }
       }
-      setThumbnails(map);
+      setThumbnails(thumbMap);
+      setOriginalImages(origMap);
     };
     if (duplicates.length > 0) {
       loadThumbnails();
@@ -79,6 +86,21 @@ export function DuplicatesPage() {
       setSelectedGroups(new Set());
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handlePhotoClick = (photo: Photo, group: DuplicateGroup, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedPhoto(photo);
+    setCurrentGroup(group);
+  };
+
+  const navigatePhoto = (direction: number) => {
+    if (!selectedPhoto || !currentGroup) return;
+    const currentIndex = currentGroup.photos.findIndex(p => p.id === selectedPhoto.id);
+    const newIndex = currentIndex + direction;
+    if (newIndex >= 0 && newIndex < currentGroup.photos.length) {
+      setSelectedPhoto(currentGroup.photos[newIndex]);
     }
   };
 
@@ -146,11 +168,114 @@ export function DuplicatesPage() {
                 thumbnails={thumbnails}
                 formatDate={formatDate}
                 formatFileSize={formatFileSize}
+                onPhotoClick={handlePhotoClick}
               />
             ))}
           </div>
         )}
       </div>
+
+      {selectedPhoto && currentGroup && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center">
+          <button
+            onClick={() => { setSelectedPhoto(null); setCurrentGroup(null); }}
+            className="absolute top-4 right-4 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors z-10"
+          >
+            <X size={20} />
+          </button>
+          
+          <button
+            onClick={() => navigatePhoto(-1)}
+            className="absolute left-4 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
+          >
+            <ChevronLeft size={24} />
+          </button>
+          
+          <button
+            onClick={() => navigatePhoto(1)}
+            className="absolute right-4 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
+          >
+            <ChevronRight size={24} />
+          </button>
+
+          <div className="flex h-full w-full">
+            <div className="flex-1 flex items-center justify-center p-4">
+              <img
+                src={originalImages[selectedPhoto.id] || `file:///${selectedPhoto.path.replace(/\\/g, '/')}`}
+                alt={selectedPhoto.filename}
+                className="max-w-full max-h-full object-contain"
+              />
+            </div>
+            
+            <div className="w-64 bg-zinc-900/95 border-l border-zinc-800 p-4 overflow-auto">
+              <h3 className="text-base font-medium text-zinc-100 mb-3 truncate">{selectedPhoto.filename}</h3>
+              
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-zinc-500 uppercase tracking-wider">文件信息</label>
+                  <div className="mt-1.5 space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">大小</span>
+                      <span className="text-zinc-200">{formatFileSize(selectedPhoto.file_size)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">分辨率</span>
+                      <span className="text-zinc-200">{selectedPhoto.width} × {selectedPhoto.height}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 uppercase tracking-wider">拍摄信息</label>
+                  <div className="mt-1.5 space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">日期</span>
+                      <span className={cn(
+                        selectedPhoto.taken_at ? 'text-zinc-200' : 'text-zinc-500 italic'
+                      )}>
+                        {formatDate(selectedPhoto.taken_at)}
+                      </span>
+                    </div>
+                    {selectedPhoto.camera && (
+                      <div className="flex justify-between">
+                        <span className="text-zinc-400">相机</span>
+                        <span className="text-zinc-200">{selectedPhoto.camera}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 uppercase tracking-wider">位置</label>
+                  <div className="mt-1.5">
+                    {selectedPhoto.latitude && selectedPhoto.longitude ? (
+                      <div className="flex items-center gap-2 text-sm text-zinc-200">
+                        <MapPin size={14} className="text-green-500" />
+                        <span>
+                          {selectedPhoto.latitude.toFixed(4)}, {selectedPhoto.longitude.toFixed(4)}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="p-2 bg-zinc-800 rounded text-center">
+                        <p className="text-xs text-zinc-500">此照片没有GPS信息</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {selectedPhoto.id === currentGroup.recommended_photo_id && (
+                  <div className="p-2 bg-amber-500/10 rounded-lg border border-amber-500/30">
+                    <div className="flex items-center gap-2 text-amber-500 text-sm">
+                      <Star size={14} />
+                      <span>推荐保留</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -159,12 +284,13 @@ interface DuplicateCardProps {
   group: DuplicateGroup;
   isSelected: boolean;
   onToggle: () => void;
-  thumbnails: Map<string, string>;
+  thumbnails: Record<string, string>;
   formatDate: (date: string | null) => string;
   formatFileSize: (bytes: number) => string;
+  onPhotoClick: (photo: Photo, group: DuplicateGroup, e: React.MouseEvent) => void;
 }
 
-function DuplicateCard({ group, isSelected, onToggle, thumbnails, formatDate, formatFileSize }: DuplicateCardProps) {
+function DuplicateCard({ group, isSelected, onToggle, thumbnails, formatDate, formatFileSize, onPhotoClick }: DuplicateCardProps) {
   return (
     <div
       className={cn(
@@ -202,9 +328,12 @@ function DuplicateCard({ group, isSelected, onToggle, thumbnails, formatDate, fo
                 isRecommended ? 'border-amber-500' : 'border-transparent'
               )}
             >
-              <div className="aspect-square relative">
+              <div 
+                className="aspect-square relative cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={(e) => onPhotoClick(photo, group, e)}
+              >
                 <img
-                  src={thumbnails.get(photo.id) || `https://picsum.photos/seed/${photo.image_seed || photo.id}/256/256`}
+                  src={thumbnails[photo.id] || `https://picsum.photos/seed/${photo.image_seed || photo.id}/256/256`}
                   alt={photo.filename}
                   className="w-full h-full object-cover"
                 />
