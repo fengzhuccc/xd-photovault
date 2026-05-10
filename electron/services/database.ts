@@ -1,0 +1,271 @@
+import Database from 'better-sqlite3';
+import { join } from 'path';
+import { existsSync, mkdirSync } from 'fs';
+
+export class DatabaseService {
+  private db: Database.Database;
+  private dbPath: string;
+
+  constructor(userDataPath: string) {
+    const dataDir = join(userDataPath, 'data');
+    if (!existsSync(dataDir)) {
+      mkdirSync(dataDir, { recursive: true });
+    }
+    this.dbPath = join(dataDir, 'photovault.db');
+  }
+
+  async initialize(): Promise<void> {
+    this.db = new Database(this.dbPath);
+    this.db.pragma('journal_mode = WAL');
+    this.createTables();
+  }
+
+  private createTables(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS folders (
+        id TEXT PRIMARY KEY,
+        path TEXT NOT NULL UNIQUE,
+        added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_scanned DATETIME,
+        photo_count INTEGER DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS photos (
+        id TEXT PRIMARY KEY,
+        folder_id TEXT NOT NULL,
+        path TEXT NOT NULL UNIQUE,
+        filename TEXT NOT NULL,
+        file_size INTEGER,
+        file_hash TEXT,
+        perceptual_hash TEXT,
+        taken_at DATETIME,
+        latitude REAL,
+        longitude REAL,
+        camera TEXT,
+        aperture TEXT,
+        shutter_speed TEXT,
+        iso INTEGER,
+        focal_length TEXT,
+        width INTEGER,
+        height INTEGER,
+        thumbnail_path TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS duplicate_groups (
+        id TEXT PRIMARY KEY,
+        reason TEXT CHECK(reason IN ('exact', 'similar')),
+        recommended_photo_id TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (recommended_photo_id) REFERENCES photos(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS photo_duplicates (
+        photo_id TEXT,
+        group_id TEXT,
+        PRIMARY KEY (photo_id, group_id),
+        FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
+        FOREIGN KEY (group_id) REFERENCES duplicate_groups(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_photos_folder ON photos(folder_id);
+      CREATE INDEX IF NOT EXISTS idx_photos_taken_at ON photos(taken_at);
+      CREATE INDEX IF NOT EXISTS idx_photos_hash ON photos(file_hash);
+      CREATE INDEX IF NOT EXISTS idx_photos_phash ON photos(perceptual_hash);
+      CREATE INDEX IF NOT EXISTS idx_photos_location ON photos(latitude, longitude);
+      CREATE INDEX IF NOT EXISTS idx_photos_camera ON photos(camera);
+    `);
+  }
+
+  addFolder(id: string, path: string): void {
+    const stmt = this.db.prepare('INSERT OR IGNORE INTO folders (id, path) VALUES (?, ?)');
+    stmt.run(id, path);
+  }
+
+  removeFolder(id: string): void {
+    const stmt = this.db.prepare('DELETE FROM folders WHERE id = ?');
+    stmt.run(id);
+  }
+
+  getFolders(): any[] {
+    const stmt = this.db.prepare('SELECT * FROM folders ORDER BY added_at DESC');
+    return stmt.all() as any[];
+  }
+
+  getFolderByPath(path: string): any | null {
+    const stmt = this.db.prepare('SELECT * FROM folders WHERE path = ?');
+    return stmt.get(path) as any | null;
+  }
+
+  updateFolderScanTime(id: string, photoCount: number): void {
+    const stmt = this.db.prepare(`
+      UPDATE folders SET last_scanned = CURRENT_TIMESTAMP, photo_count = ? WHERE id = ?
+    `);
+    stmt.run(photoCount, id);
+  }
+
+  insertPhoto(photo: any): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO photos (
+        id, folder_id, path, filename, file_size, file_hash, perceptual_hash,
+        taken_at, latitude, longitude, camera, aperture, shutter_speed,
+        iso, focal_length, width, height, thumbnail_path
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      photo.id, photo.folderId, photo.path, photo.filename, photo.fileSize,
+      photo.fileHash, photo.perceptualHash, photo.takenAt, photo.latitude,
+      photo.longitude, photo.camera, photo.aperture, photo.shutterSpeed,
+      photo.iso, photo.focalLength, photo.width, photo.height, photo.thumbnailPath
+    );
+  }
+
+  insertPhotos(photos: any[]): void {
+    const insert = this.db.transaction((items: any[]) => {
+      for (const photo of items) {
+        this.insertPhoto(photo);
+      }
+    });
+    insert(photos);
+  }
+
+  getPhotos(filter: any = {}): any[] {
+    let sql = 'SELECT * FROM photos WHERE 1=1';
+    const params: any[] = [];
+
+    if (filter.folderId) {
+      sql += ' AND folder_id = ?';
+      params.push(filter.folderId);
+    }
+    if (filter.dateStart) {
+      sql += ' AND taken_at >= ?';
+      params.push(filter.dateStart);
+    }
+    if (filter.dateEnd) {
+      sql += ' AND taken_at <= ?';
+      params.push(filter.dateEnd);
+    }
+    if (filter.hasLocation === true) {
+      sql += ' AND latitude IS NOT NULL AND longitude IS NOT NULL';
+    }
+    if (filter.hasLocation === false) {
+      sql += ' AND (latitude IS NULL OR longitude IS NULL)';
+    }
+    if (filter.camera) {
+      sql += ' AND camera = ?';
+      params.push(filter.camera);
+    }
+
+    sql += ' ORDER BY taken_at DESC NULLS LAST';
+
+    if (filter.limit) {
+      sql += ' LIMIT ?';
+      params.push(filter.limit);
+    }
+    if (filter.offset) {
+      sql += ' OFFSET ?';
+      params.push(filter.offset);
+    }
+
+    const stmt = this.db.prepare(sql);
+    return stmt.all(...params) as any[];
+  }
+
+  getPhotoById(id: string): any | null {
+    const stmt = this.db.prepare('SELECT * FROM photos WHERE id = ?');
+    return stmt.get(id) as any | null;
+  }
+
+  getPhotoStats(): any {
+    const total = (this.db.prepare('SELECT COUNT(*) as count FROM photos').get() as any).count;
+    const withLocation = (this.db.prepare(
+      'SELECT COUNT(*) as count FROM photos WHERE latitude IS NOT NULL AND longitude IS NOT NULL'
+    ).get() as any).count;
+    const duplicates = (this.db.prepare(
+      'SELECT COUNT(*) as count FROM photo_duplicates'
+    ).get() as any).count;
+    const cameras = this.db.prepare(
+      'SELECT camera, COUNT(*) as count FROM photos WHERE camera IS NOT NULL GROUP BY camera ORDER BY count DESC LIMIT 10'
+    ).all() as any[];
+
+    return {
+      total,
+      withLocation,
+      withoutLocation: total - withLocation,
+      duplicates,
+      cameras,
+    };
+  }
+
+  findDuplicatesByHash(hash: string): any[] {
+    const stmt = this.db.prepare('SELECT * FROM photos WHERE file_hash = ?');
+    return stmt.all(hash) as any[];
+  }
+
+  findDuplicatesByPHash(phash: string): any[] {
+    const stmt = this.db.prepare('SELECT * FROM photos WHERE perceptual_hash = ?');
+    return stmt.all(phash) as any[];
+  }
+
+  insertDuplicateGroup(group: any): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO duplicate_groups (id, reason, recommended_photo_id) VALUES (?, ?, ?)
+    `);
+    stmt.run(group.id, group.reason, group.recommendedPhotoId);
+  }
+
+  insertPhotoDuplicate(photoId: string, groupId: string): void {
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO photo_duplicates (photo_id, group_id) VALUES (?, ?)
+    `);
+    stmt.run(photoId, groupId);
+  }
+
+  getDuplicateGroups(): any[] {
+    const groups = this.db.prepare(`
+      SELECT dg.*, 
+        json_group_array(
+          json_object(
+            'id', p.id,
+            'path', p.path,
+            'filename', p.filename,
+            'file_size', p.file_size,
+            'taken_at', p.taken_at,
+            'latitude', p.latitude,
+            'longitude', p.longitude,
+            'width', p.width,
+            'height', p.height,
+            'camera', p.camera
+          )
+        ) as photos
+      FROM duplicate_groups dg
+      JOIN photo_duplicates pd ON dg.id = pd.group_id
+      JOIN photos p ON pd.photo_id = p.id
+      GROUP BY dg.id
+    `).all() as any[];
+
+    return groups.map(g => ({
+      ...g,
+      photos: JSON.parse(g.photos),
+    }));
+  }
+
+  deletePhoto(id: string): void {
+    const stmt = this.db.prepare('DELETE FROM photos WHERE id = ?');
+    stmt.run(id);
+  }
+
+  updatePhotoLocation(id: string, lat: number, lng: number): void {
+    const stmt = this.db.prepare(`
+      UPDATE photos SET latitude = ?, longitude = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+    `);
+    stmt.run(lat, lng, id);
+  }
+
+  getAllPhotoPaths(): { id: string; path: string }[] {
+    const stmt = this.db.prepare('SELECT id, path FROM photos');
+    return stmt.all() as { id: string; path: string }[];
+  }
+}
