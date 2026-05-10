@@ -314,9 +314,10 @@ export function BrowsePage() {
         </div>
       </div>
 
-      <div className="w-48 border-l border-zinc-800 p-4 overflow-auto hidden lg:block">
-        <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">时间线</h3>
-        <div className="space-y-1">
+      <div className="w-48 border-l border-zinc-800 hidden lg:block flex-shrink-0">
+        <div className="sticky top-0 h-screen p-4 overflow-auto">
+          <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">时间线</h3>
+          <div className="space-y-1">
           {groupedPhotos.map((group, index) => (
             <button
               key={group.key}
@@ -334,6 +335,7 @@ export function BrowsePage() {
               </div>
             </button>
           ))}
+        </div>
         </div>
       </div>
 
