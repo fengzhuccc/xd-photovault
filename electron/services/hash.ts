@@ -8,7 +8,7 @@ export class HashService {
   }
 
   async calculatePartialHash(filePath: string): Promise<string> {
-    const buffer = await readFile(filePath, { start: 0, end: 1023 });
+    const buffer = await readFile(filePath, { start: 0, end: 1023 } as any);
     return createHash('md5').update(buffer).digest('hex');
   }
 

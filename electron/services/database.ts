@@ -3,21 +3,38 @@ import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 
 export class DatabaseService {
-  private db: Database.Database;
+  private db!: Database.Database;
   private dbPath: string;
 
   constructor(userDataPath: string) {
+    console.log('DatabaseService constructor - userDataPath:', userDataPath);
     const dataDir = join(userDataPath, 'data');
-    if (!existsSync(dataDir)) {
-      mkdirSync(dataDir, { recursive: true });
+    console.log('DatabaseService constructor - dataDir:', dataDir);
+    
+    try {
+      if (!existsSync(dataDir)) {
+        mkdirSync(dataDir, { recursive: true });
+        console.log('DatabaseService - Created data directory');
+      }
+    } catch (error) {
+      console.error('DatabaseService - Failed to create data directory:', error);
     }
+    
     this.dbPath = join(dataDir, 'photovault.db');
+    console.log('DatabaseService constructor - dbPath:', this.dbPath);
   }
 
   async initialize(): Promise<void> {
-    this.db = new Database(this.dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.createTables();
+    console.log('DatabaseService initialize - Opening database at:', this.dbPath);
+    try {
+      this.db = new Database(this.dbPath);
+      this.db.pragma('journal_mode = WAL');
+      this.createTables();
+      console.log('DatabaseService - Database initialized successfully');
+    } catch (error) {
+      console.error('DatabaseService - Failed to initialize database:', error);
+      throw error;
+    }
   }
 
   private createTables(): void {

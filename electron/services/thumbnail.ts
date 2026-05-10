@@ -16,7 +16,7 @@ export class ThumbnailService {
     const thumbnailPath = join(this.thumbnailDir, `${photoId}.webp`);
 
     if (existsSync(thumbnailPath)) {
-      return thumbnailPath;
+      return `file:///${thumbnailPath.replace(/\\/g, '/')}`;
     }
 
     try {
@@ -28,10 +28,10 @@ export class ThumbnailService {
         .webp({ quality: 80 })
         .toFile(thumbnailPath);
 
-      return thumbnailPath;
+      return `file:///${thumbnailPath.replace(/\\/g, '/')}`;
     } catch (error) {
       console.error(`Failed to generate thumbnail for ${photoPath}:`, error);
-      return photoPath;
+      return `file:///${photoPath.replace(/\\/g, '/')}`;
     }
   }
 

@@ -12,6 +12,7 @@ export function BrowsePage() {
   const [photoDetail, setPhotoDetail] = useState<PhotoDetail | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [thumbnails, setThumbnails] = useState<Map<string, string>>(new Map());
+  const [originalImages, setOriginalImages] = useState<Map<string, string>>(new Map());
   const [editingDate, setEditingDate] = useState(false);
   const [editingLocation, setEditingLocation] = useState(false);
   const [editDateValue, setEditDateValue] = useState('');
@@ -26,16 +27,20 @@ export function BrowsePage() {
 
   useEffect(() => {
     const loadThumbnails = async () => {
-      const map = new Map<string, string>();
+      const thumbMap = new Map<string, string>();
+      const origMap = new Map<string, string>();
       for (const photo of photos.slice(0, 100)) {
         try {
           const thumb = await window.api.thumbnail.get(photo.id, photo.path);
-          map.set(photo.id, thumb);
+          thumbMap.set(photo.id, thumb);
+          origMap.set(photo.id, `file:///${photo.path.replace(/\\/g, '/')}`);
         } catch {
-          map.set(photo.id, `https://picsum.photos/seed/${photo.image_seed || photo.id}/400/400`);
+          thumbMap.set(photo.id, `https://picsum.photos/seed/${photo.image_seed || photo.id}/400/400`);
+          origMap.set(photo.id, `https://picsum.photos/seed/${photo.image_seed || photo.id}/1200/800`);
         }
       }
-      setThumbnails(map);
+      setThumbnails(thumbMap);
+      setOriginalImages(origMap);
     };
     if (photos.length > 0) {
       loadThumbnails();
@@ -338,22 +343,22 @@ export function BrowsePage() {
             </>
           )}
 
-          <div className="flex h-full w-full max-w-6xl">
-            <div className="flex-1 flex items-center justify-center p-8">
+          <div className="flex h-full w-full">
+            <div className="flex-1 flex items-center justify-center p-4">
               <img
-                src={thumbnails.get(selectedPhoto.id) || `https://picsum.photos/seed/${selectedPhoto.image_seed || selectedPhoto.id}/1200/800`}
+                src={originalImages.get(selectedPhoto.id) || `file:///${selectedPhoto.path.replace(/\\/g, '/')}`}
                 alt={selectedPhoto.filename}
                 className="max-w-full max-h-full object-contain"
               />
             </div>
             
-            <div className="w-80 bg-zinc-900 border-l border-zinc-800 p-6 overflow-auto">
-              <h3 className="text-lg font-medium text-zinc-100 mb-4 truncate">{selectedPhoto.filename}</h3>
+            <div className="w-64 bg-zinc-900/95 border-l border-zinc-800 p-4 overflow-auto">
+              <h3 className="text-base font-medium text-zinc-100 mb-3 truncate">{selectedPhoto.filename}</h3>
               
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div>
                   <label className="text-xs text-zinc-500 uppercase tracking-wider">文件信息</label>
-                  <div className="mt-2 space-y-2 text-sm">
+                  <div className="mt-1.5 space-y-1 text-sm">
                     <div className="flex justify-between">
                       <span className="text-zinc-400">大小</span>
                       <span className="text-zinc-200">{formatFileSize(selectedPhoto.file_size)}</span>
@@ -381,29 +386,29 @@ export function BrowsePage() {
                       <Pencil size={12} />
                     </button>
                   </label>
-                  <div className="mt-2 space-y-2 text-sm">
+                  <div className="mt-1.5 space-y-1 text-sm">
                     {editingDate ? (
-                      <div className="space-y-2">
+                      <div className="space-y-1.5">
                         <div className="flex items-center gap-2">
                           <Calendar size={14} className="text-zinc-500" />
                           <input
                             type="datetime-local"
                             value={editDateValue}
                             onChange={(e) => setEditDateValue(e.target.value)}
-                            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-zinc-200 text-sm"
+                            className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 text-sm"
                           />
                         </div>
                         <div className="flex gap-2">
                           <button
                             onClick={() => setEditingDate(false)}
-                            className="flex-1 px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-400 text-sm hover:bg-zinc-700 transition-colors"
+                            className="flex-1 px-2 py-1 rounded bg-zinc-800 text-zinc-400 text-sm hover:bg-zinc-700 transition-colors"
                           >
                             取消
                           </button>
                           <button
                             onClick={handleSaveDate}
                             disabled={isSaving}
-                            className="flex-1 px-3 py-1.5 rounded-lg bg-amber-500 text-zinc-900 text-sm font-medium hover:bg-amber-400 transition-colors disabled:opacity-50"
+                            className="flex-1 px-2 py-1 rounded bg-amber-500 text-zinc-900 text-sm font-medium hover:bg-amber-400 transition-colors disabled:opacity-50"
                           >
                             {isSaving ? '保存中...' : '保存'}
                           </button>
@@ -462,10 +467,10 @@ export function BrowsePage() {
                       <Pencil size={12} />
                     </button>
                   </label>
-                  <div className="mt-2">
+                  <div className="mt-1.5">
                     {editingLocation ? (
-                      <div className="space-y-2">
-                        <div className="space-y-2">
+                      <div className="space-y-1.5">
+                        <div className="space-y-1.5">
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-zinc-500 w-8">纬度</span>
                             <input
@@ -476,7 +481,7 @@ export function BrowsePage() {
                               min="-90"
                               max="90"
                               step="0.0001"
-                              className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-zinc-200 text-sm"
+                              className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 text-sm"
                             />
                           </div>
                           <div className="flex items-center gap-2">
@@ -489,28 +494,28 @@ export function BrowsePage() {
                               min="-180"
                               max="180"
                               step="0.0001"
-                              className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-zinc-200 text-sm"
+                              className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 text-sm"
                             />
                           </div>
                         </div>
                         <div className="flex gap-2">
                           <button
                             onClick={() => setEditingLocation(false)}
-                            className="flex-1 px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-400 text-sm hover:bg-zinc-700 transition-colors"
+                            className="flex-1 px-2 py-1 rounded bg-zinc-800 text-zinc-400 text-sm hover:bg-zinc-700 transition-colors"
                           >
                             取消
                           </button>
                           <button
                             onClick={handleSaveLocation}
                             disabled={isSaving}
-                            className="flex-1 px-3 py-1.5 rounded-lg bg-amber-500 text-zinc-900 text-sm font-medium hover:bg-amber-400 transition-colors disabled:opacity-50"
+                            className="flex-1 px-2 py-1 rounded bg-amber-500 text-zinc-900 text-sm font-medium hover:bg-amber-400 transition-colors disabled:opacity-50"
                           >
                             {isSaving ? '保存中...' : '保存'}
                           </button>
                         </div>
                       </div>
                     ) : selectedPhoto.latitude && selectedPhoto.longitude ? (
-                      <div className="space-y-2">
+                      <div className="space-y-1">
                         <div className="flex items-center gap-2 text-sm text-zinc-200">
                           <MapPin size={14} className="text-green-500" />
                           <span>
@@ -526,11 +531,11 @@ export function BrowsePage() {
                         </button>
                       </div>
                     ) : (
-                      <div className="p-3 bg-zinc-800 rounded-lg text-center">
+                      <div className="p-2 bg-zinc-800 rounded text-center">
                         <p className="text-xs text-zinc-500">此照片没有GPS信息</p>
                         <button
                           onClick={() => setEditingLocation(true)}
-                          className="mt-2 text-xs text-amber-500 hover:text-amber-400 transition-colors"
+                          className="mt-1 text-xs text-amber-500 hover:text-amber-400 transition-colors"
                         >
                           点击添加位置
                         </button>

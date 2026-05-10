@@ -8,6 +8,9 @@ export default defineConfig({
   build: {
     sourcemap: 'hidden',
     outDir: 'dist',
+    rollupOptions: {
+      external: ['better-sqlite3', 'sharp', 'exifr'],
+    },
   },
   plugins: [
     react({

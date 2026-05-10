@@ -1,4 +1,4 @@
-import { exifr } from 'exifr';
+import Exifr from 'exifr';
 
 export interface ExifData {
   takenAt: Date | null;
@@ -16,7 +16,7 @@ export interface ExifData {
 export class ExifService {
   async extractExif(filePath: string): Promise<ExifData> {
     try {
-      const exif = await exifr.parse(filePath, {
+      const exif = await Exifr.parse(filePath, {
         pick: [
           'DateTimeOriginal',
           'CreateDate',

@@ -1,14 +1,10 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import { DatabaseService } from './services/database.js';
-import { ScannerService } from './services/scanner.js';
-import { HashService } from './services/hash.js';
-import { ExifService } from './services/exif.js';
-import { ThumbnailService } from './services/thumbnail.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { join } from 'path';
+import { DatabaseService } from './services/database';
+import { ScannerService } from './services/scanner';
+import { HashService } from './services/hash';
+import { ExifService } from './services/exif';
+import { ThumbnailService } from './services/thumbnail';
 
 let mainWindow: BrowserWindow | null = null;
 let db: DatabaseService;
@@ -32,6 +28,7 @@ function createWindow() {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      webSecurity: false,
     },
     show: false,
   });
@@ -55,13 +52,20 @@ function createWindow() {
 
 async function initializeServices() {
   const userDataPath = app.getPath('userData');
+  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
   
-  db = new DatabaseService(userDataPath);
+  const dbPath = isDev 
+    ? join(__dirname, '..', 'data')
+    : join(userDataPath, 'data');
+  
+  console.log('Using database path:', dbPath);
+  
+  db = new DatabaseService(dbPath);
   await db.initialize();
   
   hashService = new HashService();
   exifService = new ExifService();
-  thumbnailService = new ThumbnailService(userDataPath);
+  thumbnailService = new ThumbnailService(dbPath);
   
   scanner = new ScannerService(db, hashService, exifService, thumbnailService);
   

@@ -1,11 +1,10 @@
 import { readdir, stat } from 'fs/promises';
 import { join, extname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import trash from 'trash';
-import { DatabaseService } from './database.js';
-import { HashService } from './hash.js';
-import { ExifService } from './exif.js';
-import { ThumbnailService } from './thumbnail.js';
+import { DatabaseService } from './database';
+import { HashService } from './hash';
+import { ExifService } from './exif';
+import { ThumbnailService } from './thumbnail';
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.raw', '.cr2', '.nef', '.arw'];
 
@@ -192,6 +191,7 @@ export class ScannerService {
   }
 
   async deletePhotos(photoIds: string[]): Promise<void> {
+    const trash = (await import('trash')).default;
     for (const id of photoIds) {
       const photo = this.db.getPhotoById(id);
       if (photo) {

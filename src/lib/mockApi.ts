@@ -242,5 +242,3 @@ declare global {
     api: typeof import('../../electron/preload').api;
   }
 }
-
-export { mockApi };
