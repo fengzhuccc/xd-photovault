@@ -212,6 +212,13 @@ export function DuplicatesPage() {
               
               <div className="space-y-3">
                 <div>
+                  <label className="text-xs text-zinc-500 uppercase tracking-wider">文件路径</label>
+                  <div className="mt-1.5 p-2 bg-zinc-800 rounded text-xs text-zinc-300 break-all">
+                    {selectedPhoto.path}
+                  </div>
+                </div>
+
+                <div>
                   <label className="text-xs text-zinc-500 uppercase tracking-wider">文件信息</label>
                   <div className="mt-1.5 space-y-1 text-sm">
                     <div className="flex justify-between">
@@ -344,7 +351,10 @@ function DuplicateCard({ group, isSelected, onToggle, thumbnails, formatDate, fo
                 )}
               </div>
               <div className="p-2 bg-zinc-800">
-                <p className="text-xs text-zinc-300 truncate">{photo.filename}</p>
+                <p className="text-xs text-zinc-300 truncate" title={photo.path}>{photo.filename}</p>
+                <p className="text-xs text-zinc-500 truncate mt-0.5" title={photo.path}>
+                  {photo.path.split(/[\\/]/).slice(-2, -1)[0] || ''}
+                </p>
                 <div className="mt-1 flex items-center gap-2 text-xs text-zinc-500">
                   <span className="flex items-center gap-1">
                     <HardDrive size={10} />
