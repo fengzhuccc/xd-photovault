@@ -3,6 +3,13 @@ import { contextBridge, ipcRenderer } from 'electron';
 export const api = {
   dialog: {
     openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
+    openDataFolder: () => ipcRenderer.invoke('dialog:openDataFolder'),
+  },
+  
+  config: {
+    get: () => ipcRenderer.invoke('config:get'),
+    setDataPath: (path: string | null) => ipcRenderer.invoke('config:setDataPath', path),
+    getDataPath: () => ipcRenderer.invoke('config:getDataPath'),
   },
   
   folder: {
@@ -101,6 +108,7 @@ export interface PhotoStats {
   withLocation: number;
   withoutLocation: number;
   duplicates: number;
+  folders: number;
   cameras: { camera: string; count: number }[];
 }
 

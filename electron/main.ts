@@ -5,8 +5,10 @@ import { ScannerService } from './services/scanner';
 import { HashService } from './services/hash';
 import { ExifService } from './services/exif';
 import { ThumbnailService } from './services/thumbnail';
+import { ConfigService } from './services/config';
 
 let mainWindow: BrowserWindow | null = null;
+let configService: ConfigService;
 let db: DatabaseService;
 let scanner: ScannerService;
 let hashService: HashService;
@@ -17,15 +19,13 @@ const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 function createWindow() {
   Menu.setApplicationMenu(null);
-  
-  mainWindow = new BrowserWindow({
+
+  const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1400,
     height: 900,
     minWidth: 1280,
     minHeight: 720,
     backgroundColor: '#1a1a1a',
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 16 },
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -33,7 +33,15 @@ function createWindow() {
       webSecurity: false,
     },
     show: false,
-  });
+  };
+
+  // macOS 专属标题栏样式
+  if (process.platform === 'darwin') {
+    windowOptions.titleBarStyle = 'hiddenInset';
+    windowOptions.trafficLightPosition = { x: 16, y: 16 };
+  }
+
+  mainWindow = new BrowserWindow(windowOptions);
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
@@ -53,21 +61,17 @@ function createWindow() {
 }
 
 async function initializeServices() {
-  const userDataPath = app.getPath('userData');
-  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+  configService = new ConfigService();
   
-  const dbPath = isDev 
-    ? join(__dirname, '..', 'data')
-    : join(userDataPath, 'data');
+  const dataPath = configService.getDataPath();
+  console.log('Using data path:', dataPath);
   
-  console.log('Using database path:', dbPath);
-  
-  db = new DatabaseService(dbPath);
+  db = new DatabaseService(dataPath);
   await db.initialize();
   
   hashService = new HashService();
   exifService = new ExifService();
-  thumbnailService = new ThumbnailService(dbPath);
+  thumbnailService = new ThumbnailService(dataPath);
   
   scanner = new ScannerService(db, hashService, exifService, thumbnailService);
   
@@ -81,6 +85,28 @@ function setupIpcHandlers() {
       title: '选择照片文件夹',
     });
     return result.filePaths[0] || null;
+  });
+
+  ipcMain.handle('dialog:openDataFolder', async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      properties: ['openDirectory'],
+      title: '选择数据存储位置',
+      buttonLabel: '选择文件夹',
+    });
+    return result.filePaths[0] || null;
+  });
+
+  ipcMain.handle('config:get', async () => {
+    return configService.getConfig();
+  });
+
+  ipcMain.handle('config:setDataPath', async (_event, path: string | null) => {
+    configService.setDataPath(path);
+    return { success: true, requiresRestart: true };
+  });
+
+  ipcMain.handle('config:getDataPath', async () => {
+    return configService.getDataPath();
   });
 
   ipcMain.handle('folder:add', async (_event, path: string) => {
@@ -135,7 +161,11 @@ function setupIpcHandlers() {
 }
 
 app.whenReady().then(async () => {
-  await initializeServices();
+  try {
+    await initializeServices();
+  } catch (err) {
+    console.error('Failed to initialize services:', err);
+  }
   createWindow();
 
   app.on('activate', () => {

@@ -60,5 +60,6 @@ export interface PhotoStats {
   withLocation: number;
   withoutLocation: number;
   duplicates: number;
+  folders: number;
   cameras: { camera: string; count: number }[];
 }

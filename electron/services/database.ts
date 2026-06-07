@@ -222,6 +222,9 @@ export class DatabaseService {
     const duplicates = (this.db.prepare(
       'SELECT COUNT(*) as count FROM photo_duplicates'
     ).get() as any).count;
+    const folders = (this.db.prepare(
+      'SELECT COUNT(*) as count FROM folders'
+    ).get() as any).count;
     const cameras = this.db.prepare(
       'SELECT camera, COUNT(*) as count FROM photos WHERE camera IS NOT NULL GROUP BY camera ORDER BY count DESC LIMIT 10'
     ).all() as any[];
@@ -231,6 +234,7 @@ export class DatabaseService {
       withLocation,
       withoutLocation: total - withLocation,
       duplicates,
+      folders,
       cameras,
     };
   }

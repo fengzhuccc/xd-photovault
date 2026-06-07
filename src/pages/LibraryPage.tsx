@@ -33,7 +33,7 @@ export function LibraryPage() {
         loadStats();
       }
     });
-    return unsubscribe;
+    return () => { unsubscribe(); };
   }, [setScanProgress, setIsScanning, loadFolders, loadStats]);
 
   const handleAddFolder = async () => {
