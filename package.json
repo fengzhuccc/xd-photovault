@@ -79,10 +79,23 @@
     "win": {
       "target": [
         {
-          "target": "dir",
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
           "arch": ["x64"]
         }
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerLanguages": ["zh-CN"],
+      "language": 2052
+    },
+    "portable": {
+      "artifactName": "PhotoVault-Portable-${version}.exe"
     }
   }
 }
