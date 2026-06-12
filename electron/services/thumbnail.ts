@@ -1,6 +1,7 @@
 import { join } from 'path';
 import { existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
 import sharp from 'sharp';
+import log from 'electron-log';
 
 const THUMBNAIL_SIZE = 512;
 const THUMBNAIL_QUALITY = 90;
@@ -33,7 +34,7 @@ export class ThumbnailService {
 
       return `file:///${thumbnailPath.replace(/\\/g, '/')}`;
     } catch (error) {
-      console.error(`Failed to generate thumbnail for ${photoPath}:`, error);
+      log.warn(`[Thumbnail] 生成缩略图失败: ${photoPath}`, error);
       return `file:///${photoPath.replace(/\\/g, '/')}`;
     }
   }
@@ -45,5 +46,6 @@ export class ThumbnailService {
         unlinkSync(join(this.thumbnailDir, file));
       }
     }
+    log.info('[Thumbnail] 缩略图缓存已清除');
   }
 }

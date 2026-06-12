@@ -22,6 +22,7 @@
   "dependencies": {
     "better-sqlite3": "^11.7.0",
     "clsx": "^2.1.1",
+    "electron-log": "^5.4.4",
     "exifr": "^7.1.3",
     "lucide-react": "^0.511.0",
     "react": "^18.3.1",
@@ -80,18 +81,24 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installerLanguages": ["zh-CN"],
+      "installerLanguages": [
+        "zh-CN"
+      ],
       "language": 2052
     },
     "portable": {

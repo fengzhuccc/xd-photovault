@@ -18,6 +18,7 @@ export function LibraryPage() {
   } = useAppStore();
 
   const [isAddingFolder, setIsAddingFolder] = useState(false);
+  const [scanResult, setScanResult] = useState<ScanProgress | null>(null);
 
   useEffect(() => {
     loadFolders();
@@ -29,6 +30,7 @@ export function LibraryPage() {
       setScanProgress(progress);
       if (progress.status === 'complete') {
         setIsScanning(false);
+        setScanResult(progress);
         loadFolders();
         loadStats();
       }
@@ -59,8 +61,18 @@ export function LibraryPage() {
 
   const handleScan = async (folderId: string) => {
     setIsScanning(true);
+    setScanResult(null);
     setScanProgress({ current: 0, total: 0, currentFile: '', status: 'scanning' });
-    await window.api.scan.start(folderId);
+    try {
+      await window.api.scan.start(folderId);
+    } catch (error) {
+      console.error('Scan failed:', error);
+      setScanProgress({ current: 0, total: 0, currentFile: '', status: 'idle' });
+    } finally {
+      setIsScanning(false);
+      loadFolders();
+      loadStats();
+    }
   };
 
   const handleRemoveFolder = async (id: string) => {
@@ -113,17 +125,53 @@ export function LibraryPage() {
         <div className="mb-6 p-4 bg-zinc-900 rounded-xl border border-zinc-800">
           <div className="flex items-center gap-3 mb-3">
             <RefreshCw size={18} className="text-amber-500 animate-spin" />
-            <span className="text-sm text-zinc-300">正在扫描...</span>
+            <span className="text-sm text-zinc-300">
+              {scanProgress.status === 'hashing' ? '正在检测重复照片...' : '正在扫描...'}
+            </span>
           </div>
           <div className="w-full bg-zinc-800 rounded-full h-2 mb-2">
             <div
               className="bg-amber-500 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${(scanProgress.current / scanProgress.total) * 100}%` }}
+              style={{ width: `${scanProgress.total > 0 ? (scanProgress.current / scanProgress.total) * 100 : 0}%` }}
             />
           </div>
           <div className="flex justify-between text-xs text-zinc-500">
             <span>{scanProgress.currentFile}</span>
             <span>{scanProgress.current} / {scanProgress.total}</span>
+          </div>
+        </div>
+      )}
+
+      {scanResult && scanResult.status === 'complete' && (
+        <div className="mb-6 p-4 bg-zinc-900 rounded-xl border border-zinc-800">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-green-400 text-lg">✓</span>
+              <span className="text-sm text-zinc-300">扫描完成</span>
+            </div>
+            <button
+              onClick={() => setScanResult(null)}
+              className="text-zinc-500 hover:text-zinc-300 text-xs"
+            >
+              关闭
+            </button>
+          </div>
+          <div className="flex gap-4 mt-2 text-xs text-zinc-400">
+            {scanResult.newCount !== undefined && scanResult.newCount > 0 && (
+              <span className="text-green-400">新增 {scanResult.newCount} 张</span>
+            )}
+            {scanResult.skipped !== undefined && scanResult.skipped > 0 && (
+              <span>跳过 {scanResult.skipped} 张</span>
+            )}
+            {scanResult.duplicates !== undefined && scanResult.duplicates > 0 && (
+              <span className="text-amber-400">重复 {scanResult.duplicates} 组</span>
+            )}
+            {scanResult.deletedCount !== undefined && scanResult.deletedCount > 0 && (
+              <span className="text-red-400">删除 {scanResult.deletedCount} 张</span>
+            )}
+            {scanResult.newCount === 0 && scanResult.skipped === scanResult.total && (
+              <span>未发现新照片</span>
+            )}
           </div>
         </div>
       )}

@@ -1,38 +1,39 @@
 import Database from 'better-sqlite3';
 import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
+import log from 'electron-log';
 
 export class DatabaseService {
   private db!: Database.Database;
   private dbPath: string;
 
   constructor(userDataPath: string) {
-    console.log('DatabaseService constructor - userDataPath:', userDataPath);
+    log.info('DatabaseService constructor - userDataPath:', userDataPath);
     const dataDir = join(userDataPath, 'data');
-    console.log('DatabaseService constructor - dataDir:', dataDir);
+    log.info('DatabaseService constructor - dataDir:', dataDir);
     
     try {
       if (!existsSync(dataDir)) {
         mkdirSync(dataDir, { recursive: true });
-        console.log('DatabaseService - Created data directory');
+        log.info('DatabaseService - Created data directory');
       }
     } catch (error) {
-      console.error('DatabaseService - Failed to create data directory:', error);
+      log.error('DatabaseService - Failed to create data directory:', error);
     }
     
     this.dbPath = join(dataDir, 'photovault.db');
-    console.log('DatabaseService constructor - dbPath:', this.dbPath);
+    log.info('DatabaseService constructor - dbPath:', this.dbPath);
   }
 
   async initialize(): Promise<void> {
-    console.log('DatabaseService initialize - Opening database at:', this.dbPath);
+    log.info('DatabaseService initialize - Opening database at:', this.dbPath);
     try {
       this.db = new Database(this.dbPath);
       this.db.pragma('journal_mode = WAL');
       this.createTables();
-      console.log('DatabaseService - Database initialized successfully');
+      log.info('DatabaseService - Database initialized successfully');
     } catch (error) {
-      console.error('DatabaseService - Failed to initialize database:', error);
+      log.error('DatabaseService - Failed to initialize database:', error);
       throw error;
     }
   }
@@ -307,5 +308,35 @@ export class DatabaseService {
   getAllPhotoPaths(): { id: string; path: string }[] {
     const stmt = this.db.prepare('SELECT id, path FROM photos');
     return stmt.all() as { id: string; path: string }[];
+  }
+
+  getPhotosByFolder(folderId: string): any[] {
+    const stmt = this.db.prepare('SELECT * FROM photos WHERE folder_id = ?');
+    return stmt.all(folderId) as any[];
+  }
+
+  getPhotoByPath(path: string): any | null {
+    const stmt = this.db.prepare('SELECT * FROM photos WHERE path = ?');
+    return stmt.get(path) as any | null;
+  }
+
+  clearDuplicateGroups(): void {
+    this.db.prepare('DELETE FROM photo_duplicates').run();
+    this.db.prepare('DELETE FROM duplicate_groups').run();
+  }
+
+  updatePhotoThumbnail(id: string, thumbnailPath: string): void {
+    const stmt = this.db.prepare('UPDATE photos SET thumbnail_path = ? WHERE id = ?');
+    stmt.run(thumbnailPath, id);
+  }
+
+  clearAllData(): void {
+    const transaction = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM photo_duplicates').run();
+      this.db.prepare('DELETE FROM duplicate_groups').run();
+      this.db.prepare('DELETE FROM photos').run();
+      this.db.prepare('DELETE FROM folders').run();
+    });
+    transaction();
   }
 }

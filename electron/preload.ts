@@ -4,12 +4,15 @@ export const api = {
   dialog: {
     openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
     openDataFolder: () => ipcRenderer.invoke('dialog:openDataFolder'),
+    openLogFolder: () => ipcRenderer.invoke('dialog:openLogFolder'),
   },
   
   config: {
     get: () => ipcRenderer.invoke('config:get'),
     setDataPath: (path: string | null) => ipcRenderer.invoke('config:setDataPath', path),
     getDataPath: () => ipcRenderer.invoke('config:getDataPath'),
+    setLogPath: (path: string | null) => ipcRenderer.invoke('config:setLogPath', path),
+    getLogPath: () => ipcRenderer.invoke('config:getLogPath'),
   },
   
   folder: {
@@ -20,6 +23,7 @@ export const api = {
   
   scan: {
     start: (folderId: string) => ipcRenderer.invoke('scan:start', folderId),
+    isScanning: () => ipcRenderer.invoke('scan:isScanning'),
     onProgress: (callback: (progress: ScanProgress) => void) => {
       const listener = (_event: unknown, progress: ScanProgress) => callback(progress);
       ipcRenderer.on('scan:progress', listener);
@@ -45,6 +49,17 @@ export const api = {
       ipcRenderer.invoke('thumbnail:get', photoId, photoPath),
     clear: () => ipcRenderer.invoke('thumbnail:clear'),
   },
+
+  database: {
+    clear: () => ipcRenderer.invoke('database:clear'),
+  },
+
+  log: {
+    getPath: () => ipcRenderer.invoke('log:getPath'),
+    read: (lines?: number) => ipcRenderer.invoke('log:read', lines),
+    clear: () => ipcRenderer.invoke('log:clear'),
+    openFolder: () => ipcRenderer.invoke('log:openFolder'),
+  },
 };
 
 export interface ScanProgress {
@@ -52,6 +67,10 @@ export interface ScanProgress {
   total: number;
   currentFile: string;
   status: 'scanning' | 'hashing' | 'complete' | 'idle';
+  newCount?: number;
+  skipped?: number;
+  duplicates?: number;
+  deletedCount?: number;
 }
 
 export interface PhotoFilter {

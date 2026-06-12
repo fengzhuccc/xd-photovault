@@ -1,13 +1,16 @@
 import { join } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { app } from 'electron';
+import log from 'electron-log';
 
 export interface AppConfig {
   dataPath: string | null;
+  logPath: string | null;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
   dataPath: null,
+  logPath: null,
 };
 
 export class ConfigService {
@@ -27,7 +30,7 @@ export class ConfigService {
         return { ...DEFAULT_CONFIG, ...JSON.parse(content) };
       }
     } catch (error) {
-      console.error('Failed to load config:', error);
+      log.error('Failed to load config:', error);
     }
     return { ...DEFAULT_CONFIG };
   }
@@ -36,7 +39,7 @@ export class ConfigService {
     try {
       writeFileSync(this.configPath, JSON.stringify(this.config, null, 2), 'utf-8');
     } catch (error) {
-      console.error('Failed to save config:', error);
+      log.error('Failed to save config:', error);
     }
   }
 
@@ -67,6 +70,18 @@ export class ConfigService {
 
   setDataPath(path: string | null): void {
     this.config.dataPath = path;
+    this.saveConfig();
+  }
+
+  getLogPath(): string | null {
+    return this.config.logPath;
+  }
+
+  setLogPath(path: string | null): void {
+    this.config.logPath = path;
+    if (path && !existsSync(path)) {
+      mkdirSync(path, { recursive: true });
+    }
     this.saveConfig();
   }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Database, Trash2, FolderOpen, Info, RefreshCw } from 'lucide-react';
+import { Database, Trash2, FolderOpen, Info, RefreshCw, FileText, Eye, ExternalLink } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { cn } from '@/lib/utils';
 
@@ -10,8 +10,16 @@ export function SettingsPage() {
   const [customPath, setCustomPath] = useState<string | null>(null);
   const [isChanging, setIsChanging] = useState(false);
 
+  // 日志相关状态
+  const [logPath, setLogPath] = useState<string>('');
+  const [customLogPath, setCustomLogPath] = useState<string | null>(null);
+  const [logContent, setLogContent] = useState<string>('');
+  const [showLog, setShowLog] = useState(false);
+  const [isLogLoading, setIsLogLoading] = useState(false);
+
   useEffect(() => {
     loadDataPath();
+    loadLogPath();
     loadStats();
   }, []);
 
@@ -20,6 +28,13 @@ export function SettingsPage() {
     setDataPath(path);
     const config = await window.api.config.get();
     setCustomPath(config.dataPath);
+  };
+
+  const loadLogPath = async () => {
+    const path = await window.api.config.getLogPath();
+    setLogPath(path);
+    const config = await window.api.config.get();
+    setCustomLogPath(config.logPath);
   };
 
   const handleClearThumbnails = async () => {
@@ -34,6 +49,27 @@ export function SettingsPage() {
       alert('清除失败：' + error);
     } finally {
       setIsClearing(false);
+    }
+  };
+
+  const handleClearDatabase = async () => {
+    if (!confirm('确定要清除所有数据吗？\n\n这将删除所有照片记录、文件夹和重复检测结果。\n此操作不可恢复！')) {
+      return;
+    }
+    if (!confirm('再次确认：这将删除数据库中的所有记录，需要重新扫描文件夹。\n\n确定继续吗？')) {
+      return;
+    }
+    try {
+      const result = await window.api.database.clear();
+      if (result.success) {
+        await window.api.thumbnail.clear();
+        alert('数据库已清除，请重新添加文件夹并扫描。');
+        loadStats();
+      } else {
+        alert('清除失败：' + (result.error || '未知错误'));
+      }
+    } catch (error) {
+      alert('清除失败：' + error);
     }
   };
 
@@ -73,6 +109,80 @@ export function SettingsPage() {
     } finally {
       setIsChanging(false);
     }
+  };
+
+  const handleSelectLogFolder = async () => {
+    const path = await window.api.dialog.openLogFolder();
+    if (path) {
+      setCustomLogPath(path);
+    }
+  };
+
+  const handleSaveLogPath = async () => {
+    try {
+      await window.api.config.setLogPath(customLogPath);
+      const newPath = await window.api.config.getLogPath();
+      setLogPath(newPath);
+      alert('日志路径已更新');
+    } catch (error) {
+      alert('保存失败：' + error);
+    }
+  };
+
+  const handleResetLogPath = async () => {
+    setCustomLogPath(null);
+    try {
+      await window.api.config.setLogPath(null);
+      const newPath = await window.api.config.getLogPath();
+      setLogPath(newPath);
+      alert('已恢复默认日志路径');
+    } catch (error) {
+      alert('保存失败：' + error);
+    }
+  };
+
+  const handleViewLog = async () => {
+    setShowLog(!showLog);
+    if (!showLog) {
+      setIsLogLoading(true);
+      try {
+        const content = await window.api.log.read(500);
+        setLogContent(content);
+      } catch (error) {
+        setLogContent('读取日志失败：' + error);
+      } finally {
+        setIsLogLoading(false);
+      }
+    }
+  };
+
+  const handleRefreshLog = async () => {
+    setIsLogLoading(true);
+    try {
+      const content = await window.api.log.read(500);
+      setLogContent(content);
+    } catch (error) {
+      setLogContent('读取日志失败：' + error);
+    } finally {
+      setIsLogLoading(false);
+    }
+  };
+
+  const handleClearLog = async () => {
+    if (!confirm('确定要清除所有日志吗？')) {
+      return;
+    }
+    try {
+      await window.api.log.clear();
+      setLogContent('');
+      alert('日志已清除');
+    } catch (error) {
+      alert('清除失败：' + error);
+    }
+  };
+
+  const handleOpenLogFolder = async () => {
+    await window.api.log.openFolder();
   };
 
   return (
@@ -152,6 +262,128 @@ export function SettingsPage() {
             </div>
           </div>
 
+          {/* 日志设置 */}
+          <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-purple-500/10 rounded-lg">
+                <FileText size={20} className="text-purple-500" />
+              </div>
+              <div>
+                <h2 className="text-lg font-medium text-zinc-100">日志设置</h2>
+                <p className="text-sm text-zinc-400">配置日志存储位置和查看日志</p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="p-4 bg-zinc-800 rounded-lg">
+                <p className="text-xs text-zinc-500 mb-1">当前日志路径</p>
+                <p className="text-sm text-zinc-200 break-all">{logPath}</p>
+              </div>
+
+              <div className="p-4 bg-zinc-800 rounded-lg">
+                <p className="text-xs text-zinc-500 mb-2">自定义日志路径</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={customLogPath || ''}
+                    onChange={(e) => setCustomLogPath(e.target.value || null)}
+                    placeholder="使用默认位置"
+                    className="flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm text-zinc-200"
+                    readOnly
+                  />
+                  <button
+                    onClick={handleSelectLogFolder}
+                    className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-200 text-sm transition-colors"
+                  >
+                    浏览...
+                  </button>
+                </div>
+                <p className="text-xs text-zinc-500 mt-2">
+                  日志文件将存储在此目录下。留空则使用默认位置。
+                </p>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSaveLogPath}
+                  className={cn(
+                    'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                    'bg-amber-500 text-zinc-900 hover:bg-amber-400'
+                  )}
+                >
+                  保存路径
+                </button>
+                <button
+                  onClick={handleResetLogPath}
+                  disabled={customLogPath === null}
+                  className={cn(
+                    'px-4 py-2 rounded-lg text-sm transition-colors',
+                    'bg-zinc-700 text-zinc-300 hover:bg-zinc-600',
+                    'disabled:opacity-50 disabled:cursor-not-allowed'
+                  )}
+                >
+                  恢复默认
+                </button>
+                <button
+                  onClick={handleOpenLogFolder}
+                  className={cn(
+                    'flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm transition-colors',
+                    'bg-zinc-700 text-zinc-300 hover:bg-zinc-600'
+                  )}
+                >
+                  <ExternalLink size={14} />
+                  打开目录
+                </button>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handleViewLog}
+                  className={cn(
+                    'flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm transition-colors',
+                    'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20'
+                  )}
+                >
+                  <Eye size={14} />
+                  {showLog ? '隐藏日志' : '查看日志'}
+                </button>
+                {showLog && (
+                  <>
+                    <button
+                      onClick={handleRefreshLog}
+                      disabled={isLogLoading}
+                      className={cn(
+                        'flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm transition-colors',
+                        'bg-zinc-700 text-zinc-300 hover:bg-zinc-600',
+                        'disabled:opacity-50'
+                      )}
+                    >
+                      <RefreshCw size={14} className={isLogLoading ? 'animate-spin' : ''} />
+                      刷新
+                    </button>
+                    <button
+                      onClick={handleClearLog}
+                      className={cn(
+                        'px-4 py-2 rounded-lg text-sm transition-colors',
+                        'bg-red-500/10 text-red-500 hover:bg-red-500/20'
+                      )}
+                    >
+                      清除日志
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {showLog && (
+                <div className="bg-zinc-800 rounded-lg p-4 max-h-96 overflow-auto">
+                  <pre className="text-xs text-zinc-300 whitespace-pre-wrap break-all font-mono">
+                    {isLogLoading ? '加载中...' : logContent || '暂无日志'}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-6">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 bg-amber-500/10 rounded-lg">
@@ -218,6 +450,21 @@ export function SettingsPage() {
                   )}
                 >
                   {isClearing ? '清除中...' : '清除'}
+                </button>
+              </div>
+              <div className="flex items-center justify-between p-4 bg-zinc-800 rounded-lg">
+                <div>
+                  <p className="text-sm text-zinc-200">清除数据库</p>
+                  <p className="text-xs text-zinc-500 mt-1">删除所有照片记录和文件夹，从零开始</p>
+                </div>
+                <button
+                  onClick={handleClearDatabase}
+                  className={cn(
+                    'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                    'bg-red-500/10 text-red-500 hover:bg-red-500/20'
+                  )}
+                >
+                  清除数据库
                 </button>
               </div>
             </div>

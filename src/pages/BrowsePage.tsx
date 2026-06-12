@@ -19,6 +19,7 @@ export function BrowsePage() {
     setThumbnails,
     setOriginalImages,
   } = useAppStore();
+  const get = useAppStore.getState;
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [photoDetail, setPhotoDetail] = useState<PhotoDetail | null>(null);
   const [showFilters, setShowFilters] = useState(false);
@@ -39,27 +40,40 @@ export function BrowsePage() {
     const loadThumbnails = async () => {
       if (loadingRef.current) return;
       
-      const photosToLoad = photos.filter(p => !(p.id in thumbnails)).slice(0, 50);
+      const photosToLoad = photos.filter(p => !(p.id in thumbnails)).slice(0, 100);
       if (photosToLoad.length === 0) return;
       
       loadingRef.current = true;
       
-      const newThumbs: Record<string, string> = {};
-      const newOrigins: Record<string, string> = {};
+      // 每次只并发3个请求，避免阻塞主进程
+      const CONCURRENT = 3;
+      const queue = [...photosToLoad];
+      const activeTasks: Promise<void>[] = [];
       
-      for (const photo of photosToLoad) {
+      const processOne = async (): Promise<void> => {
+        const photo = queue.shift();
+        if (!photo) return;
+        
         try {
           const thumb = await window.api.thumbnail.get(photo.id, photo.path);
-          newThumbs[photo.id] = thumb;
-          newOrigins[photo.id] = `file:///${photo.path.replace(/\\/g, '/')}`;
+          // 每生成一张就更新状态，让用户看到进度
+          setThumbnails({ ...get().thumbnails, [photo.id]: thumb });
+          setOriginalImages({ ...get().originalImages, [photo.id]: `file:///${photo.path.replace(/\\/g, '/')}` });
         } catch {
-          newThumbs[photo.id] = `https://picsum.photos/seed/${photo.image_seed || photo.id}/400/400`;
-          newOrigins[photo.id] = `https://picsum.photos/seed/${photo.image_seed || photo.id}/1200/800`;
+          setThumbnails({ ...get().thumbnails, [photo.id]: `https://picsum.photos/seed/${photo.image_seed || photo.id}/400/400` });
+          setOriginalImages({ ...get().originalImages, [photo.id]: `https://picsum.photos/seed/${photo.image_seed || photo.id}/1200/800` });
         }
+        
+        // 处理完一个后继续处理队列中的下一个
+        await processOne();
+      };
+      
+      // 启动并发任务
+      for (let i = 0; i < Math.min(CONCURRENT, queue.length); i++) {
+        activeTasks.push(processOne());
       }
       
-      setThumbnails({ ...thumbnails, ...newThumbs });
-      setOriginalImages({ ...originalImages, ...newOrigins });
+      await Promise.all(activeTasks);
       loadingRef.current = false;
     };
     

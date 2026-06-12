@@ -3,6 +3,10 @@ export interface ScanProgress {
   total: number;
   currentFile: string;
   status: 'scanning' | 'hashing' | 'complete' | 'idle';
+  newCount?: number;
+  skipped?: number;
+  duplicates?: number;
+  deletedCount?: number;
 }
 
 export interface PhotoFilter {
