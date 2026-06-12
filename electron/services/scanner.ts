@@ -1,6 +1,7 @@
 import { readdir, stat } from 'fs/promises';
 import { join, extname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { shell } from 'electron';
 import { DatabaseService } from './database';
 import { HashService } from './hash';
 import { ExifService } from './exif';
@@ -318,11 +319,10 @@ export class ScannerService {
   }
 
   async deletePhotos(photoIds: string[]): Promise<void> {
-    const trash = (await import('trash')).default;
     for (const id of photoIds) {
       const photo = this.db.getPhotoById(id);
       if (photo) {
-        await trash(photo.path);
+        await shell.trashItem(photo.path);
         this.db.deletePhoto(id);
       }
     }

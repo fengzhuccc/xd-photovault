@@ -195,6 +195,10 @@ function setupIpcHandlers() {
     return await db.updatePhotoLocation(id, lat, lng);
   });
 
+  ipcMain.handle('photo:delete', async (_event, photoIds: string[]) => {
+    return await scanner.deletePhotos(photoIds);
+  });
+
   ipcMain.handle('thumbnail:get', async (_event, photoId: string, photoPath: string) => {
     return await thumbnailService.getThumbnail(photoId, photoPath);
   });

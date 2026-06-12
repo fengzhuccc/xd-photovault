@@ -37,6 +37,7 @@ export const api = {
     getStats: () => ipcRenderer.invoke('photo:getStats'),
     updateLocation: (id: string, lat: number, lng: number) => 
       ipcRenderer.invoke('photo:updateLocation', id, lat, lng),
+    delete: (photoIds: string[]) => ipcRenderer.invoke('photo:delete', photoIds),
   },
   
   duplicate: {

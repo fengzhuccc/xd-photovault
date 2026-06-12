@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Filter, Grid3X3, Calendar, MapPin, Camera, X, ChevronLeft, ChevronRight, Clock, Pencil, Check, MapPinned } from 'lucide-react';
+import { Filter, Grid3X3, Calendar, MapPin, Camera, X, ChevronLeft, ChevronRight, Clock, Pencil, Check, MapPinned, Trash2 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { cn } from '@/lib/utils';
 import type { Photo, PhotoDetail } from '@/types';
@@ -184,6 +184,39 @@ export function BrowsePage() {
     }
   };
 
+  const handleDeletePhoto = async () => {
+    if (!selectedPhoto) return;
+    if (!confirm(`确定要删除这张照片吗？\n\n${selectedPhoto.filename}\n\n照片将移到系统回收站，可从回收站恢复。`)) {
+      return;
+    }
+    try {
+      await window.api.photo.delete([selectedPhoto.id]);
+      // 从列表中移除
+      const currentIndex = photos.findIndex(p => p.id === selectedPhoto.id);
+      // 尝试导航到下一张
+      if (photos.length > 1 && currentIndex < photos.length - 1) {
+        handleSelectPhoto(photos[currentIndex + 1]);
+      } else if (photos.length > 1 && currentIndex > 0) {
+        handleSelectPhoto(photos[currentIndex - 1]);
+      } else {
+        setSelectedPhoto(null);
+        setPhotoDetail(null);
+      }
+      // 清除缩略图缓存
+      const newThumbnails = { ...get().thumbnails };
+      delete newThumbnails[selectedPhoto.id];
+      setThumbnails(newThumbnails);
+      const newOriginalImages = { ...get().originalImages };
+      delete newOriginalImages[selectedPhoto.id];
+      setOriginalImages(newOriginalImages);
+      // 重新加载照片列表
+      loadPhotos(currentFilter);
+      loadStats();
+    } catch (error) {
+      alert('删除失败：' + error);
+    }
+  };
+
   const groupedPhotos = useMemo(() => {
     const groups: { key: string; label: string; photos: Photo[] }[] = [];
     const groupMap = new Map<string, Photo[]>();
@@ -360,6 +393,14 @@ export function BrowsePage() {
             className="absolute top-4 right-4 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors z-10"
           >
             <X size={20} />
+          </button>
+          
+          <button
+            onClick={handleDeletePhoto}
+            className="absolute top-4 right-14 p-2 rounded-lg bg-zinc-800 hover:bg-red-500/20 text-zinc-300 hover:text-red-400 transition-colors z-10"
+            title="删除照片"
+          >
+            <Trash2 size={20} />
           </button>
           
           {!editingDate && !editingLocation && (
