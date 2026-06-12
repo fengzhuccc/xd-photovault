@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Filter, Grid3X3, Calendar, MapPin, Camera, X, ChevronLeft, ChevronRight, Clock, Pencil, Check, MapPinned, Trash2 } from 'lucide-react';
+import { Filter, Grid3X3, Calendar, MapPin, Camera, X, ChevronLeft, ChevronRight, Clock, Pencil, Check, MapPinned, Trash2, CheckCircle2, Circle } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { cn } from '@/lib/utils';
 import type { Photo, PhotoDetail } from '@/types';
@@ -29,6 +29,8 @@ export function BrowsePage() {
   const [editLatValue, setEditLatValue] = useState('');
   const [editLngValue, setEditLngValue] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const loadingRef = useRef(false);
 
   useEffect(() => {
@@ -104,6 +106,8 @@ export function BrowsePage() {
           setSelectedPhoto(null);
           setPhotoDetail(null);
         }
+      } else if (e.key === 'Delete' && !editingDate && !editingLocation) {
+        handleDeletePhoto();
       } else if (e.key === 'ArrowLeft' && !editingDate && !editingLocation) {
         navigatePhoto(-1);
       } else if (e.key === 'ArrowRight' && !editingDate && !editingLocation) {
@@ -191,9 +195,7 @@ export function BrowsePage() {
     }
     try {
       await window.api.photo.delete([selectedPhoto.id]);
-      // 从列表中移除
       const currentIndex = photos.findIndex(p => p.id === selectedPhoto.id);
-      // 尝试导航到下一张
       if (photos.length > 1 && currentIndex < photos.length - 1) {
         handleSelectPhoto(photos[currentIndex + 1]);
       } else if (photos.length > 1 && currentIndex > 0) {
@@ -202,14 +204,64 @@ export function BrowsePage() {
         setSelectedPhoto(null);
         setPhotoDetail(null);
       }
-      // 清除缩略图缓存
       const newThumbnails = { ...get().thumbnails };
       delete newThumbnails[selectedPhoto.id];
       setThumbnails(newThumbnails);
       const newOriginalImages = { ...get().originalImages };
       delete newOriginalImages[selectedPhoto.id];
       setOriginalImages(newOriginalImages);
-      // 重新加载照片列表
+      loadPhotos(currentFilter);
+      loadStats();
+    } catch (error) {
+      alert('删除失败：' + error);
+    }
+  };
+
+  const toggleSelect = (photoId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(photoId)) {
+        next.delete(photoId);
+      } else {
+        next.add(photoId);
+      }
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedIds(new Set(photos.map(p => p.id)));
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const handleBatchDelete = async () => {
+    const count = selectedIds.size;
+    if (count === 0) return;
+    if (!confirm(`确定要删除选中的 ${count} 张照片吗？\n\n照片将移到系统回收站，可从回收站恢复。`)) {
+      return;
+    }
+    try {
+      await window.api.photo.delete(Array.from(selectedIds));
+      // 清除已删除照片的缩略图缓存
+      const newThumbnails = { ...get().thumbnails };
+      const newOriginalImages = { ...get().originalImages };
+      for (const id of selectedIds) {
+        delete newThumbnails[id];
+        delete newOriginalImages[id];
+      }
+      setThumbnails(newThumbnails);
+      setOriginalImages(newOriginalImages);
+      setSelectedIds(new Set());
+      setSelectMode(false);
       loadPhotos(currentFilter);
       loadStats();
     } catch (error) {
@@ -267,16 +319,34 @@ export function BrowsePage() {
               共 {stats?.total.toLocaleString() || 0} 张照片
             </p>
           </div>
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={cn(
-              'flex items-center gap-2 px-3 py-2 rounded-lg transition-colors',
-              showFilters ? 'bg-amber-500/10 text-amber-500' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
-            )}
-          >
-            <Filter size={16} />
-            筛选
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (selectMode) {
+                  exitSelectMode();
+                } else {
+                  setSelectMode(true);
+                }
+              }}
+              className={cn(
+                'flex items-center gap-2 px-3 py-2 rounded-lg transition-colors',
+                selectMode ? 'bg-amber-500/10 text-amber-500' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+              )}
+            >
+              <CheckCircle2 size={16} />
+              {selectMode ? '取消选择' : '多选'}
+            </button>
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={cn(
+                'flex items-center gap-2 px-3 py-2 rounded-lg transition-colors',
+                showFilters ? 'bg-amber-500/10 text-amber-500' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+              )}
+            >
+              <Filter size={16} />
+              筛选
+            </button>
+          </div>
         </div>
 
         {showFilters && (
@@ -333,32 +403,105 @@ export function BrowsePage() {
                     <div className="flex-1 h-px bg-zinc-800" />
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-1">
-                    {group.photos.map((photo) => (
-                      <div
-                        key={photo.id}
-                        onClick={() => handleSelectPhoto(photo)}
-                        className="aspect-square cursor-pointer group relative overflow-hidden rounded-lg bg-zinc-800"
-                      >
-                        <img
-                          src={thumbnails[photo.id] || `https://picsum.photos/seed/${photo.image_seed || photo.id}/400/400`}
-                          alt={photo.filename}
-                          className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
-                          loading="lazy"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                          <div className="absolute bottom-0 left-0 right-0 p-2">
-                            <p className="text-xs text-white truncate">{photo.filename}</p>
-                            <p className="text-xs text-zinc-400">{formatDate(photo.taken_at)}</p>
-                          </div>
+                    {group.photos.map((photo) => {
+                      const isSelected = selectedIds.has(photo.id);
+                      return (
+                        <div
+                          key={photo.id}
+                          onClick={() => {
+                            if (selectMode) {
+                              toggleSelect(photo.id);
+                            } else {
+                              handleSelectPhoto(photo);
+                            }
+                          }}
+                          className={cn(
+                            'aspect-square cursor-pointer group relative overflow-hidden rounded-lg bg-zinc-800',
+                            selectMode && isSelected && 'ring-2 ring-amber-500 ring-offset-1 ring-offset-zinc-950'
+                          )}
+                        >
+                          <img
+                            src={thumbnails[photo.id] || `https://picsum.photos/seed/${photo.image_seed || photo.id}/400/400`}
+                            alt={photo.filename}
+                            className={cn(
+                              'w-full h-full object-cover transition-transform duration-200',
+                              !selectMode && 'group-hover:scale-105',
+                              selectMode && isSelected && 'opacity-80'
+                            )}
+                            loading="lazy"
+                          />
+                          {selectMode && (
+                            <div className="absolute top-2 right-2 z-10">
+                              {isSelected ? (
+                                <CheckCircle2 size={24} className="text-amber-500 drop-shadow-lg" />
+                              ) : (
+                                <Circle size={24} className="text-white/60 drop-shadow-lg" />
+                              )}
+                            </div>
+                          )}
+                          {!selectMode && (
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="absolute bottom-0 left-0 right-0 p-2">
+                                <p className="text-xs text-white truncate">{photo.filename}</p>
+                                <p className="text-xs text-zinc-400">{formatDate(photo.taken_at)}</p>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ))}
             </div>
           )}
         </div>
+
+        {/* 多选模式浮动操作栏 */}
+        {selectMode && (
+          <div className="sticky bottom-0 left-0 right-0 bg-zinc-900/95 backdrop-blur-sm border-t border-zinc-800 px-4 py-3 flex items-center justify-between z-20">
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-zinc-300">
+                已选择 <span className="text-amber-500 font-medium">{selectedIds.size}</span> 张
+              </span>
+              <button
+                onClick={selectAll}
+                className="text-xs text-amber-500 hover:text-amber-400 transition-colors"
+              >
+                全选
+              </button>
+              {selectedIds.size > 0 && (
+                <button
+                  onClick={clearSelection}
+                  className="text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
+                >
+                  取消选择
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={exitSelectMode}
+                className="px-4 py-2 rounded-lg text-sm bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+              >
+                完成
+              </button>
+              <button
+                onClick={handleBatchDelete}
+                disabled={selectedIds.size === 0}
+                className={cn(
+                  'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                  selectedIds.size > 0
+                    ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20'
+                    : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                )}
+              >
+                <Trash2 size={16} />
+                删除{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="w-48 border-l border-zinc-800 hidden lg:block flex-shrink-0">
