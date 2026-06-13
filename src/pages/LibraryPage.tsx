@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FolderOpen, Plus, Trash2, RefreshCw, HardDrive, Calendar } from 'lucide-react';
+import { FolderOpen, Plus, Trash2, RefreshCw, HardDrive, Calendar, ChevronDown, RotateCcw } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { cn } from '@/lib/utils';
 import type { ScanProgress } from '@/types';
@@ -19,6 +19,7 @@ export function LibraryPage() {
 
   const [isAddingFolder, setIsAddingFolder] = useState(false);
   const [scanResult, setScanResult] = useState<ScanProgress | null>(null);
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
   useEffect(() => {
     loadFolders();
@@ -59,12 +60,16 @@ export function LibraryPage() {
     }
   };
 
-  const handleScan = async (folderId: string) => {
+  const handleScan = async (folderId: string, forceRescan: boolean = false) => {
+    if (forceRescan && !confirm('强制重新扫描将清除当前目录所有索引并重新扫描，确定继续吗？')) {
+      return;
+    }
+    setOpenDropdown(null);
     setIsScanning(true);
     setScanResult(null);
     setScanProgress({ current: 0, total: 0, currentFile: '', status: 'scanning' });
     try {
-      await window.api.scan.start(folderId, true);
+      await window.api.scan.start(folderId, forceRescan);
     } catch (error) {
       console.error('Scan failed:', error);
       setScanProgress({ current: 0, total: 0, currentFile: '', status: 'idle' });
@@ -206,18 +211,48 @@ export function LibraryPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleScan(folder.id)}
-                    disabled={isScanning}
-                    className={cn(
-                      'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors',
-                      'bg-zinc-800 hover:bg-zinc-700 text-zinc-300',
-                      'disabled:opacity-50 disabled:cursor-not-allowed'
+                  <div className="relative">
+                    <div className="flex">
+                      <button
+                        onClick={() => handleScan(folder.id, false)}
+                        disabled={isScanning}
+                        className={cn(
+                          'flex items-center gap-1.5 px-3 py-1.5 rounded-l-lg text-sm transition-colors',
+                          'bg-zinc-800 hover:bg-zinc-700 text-zinc-300',
+                          'disabled:opacity-50 disabled:cursor-not-allowed',
+                          'border-r border-zinc-700'
+                        )}
+                      >
+                        <RefreshCw size={14} className={isScanning ? 'animate-spin' : ''} />
+                        扫描新增
+                      </button>
+                      <button
+                        onClick={() => setOpenDropdown(openDropdown === folder.id ? null : folder.id)}
+                        disabled={isScanning}
+                        className={cn(
+                          'px-1.5 py-1.5 rounded-r-lg text-sm transition-colors',
+                          'bg-zinc-800 hover:bg-zinc-700 text-zinc-300',
+                          'disabled:opacity-50 disabled:cursor-not-allowed'
+                        )}
+                      >
+                        <ChevronDown size={14} />
+                      </button>
+                    </div>
+                    {openDropdown === folder.id && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setOpenDropdown(null)} />
+                        <div className="absolute right-0 top-full mt-1 w-48 bg-zinc-800 rounded-lg border border-zinc-700 shadow-xl z-20 py-1">
+                          <button
+                            onClick={() => handleScan(folder.id, true)}
+                            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 transition-colors"
+                          >
+                            <RotateCcw size={14} />
+                            强制重新扫描
+                          </button>
+                        </div>
+                      </>
                     )}
-                  >
-                    <RefreshCw size={14} className={isScanning ? 'animate-spin' : ''} />
-                    扫描
-                  </button>
+                  </div>
                   <button
                     onClick={() => handleRemoveFolder(folder.id)}
                     className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-red-400 transition-colors"
