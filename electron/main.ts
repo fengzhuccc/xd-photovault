@@ -161,10 +161,10 @@ function setupIpcHandlers() {
     return await db.getFolders();
   });
 
-  ipcMain.handle('scan:start', async (_event, folderId: string) => {
+  ipcMain.handle('scan:start', async (_event, folderId: string, forceRescan: boolean = false) => {
     return await scanner.startScan(folderId, (progress) => {
       mainWindow?.webContents.send('scan:progress', progress);
-    });
+    }, forceRescan);
   });
 
   ipcMain.handle('scan:isScanning', async () => {
@@ -197,6 +197,10 @@ function setupIpcHandlers() {
 
   ipcMain.handle('photo:delete', async (_event, photoIds: string[]) => {
     return await scanner.deletePhotos(photoIds);
+  });
+
+  ipcMain.handle('photo:getWithLocation', async () => {
+    return db.getPhotosWithLocation();
   });
 
   ipcMain.handle('thumbnail:get', async (_event, photoId: string, photoPath: string) => {

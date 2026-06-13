@@ -22,7 +22,7 @@ export const api = {
   },
   
   scan: {
-    start: (folderId: string) => ipcRenderer.invoke('scan:start', folderId),
+    start: (folderId: string, forceRescan?: boolean) => ipcRenderer.invoke('scan:start', folderId, forceRescan),
     isScanning: () => ipcRenderer.invoke('scan:isScanning'),
     onProgress: (callback: (progress: ScanProgress) => void) => {
       const listener = (_event: unknown, progress: ScanProgress) => callback(progress);
@@ -38,6 +38,7 @@ export const api = {
     updateLocation: (id: string, lat: number, lng: number) => 
       ipcRenderer.invoke('photo:updateLocation', id, lat, lng),
     delete: (photoIds: string[]) => ipcRenderer.invoke('photo:delete', photoIds),
+    getWithLocation: () => ipcRenderer.invoke('photo:getWithLocation'),
   },
   
   duplicate: {

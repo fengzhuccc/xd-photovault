@@ -7,7 +7,7 @@ const THUMBNAIL_SIZE = 512;
 const THUMBNAIL_QUALITY = 90;
 
 export class ThumbnailService {
-  private thumbnailDir: string;
+  thumbnailDir: string;
 
   constructor(userDataPath: string) {
     this.thumbnailDir = join(userDataPath, 'thumbnails');
@@ -47,5 +47,18 @@ export class ThumbnailService {
       }
     }
     log.info('[Thumbnail] 缩略图缓存已清除');
+  }
+
+  deleteThumbnailsByPhotoIds(photoIds: string[]): void {
+    for (const id of photoIds) {
+      const thumbnailPath = join(this.thumbnailDir, `${id}.webp`);
+      try {
+        if (existsSync(thumbnailPath)) {
+          unlinkSync(thumbnailPath);
+        }
+      } catch (e) {
+        log.warn(`[Thumbnail] 删除缩略图失败: ${thumbnailPath}`, e);
+      }
+    }
   }
 }

@@ -1,4 +1,5 @@
 import { readdir, stat } from 'fs/promises';
+import { existsSync, unlinkSync } from 'fs';
 import { join, extname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { shell } from 'electron';
@@ -68,7 +69,8 @@ export class ScannerService {
 
   async startScan(
     folderId: string,
-    onProgress: (progress: ScanProgress) => void
+    onProgress: (progress: ScanProgress) => void,
+    forceRescan: boolean = false
   ): Promise<{ totalPhotos: number; duplicates: number; skipped: number }> {
     if (this.scanning) {
       throw new Error('扫描正在进行中');
@@ -81,9 +83,21 @@ export class ScannerService {
     }
 
     this.scanning = true;
-    log.info(`[Scanner] 开始扫描文件夹: ${folder.path}`);
+    log.info(`[Scanner] 开始${forceRescan ? '强制重新' : ''}扫描文件夹: ${folder.path}`);
 
     try {
+      // 强制重新扫描时，先清除该文件夹的所有数据
+      if (forceRescan) {
+        const existingPhotos = this.db.getPhotosByFolder(folderId);
+        if (existingPhotos.length > 0) {
+          log.info(`[Scanner] 强制重新扫描：清除文件夹 ${existingPhotos.length} 条照片记录及缓存`);
+          // 删除缩略图缓存
+          this.thumbnailService.deleteThumbnailsByPhotoIds(existingPhotos.map((p: any) => p.id));
+          // 删除数据库中该文件夹的所有照片和重复记录
+          this.db.deletePhotosByFolder(folderId);
+        }
+      }
+
       // 第一步：收集所有图片文件路径
       onProgress({ current: 0, total: 0, currentFile: '正在收集文件列表...', status: 'scanning' });
       await yieldToMain();
@@ -98,16 +112,18 @@ export class ScannerService {
         return { totalPhotos: 0, duplicates: 0, skipped: 0 };
       }
 
-      // 第二步：获取已有照片，用于增量扫描
-      const existingPhotos = this.db.getPhotosByFolder(folderId);
+      // 第二步：获取已有照片，用于增量扫描和ID复用（强制重新扫描时不需要）
       const existingPathMap = new Map<string, { id: string; fileHash: string; fileSize: number; modifiedTime: string }>();
-      for (const p of existingPhotos) {
-        existingPathMap.set(p.path, {
-          id: p.id,
-          fileHash: p.file_hash,
-          fileSize: p.file_size,
-          modifiedTime: p.taken_at || '',
-        });
+      if (!forceRescan) {
+        const existingPhotos = this.db.getPhotosByFolder(folderId);
+        for (const p of existingPhotos) {
+          existingPathMap.set(p.path, {
+            id: p.id,
+            fileHash: p.file_hash,
+            fileSize: p.file_size,
+            modifiedTime: p.taken_at || '',
+          });
+        }
       }
 
       // 第三步：分批处理文件
@@ -143,9 +159,9 @@ export class ScannerService {
         try {
           const stats = await stat(filePath);
 
-          // 增量扫描：检查文件是否已存在且未修改
+          // 增量扫描：检查文件是否已存在且未修改（强制重新扫描时跳过此检查）
           const existing = existingPathMap.get(filePath);
-          if (existing && existing.fileSize === stats.size) {
+          if (!forceRescan && existing && existing.fileSize === stats.size) {
             // 文件大小相同，大概率未修改，跳过
             skipped++;
             existingPathMap.delete(filePath);
@@ -322,7 +338,20 @@ export class ScannerService {
     for (const id of photoIds) {
       const photo = this.db.getPhotoById(id);
       if (photo) {
-        await shell.trashItem(photo.path);
+        try {
+          await shell.trashItem(photo.path);
+        } catch (e) {
+          log.warn(`[Scanner] 移动文件到回收站失败: ${photo.path}`, e);
+        }
+        // 删除缩略图文件
+        const thumbnailPath = join(this.thumbnailService.thumbnailDir, `${id}.webp`);
+        try {
+          if (existsSync(thumbnailPath)) {
+            unlinkSync(thumbnailPath);
+          }
+        } catch (e) {
+          log.warn(`[Scanner] 删除缩略图失败: ${thumbnailPath}`, e);
+        }
         this.db.deletePhoto(id);
       }
     }

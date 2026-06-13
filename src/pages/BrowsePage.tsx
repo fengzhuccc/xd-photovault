@@ -82,7 +82,7 @@ export function BrowsePage() {
     if (photos.length > 0) {
       loadThumbnails();
     }
-  }, [photos, Object.keys(thumbnails).length]);
+  }, [photos]);
 
   useEffect(() => {
     if (selectedPhoto?.taken_at) {

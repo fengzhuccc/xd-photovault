@@ -51,3 +51,79 @@ input[type="file"] {
   border: 2px dashed #f59e0b !important;
   background: rgba(245, 158, 11, 0.05) !important;
 }
+
+/* Leaflet map styles */
+.leaflet-container {
+  background: #18181b !important;
+  font-family: inherit;
+}
+
+.marker-cluster-small {
+  background-color: rgba(245, 158, 11, 0.3);
+}
+.marker-cluster-small div {
+  background-color: rgba(245, 158, 11, 0.6);
+  color: #fff;
+  font-weight: 600;
+  text-align: center;
+  border-radius: 50%;
+  line-height: 40px;
+}
+
+.marker-cluster-medium {
+  background-color: rgba(245, 158, 11, 0.4);
+}
+.marker-cluster-medium div {
+  background-color: rgba(245, 158, 11, 0.7);
+  color: #fff;
+  font-weight: 600;
+  text-align: center;
+  border-radius: 50%;
+  line-height: 48px;
+}
+
+.marker-cluster-large {
+  background-color: rgba(245, 158, 11, 0.5);
+}
+.marker-cluster-large div {
+  background-color: rgba(245, 158, 11, 0.85);
+  color: #fff;
+  font-weight: 700;
+  text-align: center;
+  border-radius: 50%;
+  line-height: 56px;
+}
+
+.leaflet-tooltip {
+  background: #27272a !important;
+  color: #e4e4e7 !important;
+  border: 1px solid #3f3f46 !important;
+  border-radius: 6px !important;
+  padding: 4px 8px !important;
+  font-size: 12px !important;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3) !important;
+}
+
+.leaflet-tooltip-top::before {
+  border-top-color: #3f3f46 !important;
+}
+
+.leaflet-control-zoom a {
+  background-color: #27272a !important;
+  color: #e4e4e7 !important;
+  border-color: #3f3f46 !important;
+}
+
+.leaflet-control-zoom a:hover {
+  background-color: #3f3f46 !important;
+}
+
+.leaflet-control-attribution {
+  background: rgba(24, 24, 27, 0.8) !important;
+  color: #71717a !important;
+  font-size: 10px !important;
+}
+
+.leaflet-control-attribution a {
+  color: #a1a1aa !important;
+}

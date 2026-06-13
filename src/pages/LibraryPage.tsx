@@ -64,7 +64,7 @@ export function LibraryPage() {
     setScanResult(null);
     setScanProgress({ current: 0, total: 0, currentFile: '', status: 'scanning' });
     try {
-      await window.api.scan.start(folderId);
+      await window.api.scan.start(folderId, true);
     } catch (error) {
       console.error('Scan failed:', error);
       setScanProgress({ current: 0, total: 0, currentFile: '', status: 'idle' });

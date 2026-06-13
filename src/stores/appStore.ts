@@ -88,7 +88,34 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadPhotos: async (filter) => {
     const currentFilter = filter || get().currentFilter;
     const photos = await window.api.photo.getAll(currentFilter);
-    set({ photos, currentFilter });
+    // 清理不在当前照片列表中的缩略图缓存
+    const photoIds = new Set(photos.map(p => p.id));
+    const oldThumbnails = get().thumbnails;
+    const oldOriginalImages = get().originalImages;
+    let thumbnailsChanged = false;
+    let originalsChanged = false;
+    const newThumbnails: Record<string, string> = {};
+    const newOriginalImages: Record<string, string> = {};
+    for (const id of Object.keys(oldThumbnails)) {
+      if (photoIds.has(id)) {
+        newThumbnails[id] = oldThumbnails[id];
+      } else {
+        thumbnailsChanged = true;
+      }
+    }
+    for (const id of Object.keys(oldOriginalImages)) {
+      if (photoIds.has(id)) {
+        newOriginalImages[id] = oldOriginalImages[id];
+      } else {
+        originalsChanged = true;
+      }
+    }
+    set({
+      photos,
+      currentFilter,
+      ...(thumbnailsChanged ? { thumbnails: newThumbnails } : {}),
+      ...(originalsChanged ? { originalImages: newOriginalImages } : {}),
+    });
   },
 
   loadDuplicates: async () => {

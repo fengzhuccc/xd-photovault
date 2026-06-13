@@ -320,6 +320,13 @@ export class DatabaseService {
     return stmt.get(path) as any | null;
   }
 
+  getPhotosWithLocation(): any[] {
+    const stmt = this.db.prepare(
+      'SELECT id, path, filename, latitude, longitude, taken_at, camera, width, height, file_size FROM photos WHERE latitude IS NOT NULL AND longitude IS NOT NULL'
+    );
+    return stmt.all() as any[];
+  }
+
   clearDuplicateGroups(): void {
     this.db.prepare('DELETE FROM photo_duplicates').run();
     this.db.prepare('DELETE FROM duplicate_groups').run();
