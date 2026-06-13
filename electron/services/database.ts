@@ -67,6 +67,7 @@ export class DatabaseService {
         width INTEGER,
         height INTEGER,
         thumbnail_path TEXT,
+        modified_time DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE
@@ -95,6 +96,12 @@ export class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_photos_location ON photos(latitude, longitude);
       CREATE INDEX IF NOT EXISTS idx_photos_camera ON photos(camera);
     `);
+
+    // 兼容已有数据库：添加新字段
+    const columns = (this.db.prepare("PRAGMA table_info(photos)").all() as any[]).map(c => c.name);
+    if (!columns.includes('modified_time')) {
+      this.db.exec('ALTER TABLE photos ADD COLUMN modified_time DATETIME');
+    }
   }
 
   addFolder(id: string, path: string): void {
@@ -148,14 +155,15 @@ export class DatabaseService {
       INSERT OR REPLACE INTO photos (
         id, folder_id, path, filename, file_size, file_hash, perceptual_hash,
         taken_at, latitude, longitude, camera, aperture, shutter_speed,
-        iso, focal_length, width, height, thumbnail_path
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        iso, focal_length, width, height, thumbnail_path, modified_time
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       photo.id, photo.folderId, photo.path, photo.filename, photo.fileSize,
       photo.fileHash, photo.perceptualHash, photo.takenAt, photo.latitude,
       photo.longitude, photo.camera, photo.aperture, photo.shutterSpeed,
-      photo.iso, photo.focalLength, photo.width, photo.height, photo.thumbnailPath
+      photo.iso, photo.focalLength, photo.width, photo.height, photo.thumbnailPath,
+      photo.modifiedTime
     );
   }
 

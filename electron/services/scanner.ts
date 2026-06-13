@@ -121,7 +121,7 @@ export class ScannerService {
             id: p.id,
             fileHash: p.file_hash,
             fileSize: p.file_size,
-            modifiedTime: p.taken_at || '',
+            modifiedTime: p.modified_time || '',
           });
         }
       }
@@ -161,8 +161,10 @@ export class ScannerService {
 
           // 增量扫描：检查文件是否已存在且未修改（强制重新扫描时跳过此检查）
           const existing = existingPathMap.get(filePath);
-          if (!forceRescan && existing && existing.fileSize === stats.size) {
-            // 文件大小相同，大概率未修改，跳过
+          if (!forceRescan && existing
+              && existing.fileSize === stats.size
+              && existing.modifiedTime === stats.mtime.toISOString()) {
+            // 文件大小和修改时间均相同，未修改，跳过
             skipped++;
             existingPathMap.delete(filePath);
 
@@ -214,6 +216,7 @@ export class ScannerService {
             iso: exifData.iso,
             focalLength: exifData.focalLength,
             thumbnailPath: null, // 延迟生成
+            modifiedTime: stats.mtime.toISOString(),
           });
 
           existingPathMap.delete(filePath);
