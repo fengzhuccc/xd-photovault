@@ -72,12 +72,11 @@ export function LibraryPage() {
       await window.api.scan.start(folderId, forceRescan);
     } catch (error) {
       console.error('Scan failed:', error);
-      setScanProgress({ current: 0, total: 0, currentFile: '', status: 'idle' });
-    } finally {
       setIsScanning(false);
-      loadFolders();
-      loadStats();
+      setScanProgress({ current: 0, total: 0, currentFile: '', status: 'idle' });
     }
+    // 不在 finally 中 setIsScanning(false)，由 onProgress 的 complete 事件控制
+    // 也不在这里 loadFolders/loadStats，由 onProgress 的 complete 事件处理
   };
 
   const handleRemoveFolder = async (id: string) => {

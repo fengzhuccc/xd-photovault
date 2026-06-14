@@ -1,15 +1,25 @@
 import { createHash } from 'crypto';
-import { readFile } from 'fs/promises';
+import { createReadStream } from 'fs';
 
 export class HashService {
   async calculateFileHash(filePath: string): Promise<string> {
-    const buffer = await readFile(filePath);
-    return createHash('md5').update(buffer).digest('hex');
+    return new Promise((resolve, reject) => {
+      const hash = createHash('md5');
+      const stream = createReadStream(filePath, { highWaterMark: 64 * 1024 });
+      stream.on('data', (chunk) => hash.update(chunk));
+      stream.on('end', () => resolve(hash.digest('hex')));
+      stream.on('error', reject);
+    });
   }
 
   async calculatePartialHash(filePath: string): Promise<string> {
-    const buffer = await readFile(filePath, { start: 0, end: 1023 } as any);
-    return createHash('md5').update(buffer).digest('hex');
+    return new Promise((resolve, reject) => {
+      const hash = createHash('md5');
+      const stream = createReadStream(filePath, { start: 0, end: 1023 });
+      stream.on('data', (chunk) => hash.update(chunk));
+      stream.on('end', () => resolve(hash.digest('hex')));
+      stream.on('error', reject);
+    });
   }
 
   calculatePerceptualHash(imageData: Buffer): string {

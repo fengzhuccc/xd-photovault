@@ -232,11 +232,16 @@ export class ScannerService {
 
       // 删除不再存在的照片（existingPathMap中剩余的就是已删除的文件）
       let deletedCount = 0;
+      const deletedIds: string[] = [];
       for (const [path, info] of existingPathMap) {
-        this.db.deletePhoto(info.id);
+        deletedIds.push(info.id);
         deletedCount++;
       }
-      if (deletedCount > 0) {
+      if (deletedIds.length > 0) {
+        this.thumbnailService.deleteThumbnailsByPhotoIds(deletedIds);
+        for (const id of deletedIds) {
+          this.db.deletePhoto(id);
+        }
         log.info(`[Scanner] 删除 ${deletedCount} 个不存在的照片记录`);
       }
 

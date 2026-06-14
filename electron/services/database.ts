@@ -302,6 +302,8 @@ export class DatabaseService {
   }
 
   deletePhoto(id: string): void {
+    const deleteDuplicates = this.db.prepare('DELETE FROM photo_duplicates WHERE photo_id = ?');
+    deleteDuplicates.run(id);
     const stmt = this.db.prepare('DELETE FROM photos WHERE id = ?');
     stmt.run(id);
   }
