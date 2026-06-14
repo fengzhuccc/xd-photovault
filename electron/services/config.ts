@@ -16,11 +16,22 @@ const DEFAULT_CONFIG: AppConfig = {
 export class ConfigService {
   private configPath: string;
   private config: AppConfig;
+  private db: { getSetting: (key: string) => string | null; setSetting: (key: string, value: string) => void; removeSetting: (key: string) => void } | null = null;
 
   constructor() {
     const userDataPath = app.getPath('userData');
     this.configPath = join(userDataPath, 'config.json');
     this.config = this.loadConfig();
+  }
+
+  setDatabase(db: { getSetting: (key: string) => string | null; setSetting: (key: string, value: string) => void; removeSetting: (key: string) => void }): void {
+    this.db = db;
+    // 迁移 config.json 中的 logPath 到数据库
+    if (this.config.logPath && !db.getSetting('logPath')) {
+      db.setSetting('logPath', this.config.logPath);
+      this.config.logPath = null;
+      this.saveConfig();
+    }
   }
 
   private loadConfig(): AppConfig {
@@ -74,14 +85,25 @@ export class ConfigService {
   }
 
   getLogPath(): string | null {
+    if (this.db) {
+      return this.db.getSetting('logPath');
+    }
     return this.config.logPath;
   }
 
   setLogPath(path: string | null): void {
-    this.config.logPath = path;
     if (path && !existsSync(path)) {
       mkdirSync(path, { recursive: true });
     }
+    if (this.db) {
+      if (path) {
+        this.db.setSetting('logPath', path);
+      } else {
+        this.db.removeSetting('logPath');
+      }
+    }
+    // 同步更新 config.json（向后兼容）
+    this.config.logPath = path;
     this.saveConfig();
   }
 

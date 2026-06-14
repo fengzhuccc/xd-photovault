@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Filter, Grid3X3, Calendar, MapPin, Camera, X, ChevronLeft, ChevronRight, Clock, Pencil, Check, MapPinned, Trash2, CheckCircle2, Circle, Loader2 } from 'lucide-react';
 import { VirtuosoGrid } from 'react-virtuoso';
 import { useAppStore } from '@/stores/appStore';
+import { toast } from '@/stores/toastStore';
+import { confirm } from '@/stores/confirmStore';
 import { cn } from '@/lib/utils';
 import type { Photo, PhotoDetail } from '@/types';
 
@@ -188,7 +190,7 @@ export function BrowsePage() {
       });
       setEditingDate(false);
     } catch (e) {
-      alert('保存日期失败：' + String(e));
+      toast('error', '保存日期失败：' + String(e));
     } finally {
       setIsSaving(false);
     }
@@ -199,7 +201,7 @@ export function BrowsePage() {
     const lat = parseFloat(editLatValue);
     const lng = parseFloat(editLngValue);
     if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-      alert('请输入有效的经纬度坐标');
+      toast('warning', '请输入有效的经纬度坐标');
       return;
     }
     setIsSaving(true);
@@ -215,7 +217,7 @@ export function BrowsePage() {
       });
       setEditingLocation(false);
     } catch (e) {
-      alert('保存位置失败：' + String(e));
+      toast('error', '保存位置失败：' + String(e));
     } finally {
       setIsSaving(false);
     }
@@ -223,7 +225,7 @@ export function BrowsePage() {
 
   const handleDeletePhoto = async () => {
     if (!selectedPhoto) return;
-    if (!confirm(`确定要删除这张照片吗？\n\n${selectedPhoto.filename}\n\n照片将移到系统回收站，可从回收站恢复。`)) {
+    if (!await confirm(`确定要删除这张照片吗？\n\n${selectedPhoto.filename}\n\n照片将移到系统回收站，可从回收站恢复。`, { variant: 'danger', confirmText: '删除' })) {
       return;
     }
     try {
@@ -246,7 +248,7 @@ export function BrowsePage() {
       loadPhotosPage(currentFilter);
       loadStats();
     } catch (error) {
-      alert('删除失败：' + error);
+      toast('error', '删除失败：' + error);
     }
   };
 
@@ -279,7 +281,7 @@ export function BrowsePage() {
   const handleBatchDelete = async () => {
     const count = selectedIds.size;
     if (count === 0) return;
-    if (!confirm(`确定要删除选中的 ${count} 张照片吗？\n\n照片将移到系统回收站，可从回收站恢复。`)) {
+    if (!await confirm(`确定要删除选中的 ${count} 张照片吗？\n\n照片将移到系统回收站，可从回收站恢复。`, { variant: 'danger', confirmText: '删除' })) {
       return;
     }
     try {
@@ -298,7 +300,7 @@ export function BrowsePage() {
       loadPhotosPage(currentFilter);
       loadStats();
     } catch (error) {
-      alert('删除失败：' + error);
+      toast('error', '删除失败：' + error);
     }
   };
 

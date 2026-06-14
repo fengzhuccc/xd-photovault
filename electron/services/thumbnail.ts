@@ -74,14 +74,14 @@ export class ThumbnailService {
     }
   }
 
-  cleanOrphanThumbnails(db: any): void {
+  cleanOrphanThumbnails(db: { getAllPhotoIds: () => string[] }): void {
     // 清理数据库中已无对应照片的孤立缩略图文件
     try {
       const files = readdirSync(this.thumbnailDir).filter(f => f.endsWith('.webp'));
       if (files.length === 0) return;
 
       const existingIds = new Set(
-        (db.getAllPhotoIds() as string[]).map((id: string) => `${id}.webp`)
+        db.getAllPhotoIds().map((id: string) => `${id}.webp`)
       );
 
       let cleaned = 0;

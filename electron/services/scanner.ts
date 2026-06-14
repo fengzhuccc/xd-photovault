@@ -3,7 +3,7 @@ import { existsSync, unlinkSync } from 'fs';
 import { join, extname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { shell } from 'electron';
-import { DatabaseService } from './database';
+import { DatabaseService, PhotoRow, PhotoInsert } from './database';
 import { HashService } from './hash';
 import { ExifService } from './exif';
 import { ThumbnailService } from './thumbnail';
@@ -103,7 +103,7 @@ export class ScannerService {
     for (const childFolderId of childFolderIds) {
       const childPhotos = this.db.getPhotosByFolder(childFolderId);
       if (childPhotos.length > 0) {
-        this.thumbnailService.deleteThumbnailsByPhotoIds(childPhotos.map((p: any) => p.id));
+        this.thumbnailService.deleteThumbnailsByPhotoIds(childPhotos.map((p: PhotoRow) => p.id));
       }
       this.db.deletePhotosByFolder(childFolderId);
       this.db.removeFolder(childFolderId);
@@ -141,7 +141,7 @@ export class ScannerService {
         if (existingPhotos.length > 0) {
           log.info(`[Scanner] 强制重新扫描：清除文件夹 ${existingPhotos.length} 条照片记录及缓存`);
           // 删除缩略图缓存
-          this.thumbnailService.deleteThumbnailsByPhotoIds(existingPhotos.map((p: any) => p.id));
+          this.thumbnailService.deleteThumbnailsByPhotoIds(existingPhotos.map((p: PhotoRow) => p.id));
           // 删除数据库中该文件夹的所有照片和重复记录
           this.db.deletePhotosByFolder(folderId);
         }
@@ -162,7 +162,7 @@ export class ScannerService {
       }
 
       // 第二步：获取已有照片，用于增量扫描
-      const existingPathMap = new Map<string, { id: string; fileHash: string; fileSize: number; modifiedTime: string }>();
+      const existingPathMap = new Map<string, { id: string; fileHash: string | null; fileSize: number; modifiedTime: string }>();
       if (!forceRescan) {
         const existingPhotos = this.db.getPhotosByFolder(folderId);
         for (const p of existingPhotos) {
@@ -176,7 +176,7 @@ export class ScannerService {
       }
 
       // 第三步：分批处理文件
-      const newPhotos: any[] = [];
+      const newPhotos: PhotoInsert[] = [];
       const newHashes: string[] = [];
       let skipped = 0;
       let newCount = 0;
@@ -349,7 +349,7 @@ export class ScannerService {
         // 全量模式：直接创建新组
         const photos = photoIds
           .map((id: string) => this.db.getPhotoById(id))
-          .filter(Boolean);
+          .filter((p): p is PhotoRow => p !== null);
 
         if (photos.length > 1) {
           const groupId = uuidv4();
@@ -380,7 +380,7 @@ export class ScannerService {
 
           const allPhotos = photoIds
             .map((id: string) => this.db.getPhotoById(id))
-            .filter(Boolean);
+            .filter((p): p is PhotoRow => p !== null);
 
           if (allPhotos.length > 1) {
             let groupId: string;
@@ -417,7 +417,7 @@ export class ScannerService {
     return groupCount;
   }
 
-  private selectBestPhoto(photos: any[]): any {
+  private selectBestPhoto(photos: PhotoRow[]): PhotoRow {
     return photos.reduce((best, current) => {
       if (current.latitude && current.longitude && (!best.latitude || !best.longitude)) {
         return current;

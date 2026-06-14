@@ -5,10 +5,14 @@ import { BrowsePage } from '@/pages/BrowsePage';
 import { DuplicatesPage } from '@/pages/DuplicatesPage';
 import { MapPage } from '@/pages/MapPage';
 import { SettingsPage } from '@/pages/SettingsPage';
+import { ToastContainer } from '@/components/Toast';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 export default function App() {
   return (
     <Router>
+      <ToastContainer />
+      <ConfirmDialog />
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<LibraryPage />} />

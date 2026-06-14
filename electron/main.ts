@@ -77,6 +77,9 @@ async function initializeServices() {
   db = new DatabaseService(dataPath);
   await db.initialize();
   
+  // 将数据库注入 ConfigService，使 logPath 等配置从数据库读取
+  configService.setDatabase(db);
+  
   hashService = new HashService();
   exifService = new ExifService();
   thumbnailService = new ThumbnailService(dataPath);
@@ -140,7 +143,7 @@ function setupIpcHandlers() {
     if (path) {
       log.transports.file.resolvePathFn = () => join(path, 'photovault.log');
     } else {
-      log.transports.file.resolvePathFn = undefined as any;
+      log.transports.file.resolvePathFn = undefined as unknown as typeof log.transports.file.resolvePathFn;
     }
     return { success: true };
   });
@@ -163,7 +166,7 @@ function setupIpcHandlers() {
     db.removeFolder(id);
     // 数据库删除后再清理缩略图文件
     if (photos.length > 0) {
-      thumbnailService.deleteThumbnailsByPhotoIds(photos.map((p: any) => p.id));
+      thumbnailService.deleteThumbnailsByPhotoIds(photos.map((p: { id: string }) => p.id));
     }
     // 清理孤立的缩略图文件（数据库中已无对应照片的）
     thumbnailService.cleanOrphanThumbnails(db);

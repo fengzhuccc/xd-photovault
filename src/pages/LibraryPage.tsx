@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { FolderOpen, Plus, Trash2, RefreshCw, HardDrive, Calendar, ChevronDown, RotateCcw } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
+import { toast } from '@/stores/toastStore';
+import { confirm } from '@/stores/confirmStore';
 import { cn } from '@/lib/utils';
 import type { ScanProgress } from '@/types';
 
@@ -55,11 +57,12 @@ export function LibraryPage() {
 
         if (result.conflict) {
           if (result.conflict.type === 'child') {
-            alert(`该文件夹已被包含在 "${result.conflict.childFolderPaths[0]}" 中，无需重复添加。`);
+            toast('info', `该文件夹已被包含在 "${result.conflict.childFolderPaths[0]}" 中，无需重复添加。`);
           } else if (result.conflict.type === 'parent') {
             const folderList = result.conflict.childFolderPaths.join('、');
-            const confirmed = confirm(
-              `该文件夹包含已有的 ${result.conflict.childFolderPaths.length} 个子文件夹：\n${folderList}\n\n是否用父目录替换所有子目录？替换后子目录的索引将被删除，父目录将重新扫描。`
+            const confirmed = await confirm(
+              `该文件夹包含已有的 ${result.conflict.childFolderPaths.length} 个子文件夹：\n${folderList}\n\n是否用父目录替换所有子目录？替换后子目录的索引将被删除，父目录将重新扫描。`,
+              { variant: 'warning', confirmText: '替换' }
             );
             if (confirmed) {
               const replaceResult = await window.api.folder.replaceWithParent(result.conflict.childFolderIds, path);
@@ -91,7 +94,7 @@ export function LibraryPage() {
   };
 
   const handleScan = async (folderId: string, forceRescan: boolean = false) => {
-    if (forceRescan && !confirm('强制重新扫描将清除当前目录所有索引并重新扫描，确定继续吗？')) {
+    if (forceRescan && !await confirm('强制重新扫描将清除当前目录所有索引并重新扫描，确定继续吗？', { variant: 'warning' })) {
       return;
     }
     setOpenDropdown(null);
@@ -110,7 +113,7 @@ export function LibraryPage() {
   };
 
   const handleRemoveFolder = async (id: string) => {
-    if (confirm('确定要移除此文件夹吗？照片索引将被删除，但原始文件不会被删除。')) {
+    if (await confirm('确定要移除此文件夹吗？照片索引将被删除，但原始文件不会被删除。', { variant: 'danger', confirmText: '删除' })) {
       await window.api.folder.remove(id);
       removeFolder(id);
     }

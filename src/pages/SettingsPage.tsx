@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Database, Trash2, FolderOpen, Info, RefreshCw, FileText, Eye, ExternalLink } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
+import { toast } from '@/stores/toastStore';
+import { confirm } from '@/stores/confirmStore';
 import { cn } from '@/lib/utils';
 
 export function SettingsPage() {
@@ -38,38 +40,38 @@ export function SettingsPage() {
   };
 
   const handleClearThumbnails = async () => {
-    if (!confirm('确定要清除所有缩略图缓存吗？\n下次浏览时会重新生成缩略图。')) {
+    if (!await confirm('确定要清除所有缩略图缓存吗？\n下次浏览时会重新生成缩略图。', { variant: 'warning' })) {
       return;
     }
     setIsClearing(true);
     try {
       await window.api.thumbnail.clear();
-      alert('缩略图缓存已清除');
+      toast('success', '缩略图缓存已清除');
     } catch (error) {
-      alert('清除失败：' + error);
+      toast('error', '清除失败：' + error);
     } finally {
       setIsClearing(false);
     }
   };
 
   const handleClearDatabase = async () => {
-    if (!confirm('确定要清除所有数据吗？\n\n这将删除所有照片记录、文件夹和重复检测结果。\n此操作不可恢复！')) {
+    if (!await confirm('确定要清除所有数据吗？\n\n这将删除所有照片记录、文件夹和重复检测结果。\n此操作不可恢复！', { variant: 'danger', confirmText: '清除' })) {
       return;
     }
-    if (!confirm('再次确认：这将删除数据库中的所有记录，需要重新扫描文件夹。\n\n确定继续吗？')) {
+    if (!await confirm('再次确认：这将删除数据库中的所有记录，需要重新扫描文件夹。\n\n确定继续吗？', { variant: 'danger', confirmText: '确认清除' })) {
       return;
     }
     try {
       const result = await window.api.database.clear();
       if (result.success) {
         await window.api.thumbnail.clear();
-        alert('数据库已清除，请重新添加文件夹并扫描。');
+        toast('success', '数据库已清除，请重新添加文件夹并扫描。');
         loadStats();
       } else {
-        alert('清除失败：' + (result.error || '未知错误'));
+        toast('error', '清除失败：' + (result.error || '未知错误'));
       }
     } catch (error) {
-      alert('清除失败：' + error);
+      toast('error', '清除失败：' + error);
     }
   };
 
@@ -81,31 +83,31 @@ export function SettingsPage() {
   };
 
   const handleSaveDataPath = async () => {
-    if (!confirm('更改数据存储位置后需要重启应用才能生效。\n\n确定要保存吗？')) {
+    if (!await confirm('更改数据存储位置后需要重启应用才能生效。\n\n确定要保存吗？', { variant: 'info' })) {
       return;
     }
     setIsChanging(true);
     try {
       await window.api.config.setDataPath(customPath);
-      alert('设置已保存，请重启应用以使用新的数据存储位置。');
+      toast('success', '设置已保存，请重启应用以使用新的数据存储位置。');
     } catch (error) {
-      alert('保存失败：' + error);
+      toast('error', '保存失败：' + error);
     } finally {
       setIsChanging(false);
     }
   };
 
   const handleResetDataPath = async () => {
-    if (!confirm('确定要恢复默认存储位置吗？\n需要重启应用才能生效。')) {
+    if (!await confirm('确定要恢复默认存储位置吗？\n需要重启应用才能生效。', { variant: 'info' })) {
       return;
     }
     setCustomPath(null);
     setIsChanging(true);
     try {
       await window.api.config.setDataPath(null);
-      alert('已恢复默认设置，请重启应用。');
+      toast('success', '已恢复默认设置，请重启应用。');
     } catch (error) {
-      alert('保存失败：' + error);
+      toast('error', '保存失败：' + error);
     } finally {
       setIsChanging(false);
     }
@@ -123,9 +125,9 @@ export function SettingsPage() {
       await window.api.config.setLogPath(customLogPath);
       const newPath = await window.api.config.getLogPath();
       setLogPath(newPath);
-      alert('日志路径已更新');
+      toast('success', '日志路径已更新');
     } catch (error) {
-      alert('保存失败：' + error);
+      toast('error', '保存失败：' + error);
     }
   };
 
@@ -135,9 +137,9 @@ export function SettingsPage() {
       await window.api.config.setLogPath(null);
       const newPath = await window.api.config.getLogPath();
       setLogPath(newPath);
-      alert('已恢复默认日志路径');
+      toast('success', '已恢复默认日志路径');
     } catch (error) {
-      alert('保存失败：' + error);
+      toast('error', '保存失败：' + error);
     }
   };
 
@@ -169,15 +171,15 @@ export function SettingsPage() {
   };
 
   const handleClearLog = async () => {
-    if (!confirm('确定要清除所有日志吗？')) {
+    if (!await confirm('确定要清除所有日志吗？', { variant: 'warning' })) {
       return;
     }
     try {
       await window.api.log.clear();
       setLogContent('');
-      alert('日志已清除');
+      toast('success', '日志已清除');
     } catch (error) {
-      alert('清除失败：' + error);
+      toast('error', '清除失败：' + error);
     }
   };
 

@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
-import { AlertTriangle, Check, Trash2, Star, MapPin, Calendar, HardDrive, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { AlertTriangle, Check, Trash2, Star, MapPin, Calendar, HardDrive, X, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
+import { toast } from '@/stores/toastStore';
+import { confirm } from '@/stores/confirmStore';
 import { cn } from '@/lib/utils';
 import type { DuplicateGroup, Photo } from '@/types';
 
@@ -10,6 +12,7 @@ export function DuplicatesPage() {
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [originalImages, setOriginalImages] = useState<Record<string, string>>({});
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isDetecting, setIsDetecting] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [currentGroup, setCurrentGroup] = useState<DuplicateGroup | null>(null);
 
@@ -39,6 +42,22 @@ export function DuplicatesPage() {
       loadThumbnails();
     }
   }, [duplicates]);
+
+  const handleRedetect = async () => {
+    if (!await confirm('将重新检测所有照片的重复情况，这可能需要一些时间。确定继续吗？', { variant: 'info', confirmText: '开始检测' })) {
+      return;
+    }
+    setIsDetecting(true);
+    try {
+      await window.api.duplicate.detect(true);
+      await loadDuplicates();
+      toast('success', '重复检测完成');
+    } catch (error) {
+      toast('error', '检测失败：' + error);
+    } finally {
+      setIsDetecting(false);
+    }
+  };
 
   const toggleGroup = (groupId: string) => {
     const newSelected = new Set(selectedGroups);
@@ -71,11 +90,11 @@ export function DuplicatesPage() {
     }
 
     if (toDelete.length === 0) {
-      alert('请先选择要处理的重复组');
+      toast('warning', '请先选择要处理的重复组');
       return;
     }
 
-    if (!confirm(`确定要删除 ${toDelete.length} 张重复照片吗？\n文件将被移动到回收站。`)) {
+    if (!await confirm(`确定要删除 ${toDelete.length} 张重复照片吗？\n文件将被移动到回收站。`, { variant: 'danger', confirmText: '删除' })) {
       return;
     }
 
@@ -123,6 +142,18 @@ export function DuplicatesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleRedetect}
+            disabled={isDetecting}
+            className={cn(
+              'flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors',
+              'bg-zinc-800 hover:bg-zinc-700 text-zinc-300',
+              'disabled:opacity-50 disabled:cursor-not-allowed'
+            )}
+          >
+            <RefreshCw size={16} className={isDetecting ? 'animate-spin' : ''} />
+            {isDetecting ? '检测中...' : '重新检测'}
+          </button>
           <button
             onClick={selectAll}
             className="px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm transition-colors"

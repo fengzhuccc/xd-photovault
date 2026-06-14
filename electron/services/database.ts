@@ -3,6 +3,133 @@ import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import log from 'electron-log';
 
+export interface PhotoRow {
+  id: string;
+  folder_id: string;
+  path: string;
+  filename: string;
+  file_size: number;
+  file_hash: string | null;
+  perceptual_hash: string | null;
+  taken_at: string | null;
+  modified_time: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  camera: string | null;
+  aperture: string | null;
+  shutter_speed: string | null;
+  iso: number | null;
+  focal_length: string | null;
+  width: number | null;
+  height: number | null;
+  thumbnail_path: string | null;
+  image_seed: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface FolderRow {
+  id: string;
+  path: string;
+  added_at: string;
+  last_scanned: string | null;
+  photo_count: number;
+  scan_status: string | null;
+  scan_total: number | null;
+  scan_processed: number | null;
+  scan_last_path: string | null;
+}
+
+interface DuplicateGroupRow {
+  id: string;
+  reason: 'exact' | 'similar';
+  recommended_photo_id: string;
+  created_at: string;
+}
+
+interface PhotoDuplicateRow {
+  photo_id: string;
+  group_id: string;
+}
+
+export interface PhotoInsert {
+  id: string;
+  folderId: string;
+  path: string;
+  filename: string;
+  fileSize: number;
+  fileHash: string;
+  perceptualHash: string;
+  takenAt: string;
+  latitude: number | null;
+  longitude: number | null;
+  camera: string | null;
+  aperture: string | null;
+  shutterSpeed: string | null;
+  iso: number | null;
+  focalLength: string | null;
+  width: number | null;
+  height: number | null;
+  thumbnailPath: string | null;
+  modifiedTime: string;
+}
+
+interface PhotoFilter {
+  folderId?: string;
+  dateStart?: string;
+  dateEnd?: string;
+  hasLocation?: boolean;
+  camera?: string;
+  limit?: number;
+  offset?: number;
+}
+
+interface DuplicateGroupInsert {
+  id: string;
+  reason: 'exact' | 'similar';
+  recommendedPhotoId: string;
+}
+
+interface DuplicateGroupDetail {
+  id: string;
+  reason: 'exact' | 'similar';
+  recommended_photo_id: string;
+  created_at: string;
+  photos: PhotoRow[];
+}
+
+interface ExactDuplicateRow {
+  file_hash: string;
+  photo_ids: string;
+  count: number;
+}
+
+export interface PhotoWithLocationRow {
+  id: string;
+  path: string;
+  filename: string;
+  latitude: number;
+  longitude: number;
+  taken_at: string | null;
+  camera: string | null;
+  width: number | null;
+  height: number | null;
+  file_size: number;
+}
+
+interface CameraRow {
+  camera: string;
+  count: number;
+}
+
+interface SchemaVersionRow {
+  version: number;
+}
+
+interface ColumnInfoRow {
+  name: string;
+}
+
 export class DatabaseService {
   private db!: Database.Database;
   private dbPath: string;
@@ -104,7 +231,7 @@ export class DatabaseService {
   private runMigrations(): void {
     this.db.exec(`CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)`);
 
-    const row = this.db.prepare('SELECT MAX(version) as v FROM schema_version').get() as any;
+    const row = this.db.prepare('SELECT MAX(version) as v FROM schema_version').get() as { v: number | null } | undefined;
     const currentVersion = row?.v || 0;
 
     const migrations: { version: number; up: () => void }[] = [
@@ -112,7 +239,7 @@ export class DatabaseService {
         version: 1,
         up: () => {
           // photos 添加 modified_time 字段
-          const columns = (this.db.prepare('PRAGMA table_info(photos)').all() as any[]).map(c => c.name);
+          const columns = (this.db.prepare('PRAGMA table_info(photos)').all() as ColumnInfoRow[]).map(c => c.name);
           if (!columns.includes('modified_time')) {
             this.db.exec('ALTER TABLE photos ADD COLUMN modified_time DATETIME');
           }
@@ -122,7 +249,7 @@ export class DatabaseService {
         version: 2,
         up: () => {
           // folders 添加扫描状态字段（为后续崩溃恢复做准备）
-          const columns = (this.db.prepare('PRAGMA table_info(folders)').all() as any[]).map(c => c.name);
+          const columns = (this.db.prepare('PRAGMA table_info(folders)').all() as ColumnInfoRow[]).map(c => c.name);
           if (!columns.includes('scan_status')) {
             this.db.exec("ALTER TABLE folders ADD COLUMN scan_status TEXT DEFAULT 'idle'");
           }
@@ -216,14 +343,14 @@ export class DatabaseService {
     transaction();
   }
 
-  getFolders(): any[] {
+  getFolders(): FolderRow[] {
     const stmt = this.db.prepare('SELECT * FROM folders ORDER BY added_at DESC');
-    return stmt.all() as any[];
+    return stmt.all() as FolderRow[];
   }
 
-  getFolderByPath(path: string): any | null {
+  getFolderByPath(path: string): FolderRow | null {
     const stmt = this.db.prepare('SELECT * FROM folders WHERE path = ?');
-    return stmt.get(path) as any | null;
+    return stmt.get(path) as FolderRow | null;
   }
 
   updateFolderScanTime(id: string, photoCount: number): void {
@@ -233,7 +360,7 @@ export class DatabaseService {
     stmt.run(photoCount, id);
   }
 
-  insertPhoto(photo: any): void {
+  insertPhoto(photo: PhotoInsert): void {
     const stmt = this.db.prepare(`
       INSERT OR IGNORE INTO photos (
         id, folder_id, path, filename, file_size, file_hash, perceptual_hash,
@@ -250,8 +377,8 @@ export class DatabaseService {
     );
   }
 
-  insertPhotos(photos: any[]): void {
-    const insert = this.db.transaction((items: any[]) => {
+  insertPhotos(photos: PhotoInsert[]): void {
+    const insert = this.db.transaction((items: PhotoInsert[]) => {
       for (const photo of items) {
         this.insertPhoto(photo);
       }
@@ -259,9 +386,9 @@ export class DatabaseService {
     insert(photos);
   }
 
-  getPhotos(filter: any = {}): any[] {
+  getPhotos(filter: PhotoFilter = {}): PhotoRow[] {
     let sql = 'SELECT * FROM photos WHERE 1=1';
-    const params: any[] = [];
+    const params: (string | number)[] = [];
 
     if (filter.folderId) {
       sql += ' AND folder_id = ?';
@@ -298,16 +425,16 @@ export class DatabaseService {
     }
 
     const stmt = this.db.prepare(sql);
-    return stmt.all(...params) as any[];
+    return stmt.all(...params) as PhotoRow[];
   }
 
-  getPhotosPaged(filter: any = {}): { photos: any[]; total: number; hasMore: boolean } {
+  getPhotosPaged(filter: PhotoFilter = {}): { photos: PhotoRow[]; total: number; hasMore: boolean } {
     const limit = filter.limit || 100;
     const offset = filter.offset || 0;
 
     // 先查总数
     let countSql = 'SELECT COUNT(*) as total FROM photos WHERE 1=1';
-    const countParams: any[] = [];
+    const countParams: (string | number)[] = [];
     if (filter.folderId) {
       countSql += ' AND folder_id = ?';
       countParams.push(filter.folderId);
@@ -330,32 +457,32 @@ export class DatabaseService {
       countSql += ' AND camera = ?';
       countParams.push(filter.camera);
     }
-    const total = (this.db.prepare(countSql).get(...countParams) as any).total;
+    const total = (this.db.prepare(countSql).get(...countParams) as { total: number }).total;
 
     // 查分页数据
     const photos = this.getPhotos({ ...filter, limit, offset });
     return { photos, total, hasMore: offset + photos.length < total };
   }
 
-  getPhotoById(id: string): any | null {
+  getPhotoById(id: string): PhotoRow | null {
     const stmt = this.db.prepare('SELECT * FROM photos WHERE id = ?');
-    return stmt.get(id) as any | null;
+    return stmt.get(id) as PhotoRow | null;
   }
 
-  getPhotoStats(): any {
-    const total = (this.db.prepare('SELECT COUNT(*) as count FROM photos').get() as any).count;
+  getPhotoStats() {
+    const total = (this.db.prepare('SELECT COUNT(*) as count FROM photos').get() as { count: number }).count;
     const withLocation = (this.db.prepare(
       'SELECT COUNT(*) as count FROM photos WHERE latitude IS NOT NULL AND longitude IS NOT NULL'
-    ).get() as any).count;
+    ).get() as { count: number }).count;
     const duplicates = (this.db.prepare(
       'SELECT COUNT(*) as count FROM photo_duplicates'
-    ).get() as any).count;
+    ).get() as { count: number }).count;
     const folders = (this.db.prepare(
       'SELECT COUNT(*) as count FROM folders'
-    ).get() as any).count;
+    ).get() as { count: number }).count;
     const cameras = this.db.prepare(
       'SELECT camera, COUNT(*) as count FROM photos WHERE camera IS NOT NULL GROUP BY camera ORDER BY count DESC LIMIT 10'
-    ).all() as any[];
+    ).all() as CameraRow[];
 
     return {
       total,
@@ -367,17 +494,17 @@ export class DatabaseService {
     };
   }
 
-  findDuplicatesByHash(hash: string): any[] {
+  findDuplicatesByHash(hash: string): PhotoRow[] {
     const stmt = this.db.prepare('SELECT * FROM photos WHERE file_hash = ?');
-    return stmt.all(hash) as any[];
+    return stmt.all(hash) as PhotoRow[];
   }
 
-  findDuplicatesByPHash(phash: string): any[] {
+  findDuplicatesByPHash(phash: string): PhotoRow[] {
     const stmt = this.db.prepare('SELECT * FROM photos WHERE perceptual_hash = ?');
-    return stmt.all(phash) as any[];
+    return stmt.all(phash) as PhotoRow[];
   }
 
-  findExactDuplicates(): { file_hash: string; photo_ids: string; count: number }[] {
+  findExactDuplicates(): ExactDuplicateRow[] {
     const stmt = this.db.prepare(`
       SELECT file_hash, GROUP_CONCAT(id) as photo_ids, COUNT(*) as count
       FROM photos
@@ -385,10 +512,10 @@ export class DatabaseService {
       GROUP BY file_hash
       HAVING COUNT(*) > 1
     `);
-    return stmt.all() as { file_hash: string; photo_ids: string; count: number }[];
+    return stmt.all() as ExactDuplicateRow[];
   }
 
-  findExactDuplicatesByHashes(hashes: string[]): { file_hash: string; photo_ids: string; count: number }[] {
+  findExactDuplicatesByHashes(hashes: string[]): ExactDuplicateRow[] {
     if (hashes.length === 0) return [];
     const placeholders = hashes.map(() => '?').join(',');
     const stmt = this.db.prepare(`
@@ -398,17 +525,17 @@ export class DatabaseService {
       GROUP BY file_hash
       HAVING COUNT(*) > 1
     `);
-    return stmt.all(...hashes) as { file_hash: string; photo_ids: string; count: number }[];
+    return stmt.all(...hashes) as ExactDuplicateRow[];
   }
 
   getPhotoDuplicateGroup(photoId: string): string | null {
     const row = this.db.prepare(
       'SELECT group_id FROM photo_duplicates WHERE photo_id = ?'
-    ).get(photoId) as any;
+    ).get(photoId) as { group_id: string } | undefined;
     return row?.group_id || null;
   }
 
-  insertDuplicateGroup(group: any): void {
+  insertDuplicateGroup(group: DuplicateGroupInsert): void {
     const stmt = this.db.prepare(`
       INSERT INTO duplicate_groups (id, reason, recommended_photo_id) VALUES (?, ?, ?)
     `);
@@ -422,7 +549,7 @@ export class DatabaseService {
     stmt.run(photoId, groupId);
   }
 
-  getDuplicateGroups(): any[] {
+  getDuplicateGroups(): DuplicateGroupDetail[] {
     const groups = this.db.prepare(`
       SELECT dg.*, 
         json_group_array(
@@ -443,7 +570,7 @@ export class DatabaseService {
       JOIN photo_duplicates pd ON dg.id = pd.group_id
       JOIN photos p ON pd.photo_id = p.id
       GROUP BY dg.id
-    `).all() as any[];
+    `).all() as (DuplicateGroupRow & { photos: string })[];
 
     return groups.map(g => ({
       ...g,
@@ -465,7 +592,7 @@ export class DatabaseService {
     for (const g of groups) {
       const remaining = this.db.prepare(
         'SELECT COUNT(*) as count FROM photo_duplicates WHERE group_id = ?'
-      ).get(g.group_id) as any;
+      ).get(g.group_id) as { count: number };
       if (remaining.count <= 1) {
         this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.group_id);
         this.db.prepare('DELETE FROM photo_duplicates WHERE group_id = ?').run(g.group_id);
@@ -489,7 +616,7 @@ export class DatabaseService {
       for (const g of affectedGroupIds) {
         const remaining = this.db.prepare(
           'SELECT COUNT(*) as count FROM photo_duplicates WHERE group_id = ?'
-        ).get(g.group_id) as any;
+        ).get(g.group_id) as { count: number };
         if (remaining.count <= 1) {
           this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.group_id);
           this.db.prepare('DELETE FROM photo_duplicates WHERE group_id = ?').run(g.group_id);
@@ -518,26 +645,26 @@ export class DatabaseService {
     return stmt.all() as { id: string; path: string }[];
   }
 
-  getPhotosByFolder(folderId: string): any[] {
+  getPhotosByFolder(folderId: string): PhotoRow[] {
     const stmt = this.db.prepare('SELECT * FROM photos WHERE folder_id = ?');
-    return stmt.all(folderId) as any[];
+    return stmt.all(folderId) as PhotoRow[];
   }
 
   getAllPhotoIds(): string[] {
-    const rows = this.db.prepare('SELECT id FROM photos').all() as any[];
+    const rows = this.db.prepare('SELECT id FROM photos').all() as { id: string }[];
     return rows.map(r => r.id);
   }
 
-  getPhotoByPath(path: string): any | null {
+  getPhotoByPath(path: string): PhotoRow | null {
     const stmt = this.db.prepare('SELECT * FROM photos WHERE path = ?');
-    return stmt.get(path) as any | null;
+    return stmt.get(path) as PhotoRow | null;
   }
 
-  getPhotosWithLocation(): any[] {
+  getPhotosWithLocation(): PhotoWithLocationRow[] {
     const stmt = this.db.prepare(
       'SELECT id, path, filename, latitude, longitude, taken_at, camera, width, height, file_size FROM photos WHERE latitude IS NOT NULL AND longitude IS NOT NULL'
     );
-    return stmt.all() as any[];
+    return stmt.all() as PhotoWithLocationRow[];
   }
 
   clearDuplicateGroups(): void {
@@ -561,5 +688,18 @@ export class DatabaseService {
       this.db.prepare('DELETE FROM folders').run();
     });
     transaction();
+  }
+
+  getSetting(key: string): string | null {
+    const row = this.db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  setSetting(key: string, value: string): void {
+    this.db.prepare('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)').run(key, value);
+  }
+
+  removeSetting(key: string): void {
+    this.db.prepare('DELETE FROM app_settings WHERE key = ?').run(key);
   }
 }
