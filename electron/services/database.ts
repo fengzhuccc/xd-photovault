@@ -59,7 +59,7 @@ export interface PhotoInsert {
   filename: string;
   fileSize: number;
   fileHash: string;
-  perceptualHash: string;
+  perceptualHash: string | null;
   takenAt: string;
   latitude: number | null;
   longitude: number | null;
@@ -355,9 +355,26 @@ export class DatabaseService {
 
   updateFolderScanTime(id: string, photoCount: number): void {
     const stmt = this.db.prepare(`
-      UPDATE folders SET last_scanned = CURRENT_TIMESTAMP, photo_count = ? WHERE id = ?
+      UPDATE folders SET last_scanned = CURRENT_TIMESTAMP, photo_count = ?, scan_status = 'idle', scan_processed = 0, scan_total = 0, scan_last_path = '' WHERE id = ?
     `);
     stmt.run(photoCount, id);
+  }
+
+  getPhotoCountByFolder(folderId: string): number {
+    const row = this.db.prepare('SELECT COUNT(*) as count FROM photos WHERE folder_id = ?').get(folderId) as { count: number };
+    return row.count;
+  }
+
+  updateFolderScanStatus(id: string, status: string, total: number, processed: number, lastPath: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE folders SET scan_status = ?, scan_total = ?, scan_processed = ?, scan_last_path = ? WHERE id = ?
+    `);
+    stmt.run(status, total, processed, lastPath, id);
+  }
+
+  getInterruptedFolders(): FolderRow[] {
+    const stmt = this.db.prepare("SELECT * FROM folders WHERE scan_status = 'scanning'");
+    return stmt.all() as FolderRow[];
   }
 
   insertPhoto(photo: PhotoInsert): void {
@@ -502,6 +519,18 @@ export class DatabaseService {
   findDuplicatesByPHash(phash: string): PhotoRow[] {
     const stmt = this.db.prepare('SELECT * FROM photos WHERE perceptual_hash = ?');
     return stmt.all(phash) as PhotoRow[];
+  }
+
+  updatePhotoPerceptualHash(id: string, phash: string): void {
+    this.db.prepare('UPDATE photos SET perceptual_hash = ? WHERE id = ?').run(phash, id);
+  }
+
+  getPhotosWithoutPHash(): PhotoRow[] {
+    return this.db.prepare('SELECT * FROM photos WHERE perceptual_hash IS NULL').all() as PhotoRow[];
+  }
+
+  getAllPhotoHashes(): { id: string; perceptual_hash: string | null; path: string }[] {
+    return this.db.prepare('SELECT id, perceptual_hash, path FROM photos').all() as { id: string; perceptual_hash: string | null; path: string }[];
   }
 
   findExactDuplicates(): ExactDuplicateRow[] {

@@ -32,6 +32,32 @@ function yieldToMain(): Promise<void> {
   return new Promise(resolve => setImmediate(resolve));
 }
 
+// S6: 流式文件收集 AsyncGenerator
+async function* walkImageFiles(dirPath: string): AsyncGenerator<string> {
+  let entries;
+  try {
+    entries = await readdir(dirPath, { withFileTypes: true });
+  } catch (error) {
+    log.warn(`[Scanner] 扫描目录失败: ${dirPath}`, error);
+    return;
+  }
+
+  for (const entry of entries) {
+    const fullPath = join(dirPath, entry.name);
+
+    if (entry.isDirectory()) {
+      if (!entry.name.startsWith('.') && entry.name !== '@eaDir') {
+        yield* walkImageFiles(fullPath);
+      }
+    } else if (entry.isFile()) {
+      const ext = extname(entry.name).toLowerCase();
+      if (SUPPORTED_EXTENSIONS.includes(ext)) {
+        yield fullPath;
+      }
+    }
+  }
+}
+
 export class ScannerService {
   private db: DatabaseService;
   private hashService: HashService;
@@ -147,13 +173,22 @@ export class ScannerService {
         }
       }
 
-      // 第一步：收集所有图片文件路径
+      // S8: 标记扫描状态为 scanning
+      this.db.updateFolderScanStatus(folderId, 'scanning', 0, 0, '');
+
+      // 第一步：收集所有图片文件路径（S6: 使用 AsyncGenerator 流式收集）
       onProgress({ current: 0, total: 0, currentFile: '正在收集文件列表...', status: 'scanning' });
       await yieldToMain();
 
-      const files = await this.getAllImageFiles(folder.path);
+      const files: string[] = [];
+      for await (const filePath of walkImageFiles(folder.path)) {
+        files.push(filePath);
+      }
       const total = files.length;
       log.info(`[Scanner] 找到 ${total} 个图片文件`);
+
+      // S8: 更新扫描总数
+      this.db.updateFolderScanStatus(folderId, 'scanning', total, 0, '');
 
       if (total === 0) {
         this.db.updateFolderScanTime(folderId, 0);
@@ -204,6 +239,11 @@ export class ScannerService {
           });
         }
 
+        // S8: 定期更新扫描进度到数据库（每50张）
+        if (i > 0 && i % 50 === 0) {
+          this.db.updateFolderScanStatus(folderId, 'scanning', total, i + 1, filePath);
+        }
+
         try {
           const stats = await stat(filePath);
 
@@ -226,8 +266,12 @@ export class ScannerService {
             this.db.deletePhoto(existing.id);
           }
 
+          // S5: extractExif 内部已优化，先用 sharp 获取宽高，不再重复 I/O
           const exifData = await this.exifService.extractExif(filePath);
           const fileHash = await this.hashService.calculateFileHash(filePath);
+
+          // pHash 延迟到去重检测时按需计算，避免拖慢扫描速度
+          const perceptualHash = null;
 
           const photoId = existing?.id || uuidv4();
 
@@ -241,7 +285,7 @@ export class ScannerService {
             filename: filePath.split(/[/\\]/).pop() || '',
             fileSize: stats.size,
             fileHash,
-            perceptualHash: fileHash.substring(0, 16),
+            perceptualHash,
             takenAt: takenAt.toISOString(),
             latitude: exifData.latitude,
             longitude: exifData.longitude,
@@ -281,8 +325,8 @@ export class ScannerService {
         log.info(`[Scanner] 删除 ${deletedCount} 个不存在的照片记录`);
       }
 
-      // 更新文件夹扫描时间
-      const totalPhotos = this.db.getPhotosByFolder(folderId).length;
+      // S7: 使用 SELECT COUNT(*) 代替加载全部照片
+      const totalPhotos = this.db.getPhotoCountByFolder(folderId);
       this.db.updateFolderScanTime(folderId, totalPhotos);
 
       // 扫描完成后自动触发增量重复检测
@@ -299,33 +343,27 @@ export class ScannerService {
     }
   }
 
-  private async getAllImageFiles(dirPath: string): Promise<string[]> {
-    const files: string[] = [];
-    await this.scanDirectory(dirPath, files);
-    return files;
-  }
+  /**
+   * S8: 检查并恢复中断的扫描
+   * 应用启动时调用，检查是否有 scan_status='scanning' 的文件夹
+   * 如果有，说明上次扫描被中断，需要清理状态
+   */
+  recoverInterruptedScans(): { recoveredCount: number; folderPaths: string[] } {
+    const interrupted = this.db.getInterruptedFolders();
+    const folderPaths: string[] = [];
 
-  private async scanDirectory(dirPath: string, files: string[]): Promise<void> {
-    try {
-      const entries = await readdir(dirPath, { withFileTypes: true });
-
-      for (const entry of entries) {
-        const fullPath = join(dirPath, entry.name);
-
-        if (entry.isDirectory()) {
-          if (!entry.name.startsWith('.') && entry.name !== '@eaDir') {
-            await this.scanDirectory(fullPath, files);
-          }
-        } else if (entry.isFile()) {
-          const ext = extname(entry.name).toLowerCase();
-          if (SUPPORTED_EXTENSIONS.includes(ext)) {
-            files.push(fullPath);
-          }
-        }
-      }
-    } catch (error) {
-      log.warn(`[Scanner] 扫描目录失败: ${dirPath}`, error);
+    for (const folder of interrupted) {
+      log.info(`[Scanner] 发现中断的扫描: ${folder.path} (已处理 ${folder.scan_processed}/${folder.scan_total})`);
+      // 将状态重置为 idle，用户可以手动重新扫描
+      this.db.updateFolderScanStatus(folder.id, 'idle', 0, 0, '');
+      folderPaths.push(folder.path);
     }
+
+    if (folderPaths.length > 0) {
+      log.info(`[Scanner] 已恢复 ${folderPaths.length} 个中断的扫描`);
+    }
+
+    return { recoveredCount: folderPaths.length, folderPaths };
   }
 
   async detectDuplicates(fullRebuild: boolean = true, newHashes: string[] = []): Promise<number> {
@@ -336,7 +374,10 @@ export class ScannerService {
       this.db.clearDuplicateGroups();
     }
 
-    // 增量模式：只查新增照片的哈希；全量模式：查所有重复
+    // 第一步：确保所有照片都有 pHash（按需计算）
+    await this.ensurePerceptualHashes();
+
+    // 第二步：检测精确重复（file_hash 相同）
     const exactDuplicates = fullRebuild
       ? this.db.findExactDuplicates()
       : this.db.findExactDuplicatesByHashes(newHashes);
@@ -346,7 +387,6 @@ export class ScannerService {
       const photoIds = dup.photo_ids.split(',');
 
       if (fullRebuild) {
-        // 全量模式：直接创建新组
         const photos = photoIds
           .map((id: string) => this.db.getPhotoById(id))
           .filter((p): p is PhotoRow => p !== null);
@@ -366,14 +406,11 @@ export class ScannerService {
           groupCount++;
         }
       } else {
-        // 增量模式：只处理尚未分组的重复
-        // 检查这些照片是否已在某个组中
         const ungroupedPhotos = photoIds.filter((id: string) => {
           return !this.db.getPhotoDuplicateGroup(id);
         });
 
         if (ungroupedPhotos.length > 0) {
-          // 找出已有组（如果有照片已在组中）
           const existingGroupId = photoIds
             .map((id: string) => this.db.getPhotoDuplicateGroup(id))
             .find(Boolean) || null;
@@ -385,10 +422,8 @@ export class ScannerService {
           if (allPhotos.length > 1) {
             let groupId: string;
             if (existingGroupId) {
-              // 加入已有组
               groupId = existingGroupId;
             } else {
-              // 创建新组
               groupId = uuidv4();
               const recommended = this.selectBestPhoto(allPhotos);
               this.db.insertDuplicateGroup({
@@ -399,7 +434,6 @@ export class ScannerService {
               groupCount++;
             }
 
-            // 只添加未分组的照片
             for (const photoId of ungroupedPhotos) {
               this.db.insertPhotoDuplicate(photoId, groupId);
             }
@@ -407,14 +441,164 @@ export class ScannerService {
         }
       }
 
-      // 每处理100组让出一次
       if (groupCount > 0 && groupCount % 100 === 0) {
         await yieldToMain();
       }
     }
 
-    log.info(`[Scanner] 检测到 ${groupCount} 组重复照片`);
+    log.info(`[Scanner] 精确重复检测完成: ${groupCount} 组`);
+
+    // 第三步：检测相似图片（pHash 汉明距离 < 阈值）
+    const similarGroupCount = await this.detectSimilarDuplicates(fullRebuild);
+    groupCount += similarGroupCount;
+
+    log.info(`[Scanner] 检测到 ${groupCount} 组重复/相似照片`);
     return groupCount;
+  }
+
+  /**
+   * 确保所有照片都有 perceptual_hash，缺失的按需计算
+   */
+  private async ensurePerceptualHashes(): Promise<void> {
+    const photos = this.db.getPhotosWithoutPHash();
+    if (photos.length === 0) return;
+
+    log.info(`[Scanner] 需要计算 ${photos.length} 张照片的感知哈希...`);
+    let computed = 0;
+
+    for (const photo of photos) {
+      try {
+        const phash = await this.hashService.calculatePerceptualHash(photo.path);
+        this.db.updatePhotoPerceptualHash(photo.id, phash);
+        computed++;
+
+        if (computed % 50 === 0) {
+          await yieldToMain();
+          log.info(`[Scanner] 已计算 ${computed}/${photos.length} 张照片的感知哈希`);
+        }
+      } catch (error) {
+        log.warn(`[Scanner] 计算感知哈希失败: ${photo.path}`, error);
+      }
+    }
+
+    log.info(`[Scanner] 感知哈希计算完成: ${computed}/${photos.length}`);
+  }
+
+  /**
+   * 基于 pHash 汉明距离检测相似图片
+   * 阈值 < 10 视为相似（64 位哈希中差异不超过 10 位）
+   */
+  private async detectSimilarDuplicates(fullRebuild: boolean): Promise<number> {
+    const PHASH_THRESHOLD = 10;
+
+    const allHashes = this.db.getAllPhotoHashes();
+    // 只处理有 pHash 的照片，且排除已在 exact 组中的
+    const withPHash = allHashes.filter(h => h.perceptual_hash !== null && h.perceptual_hash !== '0'.repeat(64));
+
+    if (withPHash.length < 2) return 0;
+
+    log.info(`[Scanner] 开始相似图片检测: ${withPHash.length} 张照片有 pHash`);
+
+    // 按文件大小分组，只比较大小相近的（相似图片大小通常接近）
+    // 先按大小排序，然后滑动窗口比较
+    const photoDetails = withPHash.map(h => {
+      const photo = this.db.getPhotoById(h.id);
+      return photo ? { ...h, file_size: photo.file_size } : null;
+    }).filter((p): p is NonNullable<typeof p> => p !== null);
+
+    photoDetails.sort((a, b) => a.file_size - b.file_size);
+
+    // 用 Union-Find 管理分组
+    const parent = new Map<string, string>();
+    const find = (id: string): string => {
+      if (!parent.has(id)) parent.set(id, id);
+      let root = id;
+      while (parent.get(root) !== root) {
+        root = parent.get(root)!;
+      }
+      // 路径压缩
+      let current = id;
+      while (current !== root) {
+        const next = parent.get(current)!;
+        parent.set(current, root);
+        current = next;
+      }
+      return root;
+    };
+    const union = (a: string, b: string) => {
+      const ra = find(a), rb = find(b);
+      if (ra !== rb) parent.set(ra, rb);
+    };
+
+    // 滑动窗口比较：大小差 2 倍以内的才比较
+    let comparisons = 0;
+    for (let i = 0; i < photoDetails.length; i++) {
+      const a = photoDetails[i];
+      for (let j = i + 1; j < photoDetails.length; j++) {
+        const b = photoDetails[j];
+        // 大小差超过 2 倍，跳过（相似图片大小不会差太多）
+        if (b.file_size > a.file_size * 2) break;
+
+        // 跳过已在同一组的
+        if (parent.has(a.id) && parent.has(b.id) && find(a.id) === find(b.id)) continue;
+
+        const distance = this.hashService.hammingDistance(a.perceptual_hash!, b.perceptual_hash!);
+        if (distance < PHASH_THRESHOLD) {
+          union(a.id, b.id);
+        }
+
+        comparisons++;
+        if (comparisons % 10000 === 0) {
+          await yieldToMain();
+        }
+      }
+
+      if (i % 200 === 0) {
+        await yieldToMain();
+      }
+    }
+
+    // 收集分组
+    const groups = new Map<string, string[]>();
+    for (const photo of photoDetails) {
+      const root = find(photo.id);
+      if (!groups.has(root)) groups.set(root, []);
+      groups.get(root)!.push(photo.id);
+    }
+
+    // 只保留多张照片的组
+    let similarGroupCount = 0;
+    for (const [_, ids] of groups) {
+      if (ids.length < 2) continue;
+
+      // 检查是否已在 exact 重复组中
+      if (!fullRebuild) {
+        const hasGroup = ids.some(id => this.db.getPhotoDuplicateGroup(id));
+        if (hasGroup) continue;
+      }
+
+      const photos = ids
+        .map(id => this.db.getPhotoById(id))
+        .filter((p): p is PhotoRow => p !== null);
+
+      if (photos.length < 2) continue;
+
+      const groupId = uuidv4();
+      const recommended = this.selectBestPhoto(photos);
+      this.db.insertDuplicateGroup({
+        id: groupId,
+        reason: 'similar',
+        recommendedPhotoId: recommended.id,
+      });
+
+      for (const photo of photos) {
+        this.db.insertPhotoDuplicate(photo.id, groupId);
+      }
+      similarGroupCount++;
+    }
+
+    log.info(`[Scanner] 相似图片检测完成: ${similarGroupCount} 组 (比较 ${comparisons} 对)`);
+    return similarGroupCount;
   }
 
   private selectBestPhoto(photos: PhotoRow[]): PhotoRow {

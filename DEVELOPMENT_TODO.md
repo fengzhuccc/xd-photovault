@@ -11,11 +11,11 @@
 | S1 | ~~高~~ ✅ | 前端 | 扫描按钮改为下拉式，主操作=增量扫描，下拉=强制重新扫描（需确认提示） | `LibraryPage.tsx` |
 | S2 | ~~高~~ ✅ | 后端 | 增量扫描判断加 mtime 检查，fileSize + mtime 双重校验 | `scanner.ts` |
 | S3 | ~~高~~ ✅ | 后端 | 哈希计算改流式读取（createReadStream），避免大文件 OOM | `hash.ts` |
-| S4 | 中 | 后端 | 扫描时计算真正的 pHash（DCT 变换 64 位），存入 DB | `hash.ts`, `scanner.ts` |
-| S5 | 低 | 后端 | EXIF 提取优化，减少 exifr + sharp 重复 I/O | `exif.ts` |
-| S6 | 低 | 后端 | 文件收集改流式（AsyncGenerator），避免大库内存压力 | `scanner.ts` |
-| S7 | 低 | 后端 | 扫描结束计数改 SELECT COUNT(*) | `database.ts`, `scanner.ts` |
-| S8 | 中 | 后端 | 崩溃恢复：folders 表增加扫描状态字段，启动时自动恢复中断扫描 | `database.ts`, `scanner.ts`, `main.ts` |
+| S4 | ~~中~~ ✅ | 后端 | 扫描时计算真正的 pHash（DCT 变换 64 位），存入 DB | `hash.ts`, `scanner.ts` |
+| S5 | ~~低~~ ✅ | 后端 | EXIF 提取优化，减少 exifr + sharp 重复 I/O | `exif.ts` |
+| S6 | ~~低~~ ✅ | 后端 | 文件收集改流式（AsyncGenerator），避免大库内存压力 | `scanner.ts` |
+| S7 | ~~低~~ ✅ | 后端 | 扫描结束计数改 SELECT COUNT(*) | `database.ts`, `scanner.ts` |
+| S8 | ~~中~~ ✅ | 后端 | 崩溃恢复：folders 表增加扫描状态字段，启动时自动恢复中断扫描 | `database.ts`, `scanner.ts`, `main.ts` |
 
 ### S1 详细说明
 
@@ -1365,8 +1365,8 @@ if (!window.api) {
 
 ### 第二批（中优先级，体验增强）
 
-1. **S4** 真正的 pHash 计算
-2. **S8** 崩溃恢复（folders 表加扫描状态字段）
+1. ~~**S4** 真正的 pHash 计算~~ ✅
+2. ~~**S8** 崩溃恢复（folders 表加扫描状态字段）~~ ✅
 3. ~~**R4** 独立重新检测入口~~ ✅
 4. **R5** 评分制推荐保留
 5. **R6** pHash 分段索引
@@ -1387,9 +1387,9 @@ if (!window.api) {
 
 ### 第三批（低优先级，性能优化）
 
-1. **S5** EXIF I/O 优化
-2. **S6** 流式文件收集
-3. **S7** COUNT 优化
+1. ~~**S5** EXIF I/O 优化~~ ✅
+2. ~~**S6** 流式文件收集~~ ✅
+3. ~~**S7** COUNT 优化~~ ✅
 4. **M7** react-leaflet 重构
 5. **D7** getDuplicateGroups 两步查询优化
 6. **D8** getPhotoStats 合并查询

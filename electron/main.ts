@@ -86,6 +86,12 @@ async function initializeServices() {
   
   scanner = new ScannerService(db, hashService, exifService, thumbnailService);
   
+  // S8: 检查并恢复中断的扫描
+  const recovery = scanner.recoverInterruptedScans();
+  if (recovery.recoveredCount > 0) {
+    log.info(`[Main] 恢复了 ${recovery.recoveredCount} 个中断的扫描: ${recovery.folderPaths.join(', ')}`);
+  }
+  
   setupIpcHandlers();
   log.info('All services initialized');
 }

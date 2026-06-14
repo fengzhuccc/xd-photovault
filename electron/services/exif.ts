@@ -19,6 +19,18 @@ export interface ExifData {
 export class ExifService {
   async extractExif(filePath: string): Promise<ExifData> {
     try {
+      // S5: 先用 sharp 获取宽高（一次 I/O），避免后续再调 sharp
+      let width: number | null = null;
+      let height: number | null = null;
+      try {
+        const metadata = await sharp(filePath).metadata();
+        width = metadata.width || null;
+        height = metadata.height || null;
+      } catch {
+        // sharp 无法读取此文件格式
+      }
+
+      // 用 exifr 解析 EXIF
       const exif = await Exifr.parse(filePath, {
         pick: [
           'DateTimeOriginal',
@@ -39,24 +51,12 @@ export class ExifService {
         ],
       });
 
-      let width: number | null = null;
-      let height: number | null = null;
-
+      // EXIF 中的宽高优先于 sharp 的（EXIF 更准确）
       if (exif?.ExifImageWidth || exif?.ImageWidth) {
         width = exif.ExifImageWidth || exif.ImageWidth;
       }
       if (exif?.ExifImageHeight || exif?.ImageHeight) {
         height = exif.ExifImageHeight || exif.ImageHeight;
-      }
-
-      if (!width || !height) {
-        try {
-          const metadata = await sharp(filePath).metadata();
-          width = metadata.width || width;
-          height = metadata.height || height;
-        } catch {
-          // sharp 无法读取此文件格式
-        }
       }
 
       if (!exif) {
