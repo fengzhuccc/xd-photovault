@@ -341,8 +341,8 @@ setOriginalImages({});
 
 | 编号 | 优先级 | 前后端 | 事项 | 涉及文件 |
 |------|--------|--------|------|----------|
-| R1 | 高 | 后端 | 重复检测从扫描流程解耦，扫描只入库，检测独立运行 | `scanner.ts`, `main.ts` |
-| R2 | 高 | 后端 | 精确重复改 SQL 聚合查询（GROUP BY file_hash HAVING COUNT>1），支持跨文件夹 | `database.ts` |
+| R1 | ~~高~~ ✅ | 后端 | 重复检测从扫描流程解耦，扫描只入库，检测独立运行 | `scanner.ts`, `main.ts` |
+| R2 | ~~高~~ ✅ | 后端 | 精确重复改 SQL 聚合查询（GROUP BY file_hash HAVING COUNT>1），支持跨文件夹 | `database.ts` |
 | R3 | 高 | 后端 | 重复组增量更新：新增只检查新照片，删除从组中移除，组内仅1张时删组 | `database.ts`, `scanner.ts` |
 | R4 | 中 | 前端 | 独立"重新检测重复"入口 | `LibraryPage.tsx` 或 `DuplicatesPage.tsx` |
 | R5 | 中 | 后端 | 推荐保留改评分制（GPS +100、文件大小对数、分辨率、文件名规范性） | `scanner.ts` |
