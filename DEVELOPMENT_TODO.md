@@ -128,7 +128,7 @@ ALTER TABLE folders ADD COLUMN scan_last_path TEXT DEFAULT '';
 
 | 编号 | 优先级 | 前后端 | 事项 | 涉及文件 |
 |------|--------|--------|------|----------|
-| D1 | 高 | 后端 | INSERT OR REPLACE → INSERT OR IGNORE，防止 folder_id 被静默篡改 | `database.ts` |
+| D1 | ~~高~~ ✅ | 后端 | INSERT OR REPLACE → INSERT OR IGNORE，防止 folder_id 被静默篡改 | `database.ts` |
 | D2 | 中 | 后端 | 已删除文件清理改批量事务删除（DELETE WHERE id IN） | `database.ts`, `scanner.ts` |
 | D3 | 高 | 后端 | Schema Migration 机制：版本号管理 + ALTER TABLE 原地升级 | `database.ts` |
 | D4 | 中 | 后端 | 返回类型安全：全部 any 改为具体类型 | `database.ts`, `types/index.ts` |
