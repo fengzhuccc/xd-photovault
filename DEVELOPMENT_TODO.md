@@ -636,8 +636,8 @@ WHERE latitude BETWEEN ? AND ?
 
 | 编号 | 优先级 | 前后端 | 事项 | 涉及文件 |
 |------|--------|--------|------|----------|
-| E1 | 高 | 前后端 | 日期编辑双写：更新数据库 + 写回图片 EXIF | `BrowsePage.tsx`, `database.ts`, `main.ts`, `preload.ts` |
-| E2 | 高 | 前后端 | 位置编辑双写：当前只改数据库，需补上写回图片 EXIF GPS 字段 | `database.ts`, `main.ts` |
+| E1 | ~~高~~ ✅ | 前后端 | 日期编辑双写：更新数据库 + 写回图片 EXIF | `BrowsePage.tsx`, `database.ts`, `main.ts`, `preload.ts` |
+| E2 | ~~高~~ ✅ | 前后端 | 位置编辑双写：当前只改数据库，需补上写回图片 EXIF GPS 字段 | `database.ts`, `main.ts` |
 
 ### E1 详细说明
 
