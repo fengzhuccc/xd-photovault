@@ -45,7 +45,30 @@ export function LibraryPage() {
       const path = await window.api.dialog.openFolder();
       if (path) {
         const result = await window.api.folder.add(path);
-        if (result.isNew) {
+
+        if (result.conflict) {
+          if (result.conflict.type === 'child') {
+            alert(`该文件夹已被包含在 "${result.conflict.childFolderPaths[0]}" 中，无需重复添加。`);
+          } else if (result.conflict.type === 'parent') {
+            const folderList = result.conflict.childFolderPaths.join('、');
+            const confirmed = confirm(
+              `该文件夹包含已有的 ${result.conflict.childFolderPaths.length} 个子文件夹：\n${folderList}\n\n是否用父目录替换所有子目录？替换后子目录的索引将被删除，父目录将重新扫描。`
+            );
+            if (confirmed) {
+              const replaceResult = await window.api.folder.replaceWithParent(result.conflict.childFolderIds, path);
+              for (const childId of result.conflict.childFolderIds) {
+                removeFolder(childId);
+              }
+              addFolder({
+                id: replaceResult.id,
+                path: replaceResult.path,
+                added_at: new Date().toISOString(),
+                last_scanned: null,
+                photo_count: 0,
+              });
+            }
+          }
+        } else if (result.isNew) {
           addFolder({
             id: result.id,
             path: result.path,
@@ -191,7 +214,7 @@ export function LibraryPage() {
           folders.map((folder) => (
             <div
               key={folder.id}
-              className="p-4 bg-zinc-900 rounded-xl border border-zinc-800 hover:border-zinc-700 transition-colors"
+              className="relative p-4 bg-zinc-900 rounded-xl border border-zinc-800 hover:border-zinc-700 transition-colors"
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1 min-w-0">

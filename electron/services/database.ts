@@ -110,6 +110,23 @@ export class DatabaseService {
   }
 
   removeFolder(id: string): void {
+    const deletePhotoDuplicates = this.db.prepare(`
+      DELETE FROM photo_duplicates WHERE photo_id IN (
+        SELECT id FROM photos WHERE folder_id = ?
+      )
+    `);
+    deletePhotoDuplicates.run(id);
+
+    const deleteDuplicateGroups = this.db.prepare(`
+      DELETE FROM duplicate_groups WHERE recommended_photo_id IN (
+        SELECT id FROM photos WHERE folder_id = ?
+      )
+    `);
+    deleteDuplicateGroups.run(id);
+
+    const deletePhotos = this.db.prepare('DELETE FROM photos WHERE folder_id = ?');
+    deletePhotos.run(id);
+
     const stmt = this.db.prepare('DELETE FROM folders WHERE id = ?');
     stmt.run(id);
   }

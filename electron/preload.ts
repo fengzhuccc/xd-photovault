@@ -19,6 +19,7 @@ export const api = {
     add: (path: string) => ipcRenderer.invoke('folder:add', path),
     remove: (id: string) => ipcRenderer.invoke('folder:remove', id),
     getAll: () => ipcRenderer.invoke('folder:getAll'),
+    replaceWithParent: (childFolderIds: string[], parentPath: string) => ipcRenderer.invoke('folder:replaceWithParent', childFolderIds, parentPath),
   },
   
   scan: {

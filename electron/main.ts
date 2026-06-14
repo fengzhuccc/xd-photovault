@@ -153,8 +153,17 @@ function setupIpcHandlers() {
     return await scanner.addFolder(path);
   });
 
+  ipcMain.handle('folder:replaceWithParent', async (_event, childFolderIds: string[], parentPath: string) => {
+    return await scanner.replaceWithParentFolder(childFolderIds, parentPath);
+  });
+
   ipcMain.handle('folder:remove', async (_event, id: string) => {
-    return await db.removeFolder(id);
+    // 先清理缩略图，再删除数据库记录
+    const photos = db.getPhotosByFolder(id);
+    if (photos.length > 0) {
+      thumbnailService.deleteThumbnailsByPhotoIds(photos.map((p: any) => p.id));
+    }
+    db.removeFolder(id);
   });
 
   ipcMain.handle('folder:getAll', async () => {

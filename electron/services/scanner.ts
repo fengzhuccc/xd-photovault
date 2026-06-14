@@ -55,16 +55,65 @@ export class ScannerService {
     return this.scanning;
   }
 
-  async addFolder(path: string): Promise<{ id: string; path: string; isNew: boolean }> {
+  async addFolder(path: string): Promise<{ id: string; path: string; isNew: boolean; conflict?: { type: 'child' | 'parent'; childFolderIds: string[]; childFolderPaths: string[] } }> {
     const existing = this.db.getFolderByPath(path);
     if (existing) {
       return { id: existing.id, path: existing.path, isNew: false };
+    }
+
+    // 嵌套校验
+    const normalizedPath = path.replace(/\\/g, '/').replace(/\/+$/, '');
+    const folders = this.db.getFolders();
+    const childFolderIds: string[] = [];
+    const childFolderPaths: string[] = [];
+
+    for (const folder of folders) {
+      const normalizedExisting = folder.path.replace(/\\/g, '/').replace(/\/+$/, '');
+
+      // 新路径是已有文件夹的子目录
+      if (normalizedPath.startsWith(normalizedExisting + '/')) {
+        return {
+          id: '', path, isNew: false,
+          conflict: { type: 'child', childFolderIds: [folder.id], childFolderPaths: [folder.path] },
+        };
+      }
+
+      // 新路径是已有文件夹的父目录，收集所有子目录
+      if (normalizedExisting.startsWith(normalizedPath + '/')) {
+        childFolderIds.push(folder.id);
+        childFolderPaths.push(folder.path);
+      }
+    }
+
+    if (childFolderIds.length > 0) {
+      return {
+        id: '', path, isNew: false,
+        conflict: { type: 'parent', childFolderIds, childFolderPaths },
+      };
     }
 
     const id = uuidv4();
     this.db.addFolder(id, path);
     log.info(`[Scanner] 添加文件夹: ${path}`);
     return { id, path, isNew: true };
+  }
+
+  async replaceWithParentFolder(childFolderIds: string[], parentPath: string): Promise<{ id: string; path: string }> {
+    // 删除所有子目录的缩略图和数据库记录
+    for (const childFolderId of childFolderIds) {
+      const childPhotos = this.db.getPhotosByFolder(childFolderId);
+      if (childPhotos.length > 0) {
+        this.thumbnailService.deleteThumbnailsByPhotoIds(childPhotos.map((p: any) => p.id));
+      }
+      this.db.deletePhotosByFolder(childFolderId);
+      this.db.removeFolder(childFolderId);
+    }
+
+    // 添加父目录
+    const id = uuidv4();
+    this.db.addFolder(id, parentPath);
+    log.info(`[Scanner] 替换文件夹: ${parentPath} 替换子目录`);
+    return { id, path: parentPath };
   }
 
   async startScan(
