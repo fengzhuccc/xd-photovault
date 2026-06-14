@@ -195,9 +195,6 @@ export function LibraryPage() {
             {scanResult.skipped !== undefined && scanResult.skipped > 0 && (
               <span>跳过 {scanResult.skipped} 张</span>
             )}
-            {scanResult.duplicates !== undefined && scanResult.duplicates > 0 && (
-              <span className="text-amber-400">重复 {scanResult.duplicates} 组</span>
-            )}
             {scanResult.deletedCount !== undefined && scanResult.deletedCount > 0 && (
               <span className="text-red-400">删除 {scanResult.deletedCount} 张</span>
             )}

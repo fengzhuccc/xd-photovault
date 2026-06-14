@@ -120,7 +120,7 @@ export class ScannerService {
     folderId: string,
     onProgress: (progress: ScanProgress) => void,
     forceRescan: boolean = false
-  ): Promise<{ totalPhotos: number; duplicates: number; skipped: number }> {
+  ): Promise<{ totalPhotos: number; skipped: number }> {
     if (this.scanning) {
       throw new Error('扫描正在进行中');
     }
@@ -158,7 +158,7 @@ export class ScannerService {
       if (total === 0) {
         this.db.updateFolderScanTime(folderId, 0);
         onProgress({ current: 0, total: 0, currentFile: '', status: 'complete' });
-        return { totalPhotos: 0, duplicates: 0, skipped: 0 };
+        return { totalPhotos: 0, skipped: 0 };
       }
 
       // 第二步：获取已有照片，用于增量扫描和ID复用（强制重新扫描时不需要）
@@ -177,8 +177,6 @@ export class ScannerService {
 
       // 第三步：分批处理文件
       const newPhotos: any[] = [];
-      const hashMap = new Map<string, string[]>();
-      let duplicates = 0;
       let skipped = 0;
       let newCount = 0;
 
@@ -216,16 +214,6 @@ export class ScannerService {
             // 文件大小和修改时间均相同，未修改，跳过
             skipped++;
             existingPathMap.delete(filePath);
-
-            // 仍然加入hash map用于重复检测
-            if (existing.fileHash) {
-              if (!hashMap.has(existing.fileHash)) {
-                hashMap.set(existing.fileHash, [filePath]);
-              } else {
-                hashMap.get(existing.fileHash)!.push(filePath);
-                duplicates++;
-              }
-            }
             continue;
           }
 
@@ -239,13 +227,6 @@ export class ScannerService {
 
           const exifData = await this.exifService.extractExif(filePath);
           const fileHash = await this.hashService.calculateFileHash(filePath);
-
-          if (hashMap.has(fileHash)) {
-            hashMap.get(fileHash)!.push(filePath);
-            duplicates++;
-          } else {
-            hashMap.set(fileHash, [filePath]);
-          }
 
           const photoId = existing?.id || uuidv4();
 
@@ -304,15 +285,10 @@ export class ScannerService {
       const totalPhotos = this.db.getPhotosByFolder(folderId).length;
       this.db.updateFolderScanTime(folderId, totalPhotos);
 
-      // 重复检测
-      onProgress({ current: total, total, currentFile: '正在检测重复照片...', status: 'hashing' });
-      await yieldToMain();
-      await this.detectDuplicates(hashMap);
+      log.info(`[Scanner] 扫描完成: 总计 ${totalPhotos} 张, 新增 ${newCount} 张, 跳过 ${skipped} 张, 删除 ${deletedCount} 张`);
+      onProgress({ current: total, total, currentFile: '', status: 'complete', newCount, skipped, deletedCount });
 
-      log.info(`[Scanner] 扫描完成: 总计 ${totalPhotos} 张, 新增 ${newCount} 张, 跳过 ${skipped} 张, 重复 ${duplicates} 组, 删除 ${deletedCount} 张`);
-      onProgress({ current: total, total, currentFile: '', status: 'complete', newCount, skipped, duplicates, deletedCount });
-
-      return { totalPhotos, duplicates, skipped };
+      return { totalPhotos, skipped };
     } finally {
       this.scanning = false;
     }
@@ -347,39 +323,45 @@ export class ScannerService {
     }
   }
 
-  private async detectDuplicates(hashMap: Map<string, string[]>): Promise<void> {
+  async detectDuplicates(): Promise<number> {
+    log.info('[Scanner] 开始检测重复照片...');
+
     // 清除旧的重复记录
     this.db.clearDuplicateGroups();
 
-    let count = 0;
-    for (const [hash, paths] of hashMap) {
-      if (paths.length > 1) {
+    // 使用 SQL 聚合查询找出所有精确重复（跨文件夹）
+    const exactDuplicates = this.db.findExactDuplicates() as { file_hash: string; photo_ids: string; count: number }[];
+
+    let groupCount = 0;
+    for (const dup of exactDuplicates) {
+      const photoIds = dup.photo_ids.split(',');
+      const photos = photoIds
+        .map((id: string) => this.db.getPhotoById(id))
+        .filter(Boolean);
+
+      if (photos.length > 1) {
         const groupId = uuidv4();
-        const photos = paths
-          .map(p => this.db.getPhotoByPath(p))
-          .filter(Boolean);
+        const recommended = this.selectBestPhoto(photos);
+        this.db.insertDuplicateGroup({
+          id: groupId,
+          reason: 'exact',
+          recommendedPhotoId: recommended.id,
+        });
 
-        if (photos.length > 1) {
-          const recommended = this.selectBestPhoto(photos);
-          this.db.insertDuplicateGroup({
-            id: groupId,
-            reason: 'exact',
-            recommendedPhotoId: recommended.id,
-          });
-
-          for (const photo of photos) {
-            this.db.insertPhotoDuplicate(photo.id, groupId);
-          }
-          count++;
+        for (const photo of photos) {
+          this.db.insertPhotoDuplicate(photo.id, groupId);
         }
+        groupCount++;
       }
 
       // 每处理100组让出一次
-      if (count > 0 && count % 100 === 0) {
+      if (groupCount > 0 && groupCount % 100 === 0) {
         await yieldToMain();
       }
     }
-    log.info(`[Scanner] 检测到 ${count} 组重复照片`);
+
+    log.info(`[Scanner] 检测到 ${groupCount} 组重复照片`);
+    return groupCount;
   }
 
   private selectBestPhoto(photos: any[]): any {

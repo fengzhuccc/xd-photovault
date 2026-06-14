@@ -335,6 +335,17 @@ export class DatabaseService {
     return stmt.all(phash) as any[];
   }
 
+  findExactDuplicates(): { file_hash: string; photo_ids: string; count: number }[] {
+    const stmt = this.db.prepare(`
+      SELECT file_hash, GROUP_CONCAT(id) as photo_ids, COUNT(*) as count
+      FROM photos
+      WHERE file_hash IS NOT NULL
+      GROUP BY file_hash
+      HAVING COUNT(*) > 1
+    `);
+    return stmt.all() as { file_hash: string; photo_ids: string; count: number }[];
+  }
+
   insertDuplicateGroup(group: any): void {
     const stmt = this.db.prepare(`
       INSERT INTO duplicate_groups (id, reason, recommended_photo_id) VALUES (?, ?, ?)
