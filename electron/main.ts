@@ -71,10 +71,7 @@ function createWindow() {
 async function initializeServices() {
   configService = new ConfigService();
   
-  const dataPath = configService.getDataPath();
-  log.info('Using data path:', dataPath);
-  
-  db = new DatabaseService(dataPath);
+  db = new DatabaseService(configService);
   await db.initialize();
   
   // 将数据库注入 ConfigService，使 logPath 等配置从数据库读取
@@ -82,6 +79,8 @@ async function initializeServices() {
   
   hashService = new HashService();
   exifService = new ExifService();
+  const dataPath = configService.getDataPath();
+  log.info('Using data path:', dataPath);
   thumbnailService = new ThumbnailService(dataPath);
   
   scanner = new ScannerService(db, hashService, exifService, thumbnailService);

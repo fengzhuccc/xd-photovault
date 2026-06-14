@@ -1039,8 +1039,8 @@ function detectLanguage(): string {
 | 编号 | 优先级 | 前后端 | 事项 | 涉及文件 |
 |------|--------|--------|------|----------|
 | G1 | ~~中~~ ✅ | 后端 | 新建 app_settings 表，除 dataPath 外的配置统一存入数据库 | `database.ts`, `config.ts`, `main.ts` |
-| G2 | 中 | 前端 | 删除主题功能相关代码 | `useTheme.ts`, `appStore.ts`, `Sidebar.tsx` |
-| G3 | 低 | 后端 | DatabaseService 改用 ConfigService.getDataPath() | `database.ts`, `main.ts` |
+| G2 | ~~中~~ ✅ | 前端 | 删除主题功能相关代码 | `useTheme.ts`, `appStore.ts`, `Sidebar.tsx` |
+| G3 | ~~低~~ ✅ | 后端 | DatabaseService 改用 ConfigService.getDataPath() | `database.ts`, `main.ts` |
 
 ### G1 详细说明
 
@@ -1120,7 +1120,7 @@ const databaseService = new DatabaseService(dataPath);
 
 | 编号 | 优先级 | 前后端 | 事项 | 涉及文件 |
 |------|--------|--------|------|----------|
-| C1 | 低 | 前端 | mockApi 死代码：删除或改造为 Web 模式 fallback | `mockApi.ts`, `main.tsx` |
+| C1 | ~~低~~ ✅ | 前端 | mockApi 死代码：删除或改造为 Web 模式 fallback | `mockApi.ts`, `main.tsx` |
 
 ---
 

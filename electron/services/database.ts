@@ -134,21 +134,20 @@ export class DatabaseService {
   private db!: Database.Database;
   private dbPath: string;
 
-  constructor(userDataPath: string) {
-    log.info('DatabaseService constructor - userDataPath:', userDataPath);
-    const dataDir = join(userDataPath, 'data');
-    log.info('DatabaseService constructor - dataDir:', dataDir);
+  constructor(configService: { getDataPath: () => string }) {
+    const dataPath = configService.getDataPath();
+    log.info('DatabaseService constructor - dataPath:', dataPath);
     
     try {
-      if (!existsSync(dataDir)) {
-        mkdirSync(dataDir, { recursive: true });
+      if (!existsSync(dataPath)) {
+        mkdirSync(dataPath, { recursive: true });
         log.info('DatabaseService - Created data directory');
       }
     } catch (error) {
       log.error('DatabaseService - Failed to create data directory:', error);
     }
     
-    this.dbPath = join(dataDir, 'photovault.db');
+    this.dbPath = join(dataPath, 'photovault.db');
     log.info('DatabaseService constructor - dbPath:', this.dbPath);
   }
 
