@@ -187,6 +187,10 @@ function setupIpcHandlers() {
     return await db.getPhotos(filter);
   });
 
+  ipcMain.handle('photo:getPage', async (_event, filter) => {
+    return db.getPhotosPaged(filter);
+  });
+
   ipcMain.handle('photo:getById', async (_event, id: string) => {
     return await db.getPhotoById(id);
   });
@@ -208,7 +212,29 @@ function setupIpcHandlers() {
   });
 
   ipcMain.handle('photo:updateLocation', async (_event, id: string, lat: number, lng: number) => {
-    return await db.updatePhotoLocation(id, lat, lng);
+    // 先获取照片路径用于 EXIF 写入
+    const photo = db.getPhotoById(id);
+    if (!photo) throw new Error('照片不存在');
+    // 先尝试写 EXIF，失败则只更新数据库
+    try {
+      await exifService.writeLocation(photo.path, lat, lng);
+    } catch (e) {
+      log.warn('[photo:updateLocation] EXIF 写入失败，仅更新数据库:', e);
+    }
+    db.updatePhotoLocation(id, lat, lng);
+    return { success: true };
+  });
+
+  ipcMain.handle('photo:updateDate', async (_event, id: string, date: string) => {
+    const photo = db.getPhotoById(id);
+    if (!photo) throw new Error('照片不存在');
+    try {
+      await exifService.writeDate(photo.path, new Date(date));
+    } catch (e) {
+      log.warn('[photo:updateDate] EXIF 写入失败，仅更新数据库:', e);
+    }
+    db.updatePhotoDate(id, date);
+    return { success: true };
   });
 
   ipcMain.handle('photo:delete', async (_event, photoIds: string[]) => {

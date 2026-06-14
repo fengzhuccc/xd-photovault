@@ -1,5 +1,7 @@
 import Exifr from 'exifr';
 import sharp from 'sharp';
+import { exiftool } from 'exiftool-vendored';
+import log from 'electron-log';
 
 export interface ExifData {
   takenAt: Date | null;
@@ -126,5 +128,35 @@ export class ExifService {
     }
 
     return decimal;
+  }
+
+  async writeDate(filePath: string, date: Date): Promise<void> {
+    try {
+      // exiftool-vendored 要求 DateTimeOriginal 为字符串格式
+      const dateStr = date.toISOString().replace('Z', '');
+      await exiftool.write(filePath, {
+        DateTimeOriginal: dateStr,
+        CreateDate: dateStr,
+      });
+      log.info(`[ExifService] 写入日期成功: ${filePath}`);
+    } catch (error) {
+      log.error(`[ExifService] 写入日期失败: ${filePath}`, error);
+      throw error;
+    }
+  }
+
+  async writeLocation(filePath: string, lat: number, lng: number): Promise<void> {
+    try {
+      await exiftool.write(filePath, {
+        GPSLatitude: lat,
+        GPSLatitudeRef: lat >= 0 ? 'N' : 'S',
+        GPSLongitude: lng,
+        GPSLongitudeRef: lng >= 0 ? 'E' : 'W',
+      });
+      log.info(`[ExifService] 写入位置成功: ${filePath}`);
+    } catch (error) {
+      log.error(`[ExifService] 写入位置失败: ${filePath}`, error);
+      throw error;
+    }
   }
 }

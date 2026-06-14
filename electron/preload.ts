@@ -34,10 +34,13 @@ export const api = {
   
   photo: {
     getAll: (filter?: PhotoFilter) => ipcRenderer.invoke('photo:getAll', filter),
+    getPage: (filter?: PhotoFilter) => ipcRenderer.invoke('photo:getPage', filter),
     getById: (id: string) => ipcRenderer.invoke('photo:getById', id),
     getStats: () => ipcRenderer.invoke('photo:getStats'),
     updateLocation: (id: string, lat: number, lng: number) => 
       ipcRenderer.invoke('photo:updateLocation', id, lat, lng),
+    updateDate: (id: string, date: string) =>
+      ipcRenderer.invoke('photo:updateDate', id, date),
     delete: (photoIds: string[]) => ipcRenderer.invoke('photo:delete', photoIds),
     getWithLocation: () => ipcRenderer.invoke('photo:getWithLocation'),
   },

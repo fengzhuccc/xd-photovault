@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Filter, Grid3X3, Calendar, MapPin, Camera, X, ChevronLeft, ChevronRight, Clock, Pencil, Check, MapPinned, Trash2, CheckCircle2, Circle } from 'lucide-react';
+import { Filter, Grid3X3, Calendar, MapPin, Camera, X, ChevronLeft, ChevronRight, Clock, Pencil, Check, MapPinned, Trash2, CheckCircle2, Circle, Loader2 } from 'lucide-react';
+import { VirtuosoGrid } from 'react-virtuoso';
 import { useAppStore } from '@/stores/appStore';
 import { cn } from '@/lib/utils';
 import type { Photo, PhotoDetail } from '@/types';
@@ -9,8 +10,10 @@ export function BrowsePage() {
   const navigate = useNavigate();
   const { 
     photos, 
-    stats, 
-    loadPhotos, 
+    photosTotal,
+    photosHasMore,
+    stats,
+    loadPhotosPage,
     loadStats, 
     currentFilter, 
     setCurrentFilter,
@@ -31,13 +34,14 @@ export function BrowsePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [loadingMore, setLoadingMore] = useState(false);
   const loadVersionRef = useRef(0);
   const prevPhotoIdsRef = useRef<string>('');
 
   useEffect(() => {
-    loadPhotos({});
+    loadPhotosPage({});
     loadStats();
-  }, [loadPhotos, loadStats]);
+  }, [loadPhotosPage, loadStats]);
 
   useEffect(() => {
     // 计算 photos ID 摘要，用于检测 photos 是否真正变化
@@ -137,10 +141,20 @@ export function BrowsePage() {
     setPhotoDetail(detail);
   };
 
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !photosHasMore) return;
+    setLoadingMore(true);
+    try {
+      await loadPhotosPage(currentFilter, true);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, photosHasMore, loadPhotosPage, currentFilter]);
+
   const handleFilterChange = (key: string, value: any) => {
     const newFilter = { ...currentFilter, [key]: value };
     setCurrentFilter(newFilter);
-    loadPhotos(newFilter);
+    loadPhotosPage(newFilter);
   };
 
   const formatDate = (dateStr: string | null) => {
@@ -163,9 +177,12 @@ export function BrowsePage() {
     setIsSaving(true);
     try {
       const newDate = new Date(editDateValue).toISOString();
+      await window.api.photo.updateDate(selectedPhoto.id, newDate);
       const updatedPhoto = { ...selectedPhoto, taken_at: newDate };
       setSelectedPhoto(updatedPhoto);
       setEditingDate(false);
+    } catch (e) {
+      alert('保存日期失败：' + String(e));
     } finally {
       setIsSaving(false);
     }
@@ -185,6 +202,8 @@ export function BrowsePage() {
       const updatedPhoto = { ...selectedPhoto, latitude: lat, longitude: lng };
       setSelectedPhoto(updatedPhoto);
       setEditingLocation(false);
+    } catch (e) {
+      alert('保存位置失败：' + String(e));
     } finally {
       setIsSaving(false);
     }
@@ -212,7 +231,7 @@ export function BrowsePage() {
       const newOriginalImages = { ...get().originalImages };
       delete newOriginalImages[selectedPhoto.id];
       setOriginalImages(newOriginalImages);
-      loadPhotos(currentFilter);
+      loadPhotosPage(currentFilter);
       loadStats();
     } catch (error) {
       alert('删除失败：' + error);
@@ -264,7 +283,7 @@ export function BrowsePage() {
       setOriginalImages(newOriginalImages);
       setSelectedIds(new Set());
       setSelectMode(false);
-      loadPhotos(currentFilter);
+      loadPhotosPage(currentFilter);
       loadStats();
     } catch (error) {
       alert('删除失败：' + error);
@@ -304,13 +323,6 @@ export function BrowsePage() {
     return groups;
   }, [photos]);
 
-  const scrollToGroup = (key: string) => {
-    const element = document.getElementById(`group-${key}`);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  };
-
   return (
     <div className="h-full flex">
       <div className="flex-1 flex flex-col min-w-0">
@@ -318,7 +330,7 @@ export function BrowsePage() {
           <div>
             <h1 className="text-2xl font-bold text-zinc-100 mb-1">浏览照片</h1>
             <p className="text-sm text-zinc-400">
-              共 {stats?.total.toLocaleString() || 0} 张照片
+              共 {photosTotal.toLocaleString()} 张照片
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -393,75 +405,81 @@ export function BrowsePage() {
               <p className="text-sm mt-1">请先在照片库中添加并扫描文件夹</p>
             </div>
           ) : (
-            <div className="space-y-6">
-              {groupedPhotos.map((group) => (
-                <div key={group.key} id={`group-${group.key}`}>
-                  <div className="flex items-center gap-3 mb-3 sticky top-0 z-10 bg-zinc-950/90 backdrop-blur-sm py-2">
-                    <div className="flex items-center gap-2 text-amber-500">
-                      <Clock size={16} />
-                      <span className="font-medium">{group.label}</span>
-                    </div>
-                    <span className="text-sm text-zinc-500">{group.photos.length} 张</span>
-                    <div className="flex-1 h-px bg-zinc-800" />
+            <VirtuosoGrid
+              data={photos}
+              endReached={loadMore}
+              overscan={200}
+              components={{
+                List: React.forwardRef(({ style, children, ...props }: any, ref) => (
+                  <div
+                    ref={ref}
+                    style={style}
+                    {...props}
+                    className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-1 p-1"
+                  >
+                    {children}
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-1">
-                    {group.photos.map((photo) => {
-                      const isSelected = selectedIds.has(photo.id);
-                      return (
-                        <div
-                          key={photo.id}
-                          onClick={() => {
-                            if (selectMode) {
-                              toggleSelect(photo.id);
-                            } else {
-                              handleSelectPhoto(photo);
-                            }
-                          }}
-                          className={cn(
-                            'aspect-square cursor-pointer group relative overflow-hidden rounded-lg bg-zinc-800',
-                            selectMode && isSelected && 'ring-2 ring-amber-500 ring-offset-1 ring-offset-zinc-950'
-                          )}
-                        >
-                          {thumbnails[photo.id] ? (
-                            <img
-                              src={thumbnails[photo.id]}
-                              alt={photo.filename}
-                              className={cn(
-                                'w-full h-full object-cover transition-transform duration-200',
-                                !selectMode && 'group-hover:scale-105',
-                                selectMode && isSelected && 'opacity-80'
-                              )}
-                              loading="lazy"
-                            />
-                          ) : (
-                            <div className="w-full h-full bg-zinc-800 animate-pulse flex items-center justify-center">
-                              <div className="w-8 h-8 rounded bg-zinc-700/50" />
-                            </div>
-                          )}
-                          {selectMode && (
-                            <div className="absolute top-2 right-2 z-10">
-                              {isSelected ? (
-                                <CheckCircle2 size={24} className="text-amber-500 drop-shadow-lg" />
-                              ) : (
-                                <Circle size={24} className="text-white/60 drop-shadow-lg" />
-                              )}
-                            </div>
-                          )}
-                          {!selectMode && (
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                              <div className="absolute bottom-0 left-0 right-0 p-2">
-                                <p className="text-xs text-white truncate">{photo.filename}</p>
-                                <p className="text-xs text-zinc-400">{formatDate(photo.taken_at)}</p>
-                              </div>
-                            </div>
-                          )}
+                )),
+                Item: ({ children }) => <div>{children}</div>,
+                Footer: () => loadingMore ? (
+                  <div className="col-span-full flex justify-center py-4">
+                    <Loader2 className="w-6 h-6 text-amber-500 animate-spin" />
+                  </div>
+                ) : null,
+              }}
+              itemContent={(index, photo) => {
+                const isSelected = selectedIds.has(photo.id);
+                return (
+                  <div
+                    onClick={() => {
+                      if (selectMode) {
+                        toggleSelect(photo.id);
+                      } else {
+                        handleSelectPhoto(photo);
+                      }
+                    }}
+                    className={cn(
+                      'aspect-square cursor-pointer group relative overflow-hidden rounded-lg bg-zinc-800',
+                      selectMode && isSelected && 'ring-2 ring-amber-500 ring-offset-1 ring-offset-zinc-950'
+                    )}
+                  >
+                    {thumbnails[photo.id] ? (
+                      <img
+                        src={thumbnails[photo.id]}
+                        alt={photo.filename}
+                        className={cn(
+                          'w-full h-full object-cover transition-transform duration-200',
+                          !selectMode && 'group-hover:scale-105',
+                          selectMode && isSelected && 'opacity-80'
+                        )}
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-zinc-800 animate-pulse flex items-center justify-center">
+                        <div className="w-8 h-8 rounded bg-zinc-700/50" />
+                      </div>
+                    )}
+                    {selectMode && (
+                      <div className="absolute top-2 right-2 z-10">
+                        {isSelected ? (
+                          <CheckCircle2 size={24} className="text-amber-500 drop-shadow-lg" />
+                        ) : (
+                          <Circle size={24} className="text-white/60 drop-shadow-lg" />
+                        )}
+                      </div>
+                    )}
+                    {!selectMode && (
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="absolute bottom-0 left-0 right-0 p-2">
+                          <p className="text-xs text-white truncate">{photo.filename}</p>
+                          <p className="text-xs text-zinc-400">{formatDate(photo.taken_at)}</p>
                         </div>
-                      );
-                    })}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
-            </div>
+                );
+              }}
+            />
           )}
         </div>
 
@@ -519,7 +537,6 @@ export function BrowsePage() {
           {groupedPhotos.map((group, index) => (
             <button
               key={group.key}
-              onClick={() => scrollToGroup(group.key)}
               className={cn(
                 'w-full text-left px-3 py-2 rounded-lg text-sm transition-colors',
                 index === 0

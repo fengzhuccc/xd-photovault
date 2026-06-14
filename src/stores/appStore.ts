@@ -4,6 +4,8 @@ import type { Folder, Photo, PhotoStats, DuplicateGroup, ScanProgress, PhotoFilt
 interface AppState {
   folders: Folder[];
   photos: Photo[];
+  photosTotal: number;
+  photosHasMore: boolean;
   stats: PhotoStats | null;
   duplicates: DuplicateGroup[];
   scanProgress: ScanProgress | null;
@@ -38,12 +40,15 @@ interface AppState {
   loadFolders: () => Promise<void>;
   loadStats: () => Promise<void>;
   loadPhotos: (filter?: PhotoFilter) => Promise<void>;
+  loadPhotosPage: (filter?: PhotoFilter, append?: boolean) => Promise<{ hasMore: boolean; total: number } | undefined>;
   loadDuplicates: () => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
   folders: [],
   photos: [],
+  photosTotal: 0,
+  photosHasMore: true,
   stats: null,
   duplicates: [],
   scanProgress: null,
@@ -131,10 +136,29 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     set({
       photos,
+      photosTotal: photos.length,
+      photosHasMore: false,
       currentFilter,
       ...(thumbnailsChanged ? { thumbnails: newThumbnails } : {}),
       ...(originalsChanged ? { originalImages: newOriginalImages } : {}),
     });
+  },
+
+  loadPhotosPage: async (filter, append = false) => {
+    const currentFilter = filter || get().currentFilter;
+    const offset = append ? get().photos.length : 0;
+    const result = await window.api.photo.getPage({ ...currentFilter, limit: 100, offset });
+    const existingIds = new Set(get().photos.map(p => p.id));
+    const newPhotos = append
+      ? [...get().photos, ...result.photos.filter((p: Photo) => !existingIds.has(p.id))]
+      : result.photos;
+    set({
+      photos: newPhotos,
+      photosTotal: result.total,
+      photosHasMore: result.hasMore,
+      currentFilter,
+    });
+    return { hasMore: result.hasMore, total: result.total };
   },
 
   loadDuplicates: async () => {

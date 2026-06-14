@@ -11,7 +11,7 @@ export function LibraryPage() {
     isScanning,
     loadFolders,
     loadStats,
-    loadPhotos,
+    loadPhotosPage,
     addFolder,
     removeFolder,
     setScanProgress,
@@ -38,13 +38,13 @@ export function LibraryPage() {
         // 扫描完成后清空缩略图缓存，强制重新加载
         setThumbnails({});
         setOriginalImages({});
-        loadPhotos({});
+        loadPhotosPage({});
         loadFolders();
         loadStats();
       }
     });
     return () => { unsubscribe(); };
-  }, [setScanProgress, setIsScanning, setThumbnails, setOriginalImages, loadPhotos, loadFolders, loadStats]);
+  }, [setScanProgress, setIsScanning, setThumbnails, setOriginalImages, loadPhotosPage, loadFolders, loadStats]);
 
   const handleAddFolder = async () => {
     setIsAddingFolder(true);

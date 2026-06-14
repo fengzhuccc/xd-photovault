@@ -303,6 +303,42 @@ export class DatabaseService {
     return stmt.all(...params) as any[];
   }
 
+  getPhotosPaged(filter: any = {}): { photos: any[]; total: number; hasMore: boolean } {
+    const limit = filter.limit || 100;
+    const offset = filter.offset || 0;
+
+    // 先查总数
+    let countSql = 'SELECT COUNT(*) as total FROM photos WHERE 1=1';
+    const countParams: any[] = [];
+    if (filter.folderId) {
+      countSql += ' AND folder_id = ?';
+      countParams.push(filter.folderId);
+    }
+    if (filter.dateStart) {
+      countSql += ' AND taken_at >= ?';
+      countParams.push(filter.dateStart);
+    }
+    if (filter.dateEnd) {
+      countSql += ' AND taken_at <= ?';
+      countParams.push(filter.dateEnd);
+    }
+    if (filter.hasLocation === true) {
+      countSql += ' AND latitude IS NOT NULL AND longitude IS NOT NULL';
+    }
+    if (filter.hasLocation === false) {
+      countSql += ' AND (latitude IS NULL OR longitude IS NULL)';
+    }
+    if (filter.camera) {
+      countSql += ' AND camera = ?';
+      countParams.push(filter.camera);
+    }
+    const total = (this.db.prepare(countSql).get(...countParams) as any).total;
+
+    // 查分页数据
+    const photos = this.getPhotos({ ...filter, limit, offset });
+    return { photos, total, hasMore: offset + photos.length < total };
+  }
+
   getPhotoById(id: string): any | null {
     const stmt = this.db.prepare('SELECT * FROM photos WHERE id = ?');
     return stmt.get(id) as any | null;
@@ -352,6 +388,19 @@ export class DatabaseService {
       HAVING COUNT(*) > 1
     `);
     return stmt.all() as { file_hash: string; photo_ids: string; count: number }[];
+  }
+
+  findExactDuplicatesByHashes(hashes: string[]): { file_hash: string; photo_ids: string; count: number }[] {
+    if (hashes.length === 0) return [];
+    const placeholders = hashes.map(() => '?').join(',');
+    const stmt = this.db.prepare(`
+      SELECT file_hash, GROUP_CONCAT(id) as photo_ids, COUNT(*) as count
+      FROM photos
+      WHERE file_hash IN (${placeholders})
+      GROUP BY file_hash
+      HAVING COUNT(*) > 1
+    `);
+    return stmt.all(...hashes) as { file_hash: string; photo_ids: string; count: number }[];
   }
 
   getPhotoDuplicateGroup(photoId: string): string | null {
@@ -431,6 +480,13 @@ export class DatabaseService {
       UPDATE photos SET latitude = ?, longitude = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
     `);
     stmt.run(lat, lng, id);
+  }
+
+  updatePhotoDate(id: string, date: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE photos SET taken_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+    `);
+    stmt.run(date, id);
   }
 
   getAllPhotoPaths(): { id: string; path: string }[] {
