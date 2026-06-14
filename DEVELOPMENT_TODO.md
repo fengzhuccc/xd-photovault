@@ -301,8 +301,8 @@ cameras 查询（GROUP BY）单独保留。
 
 | 编号 | 优先级 | 前后端 | 事项 | 涉及文件 |
 |------|--------|--------|------|----------|
-| T1 | 高 | 后端 | getThumbnail() 加源文件 mtime 校验，源文件更新时重新生成 | `thumbnail.ts` |
-| T2 | 高 | 前端 | 重新扫描后清空 Zustand thumbnails 缓存 | `appStore.ts`, `LibraryPage.tsx` |
+| T1 | ~~高~~ ✅ | 后端 | getThumbnail() 加源文件 mtime 校验，源文件更新时重新生成 | `thumbnail.ts` |
+| T2 | ~~高~~ ✅ | 前端 | 重新扫描后清空 Zustand thumbnails 缓存 | `appStore.ts`, `LibraryPage.tsx` |
 
 ### T1 详细说明
 
