@@ -158,12 +158,15 @@ function setupIpcHandlers() {
   });
 
   ipcMain.handle('folder:remove', async (_event, id: string) => {
-    // 先清理缩略图，再删除数据库记录
+    // 先获取照片列表用于清理缩略图，再删除数据库记录
     const photos = db.getPhotosByFolder(id);
+    db.removeFolder(id);
+    // 数据库删除后再清理缩略图文件
     if (photos.length > 0) {
       thumbnailService.deleteThumbnailsByPhotoIds(photos.map((p: any) => p.id));
     }
-    db.removeFolder(id);
+    // 清理孤立的缩略图文件（数据库中已无对应照片的）
+    thumbnailService.cleanOrphanThumbnails(db);
   });
 
   ipcMain.handle('folder:getAll', async () => {

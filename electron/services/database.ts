@@ -402,6 +402,11 @@ export class DatabaseService {
     return stmt.all(folderId) as any[];
   }
 
+  getAllPhotoIds(): string[] {
+    const rows = this.db.prepare('SELECT id FROM photos').all() as any[];
+    return rows.map(r => r.id);
+  }
+
   getPhotoByPath(path: string): any | null {
     const stmt = this.db.prepare('SELECT * FROM photos WHERE path = ?');
     return stmt.get(path) as any | null;
