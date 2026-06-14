@@ -169,7 +169,7 @@ export class DatabaseService {
 
   insertPhoto(photo: any): void {
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO photos (
+      INSERT OR IGNORE INTO photos (
         id, folder_id, path, filename, file_size, file_hash, perceptual_hash,
         taken_at, latitude, longitude, camera, aperture, shutter_speed,
         iso, focal_length, width, height, thumbnail_path, modified_time

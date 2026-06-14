@@ -231,6 +231,12 @@ export class ScannerService {
 
           // 新文件或已修改的文件，需要完整处理
           newCount++;
+
+          // 如果是已修改的文件（existing存在但mtime/size不同），先删除旧记录
+          if (existing) {
+            this.db.deletePhoto(existing.id);
+          }
+
           const exifData = await this.exifService.extractExif(filePath);
           const fileHash = await this.hashService.calculateFileHash(filePath);
 
