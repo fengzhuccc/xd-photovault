@@ -170,52 +170,50 @@ export class DatabaseService {
   }
 
   removeFolder(id: string): void {
-    // 先找出包含该文件夹照片的重复组（必须在删 photo_duplicates 之前查）
-    const affectedGroupIds = this.db.prepare(`
-      SELECT DISTINCT pd.group_id FROM photo_duplicates pd
-      JOIN photos p ON pd.photo_id = p.id
-      WHERE p.folder_id = ?
-    `).all(id) as { group_id: string }[];
+    const transaction = this.db.transaction(() => {
+      // 先找出包含该文件夹照片的重复组（必须在删 photo_duplicates 之前查）
+      const affectedGroupIds = this.db.prepare(`
+        SELECT DISTINCT pd.group_id FROM photo_duplicates pd
+        JOIN photos p ON pd.photo_id = p.id
+        WHERE p.folder_id = ?
+      `).all(id) as { group_id: string }[];
 
-    // 删除该文件夹照片的 photo_duplicates 关联
-    const deletePhotoDuplicates = this.db.prepare(`
-      DELETE FROM photo_duplicates WHERE photo_id IN (
-        SELECT id FROM photos WHERE folder_id = ?
-      )
-    `);
-    deletePhotoDuplicates.run(id);
+      // 删除该文件夹照片的 photo_duplicates 关联
+      this.db.prepare(`
+        DELETE FROM photo_duplicates WHERE photo_id IN (
+          SELECT id FROM photos WHERE folder_id = ?
+        )
+      `).run(id);
 
-    // 删除受影响的重复组
-    for (const g of affectedGroupIds) {
-      this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.group_id);
-      // 删除组内其他照片的关联
-      this.db.prepare('DELETE FROM photo_duplicates WHERE group_id = ?').run(g.group_id);
-    }
+      // 删除受影响的重复组
+      for (const g of affectedGroupIds) {
+        this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.group_id);
+        this.db.prepare('DELETE FROM photo_duplicates WHERE group_id = ?').run(g.group_id);
+      }
 
-    const deletePhotos = this.db.prepare('DELETE FROM photos WHERE folder_id = ?');
-    deletePhotos.run(id);
-
-    const stmt = this.db.prepare('DELETE FROM folders WHERE id = ?');
-    stmt.run(id);
+      this.db.prepare('DELETE FROM photos WHERE folder_id = ?').run(id);
+      this.db.prepare('DELETE FROM folders WHERE id = ?').run(id);
+    });
+    transaction();
   }
 
   deletePhotosByFolder(folderId: string): void {
-    const deletePhotoDuplicates = this.db.prepare(`
-      DELETE FROM photo_duplicates WHERE photo_id IN (
-        SELECT id FROM photos WHERE folder_id = ?
-      )
-    `);
-    deletePhotoDuplicates.run(folderId);
+    const transaction = this.db.transaction(() => {
+      this.db.prepare(`
+        DELETE FROM photo_duplicates WHERE photo_id IN (
+          SELECT id FROM photos WHERE folder_id = ?
+        )
+      `).run(folderId);
 
-    const deleteDuplicateGroups = this.db.prepare(`
-      DELETE FROM duplicate_groups WHERE id NOT IN (
-        SELECT DISTINCT group_id FROM photo_duplicates
-      )
-    `);
-    deleteDuplicateGroups.run();
+      this.db.prepare(`
+        DELETE FROM duplicate_groups WHERE id NOT IN (
+          SELECT DISTINCT group_id FROM photo_duplicates
+        )
+      `).run();
 
-    const deletePhotos = this.db.prepare('DELETE FROM photos WHERE folder_id = ?');
-    deletePhotos.run(folderId);
+      this.db.prepare('DELETE FROM photos WHERE folder_id = ?').run(folderId);
+    });
+    transaction();
   }
 
   getFolders(): any[] {
@@ -475,6 +473,32 @@ export class DatabaseService {
     }
   }
 
+  deletePhotosBatch(ids: string[]): void {
+    if (ids.length === 0) return;
+    const transaction = this.db.transaction(() => {
+      // 找到这些照片所在的所有重复组
+      const placeholders = ids.map(() => '?').join(',');
+      const affectedGroupIds = this.db.prepare(`
+        SELECT DISTINCT group_id FROM photo_duplicates WHERE photo_id IN (${placeholders})
+      `).all(...ids) as { group_id: string }[];
+
+      // 批量删除照片（CASCADE 会清理 photo_duplicates）
+      this.db.prepare(`DELETE FROM photos WHERE id IN (${placeholders})`).run(...ids);
+
+      // 清理空重复组
+      for (const g of affectedGroupIds) {
+        const remaining = this.db.prepare(
+          'SELECT COUNT(*) as count FROM photo_duplicates WHERE group_id = ?'
+        ).get(g.group_id) as any;
+        if (remaining.count <= 1) {
+          this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.group_id);
+          this.db.prepare('DELETE FROM photo_duplicates WHERE group_id = ?').run(g.group_id);
+        }
+      }
+    });
+    transaction();
+  }
+
   updatePhotoLocation(id: string, lat: number, lng: number): void {
     const stmt = this.db.prepare(`
       UPDATE photos SET latitude = ?, longitude = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
@@ -517,8 +541,11 @@ export class DatabaseService {
   }
 
   clearDuplicateGroups(): void {
-    this.db.prepare('DELETE FROM photo_duplicates').run();
-    this.db.prepare('DELETE FROM duplicate_groups').run();
+    const transaction = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM photo_duplicates').run();
+      this.db.prepare('DELETE FROM duplicate_groups').run();
+    });
+    transaction();
   }
 
   updatePhotoThumbnail(id: string, thumbnailPath: string): void {

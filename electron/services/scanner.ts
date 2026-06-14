@@ -177,6 +177,7 @@ export class ScannerService {
 
       // 第三步：分批处理文件
       const newPhotos: any[] = [];
+      const newHashes: string[] = [];
       let skipped = 0;
       let newCount = 0;
 
@@ -254,6 +255,7 @@ export class ScannerService {
             thumbnailPath: null, // 延迟生成
             modifiedTime: stats.mtime.toISOString(),
           });
+          newHashes.push(fileHash);
 
           existingPathMap.delete(filePath);
         } catch (error) {
@@ -275,9 +277,7 @@ export class ScannerService {
       }
       if (deletedIds.length > 0) {
         this.thumbnailService.deleteThumbnailsByPhotoIds(deletedIds);
-        for (const id of deletedIds) {
-          this.db.deletePhoto(id);
-        }
+        this.db.deletePhotosBatch(deletedIds);
         log.info(`[Scanner] 删除 ${deletedCount} 个不存在的照片记录`);
       }
 
@@ -287,7 +287,7 @@ export class ScannerService {
 
       // 扫描完成后自动触发增量重复检测
       if (newCount > 0 || deletedCount > 0) {
-        await this.detectDuplicates(false);
+        await this.detectDuplicates(false, newHashes);
       }
 
       log.info(`[Scanner] 扫描完成: 总计 ${totalPhotos} 张, 新增 ${newCount} 张, 跳过 ${skipped} 张, 删除 ${deletedCount} 张`);
@@ -328,16 +328,18 @@ export class ScannerService {
     }
   }
 
-  async detectDuplicates(fullRebuild: boolean = true): Promise<number> {
-    log.info(`[Scanner] 开始检测重复照片 (fullRebuild=${fullRebuild})...`);
+  async detectDuplicates(fullRebuild: boolean = true, newHashes: string[] = []): Promise<number> {
+    log.info(`[Scanner] 开始检测重复照片 (fullRebuild=${fullRebuild}, newHashes=${newHashes.length})...`);
 
     if (fullRebuild) {
       // 全量重建：清除所有旧重复组
       this.db.clearDuplicateGroups();
     }
 
-    // 使用 SQL 聚合查询找出所有精确重复（跨文件夹）
-    const exactDuplicates = this.db.findExactDuplicates() as { file_hash: string; photo_ids: string; count: number }[];
+    // 增量模式：只查新增照片的哈希；全量模式：查所有重复
+    const exactDuplicates = fullRebuild
+      ? this.db.findExactDuplicates()
+      : this.db.findExactDuplicatesByHashes(newHashes);
 
     let groupCount = 0;
     for (const dup of exactDuplicates) {
