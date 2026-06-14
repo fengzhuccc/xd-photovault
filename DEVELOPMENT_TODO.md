@@ -1371,10 +1371,10 @@ if (!window.api) {
 4. **R5** 评分制推荐保留
 5. **R6** pHash 分段索引
 6. **R7** Worker 后台运行
-7. **D2** 批量事务删除
+7. ~~**D2** 批量事务删除~~ ✅
 8. **D4** 返回类型安全（any → 具体类型）
-9. **D5** 事务修复（deletePhotosByFolder/clearDuplicateGroups）
-10. **D6** deletePhoto 后清理空重复组
+9. ~~**D5** 事务修复（deletePhotosByFolder/clearDuplicateGroups）~~ ✅
+10. ~~**D6** deletePhoto 后清理空重复组~~ ✅
 11. **M4** 地图视口按需加载
 12. **M5** 时间轴筛选
 13. **M6** 无GPS照片管理
