@@ -104,8 +104,8 @@ ALTER TABLE folders ADD COLUMN scan_last_path TEXT DEFAULT '';
 
 | 编号 | 优先级 | 前后端 | 事项 | 涉及文件 |
 |------|--------|--------|------|----------|
-| F1 | 高 | 后端 | 添加文件夹时校验嵌套：子目录直接拒绝，父目录提示替换 | `scanner.ts`, `main.ts` |
-| F2 | 高 | 前端 | 嵌套校验提示 UI（拒绝提示框 / 替换确认框） | `LibraryPage.tsx` |
+| F1 | ~~高~~ ✅ | 后端 | 添加文件夹时校验嵌套：子目录直接拒绝，父目录提示替换 | `scanner.ts`, `main.ts` |
+| F2 | ~~高~~ ✅ | 前端 | 嵌套校验提示 UI（拒绝提示框 / 替换确认框） | `LibraryPage.tsx` |
 
 ### F1 详细说明
 
