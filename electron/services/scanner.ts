@@ -329,13 +329,17 @@ export class ScannerService {
       const totalPhotos = this.db.getPhotoCountByFolder(folderId);
       this.db.updateFolderScanTime(folderId, totalPhotos);
 
-      // 扫描完成后自动触发增量重复检测
-      if (newCount > 0 || deletedCount > 0) {
-        await this.detectDuplicates(false, newHashes);
-      }
-
+      // 先发送扫描完成事件，再去重检测（去重可能耗时较长，不应阻塞完成通知）
       log.info(`[Scanner] 扫描完成: 总计 ${totalPhotos} 张, 新增 ${newCount} 张, 跳过 ${skipped} 张, 删除 ${deletedCount} 张`);
       onProgress({ current: total, total, currentFile: '', status: 'complete', newCount, skipped, deletedCount });
+
+      // 扫描完成后异步触发增量重复检测
+      if (newCount > 0 || deletedCount > 0) {
+        // 不 await，让去重检测在后台执行
+        this.detectDuplicates(false, newHashes).catch(err => {
+          log.error('[Scanner] 后台去重检测失败:', err);
+        });
+      }
 
       return { totalPhotos, skipped };
     } finally {
