@@ -39,6 +39,7 @@ export class DatabaseService {
   }
 
   private createTables(): void {
+    // 先创建基础表（首次安装）
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS folders (
         id TEXT PRIMARY KEY,
@@ -67,7 +68,6 @@ export class DatabaseService {
         width INTEGER,
         height INTEGER,
         thumbnail_path TEXT,
-        modified_time DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE
@@ -97,10 +97,70 @@ export class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_photos_camera ON photos(camera);
     `);
 
-    // 兼容已有数据库：添加新字段
-    const columns = (this.db.prepare("PRAGMA table_info(photos)").all() as any[]).map(c => c.name);
-    if (!columns.includes('modified_time')) {
-      this.db.exec('ALTER TABLE photos ADD COLUMN modified_time DATETIME');
+    // 运行 schema migrations
+    this.runMigrations();
+  }
+
+  private runMigrations(): void {
+    this.db.exec(`CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)`);
+
+    const row = this.db.prepare('SELECT MAX(version) as v FROM schema_version').get() as any;
+    const currentVersion = row?.v || 0;
+
+    const migrations: { version: number; up: () => void }[] = [
+      {
+        version: 1,
+        up: () => {
+          // photos 添加 modified_time 字段
+          const columns = (this.db.prepare('PRAGMA table_info(photos)').all() as any[]).map(c => c.name);
+          if (!columns.includes('modified_time')) {
+            this.db.exec('ALTER TABLE photos ADD COLUMN modified_time DATETIME');
+          }
+        },
+      },
+      {
+        version: 2,
+        up: () => {
+          // folders 添加扫描状态字段（为后续崩溃恢复做准备）
+          const columns = (this.db.prepare('PRAGMA table_info(folders)').all() as any[]).map(c => c.name);
+          if (!columns.includes('scan_status')) {
+            this.db.exec("ALTER TABLE folders ADD COLUMN scan_status TEXT DEFAULT 'idle'");
+          }
+          if (!columns.includes('scan_total')) {
+            this.db.exec('ALTER TABLE folders ADD COLUMN scan_total INTEGER DEFAULT 0');
+          }
+          if (!columns.includes('scan_processed')) {
+            this.db.exec('ALTER TABLE folders ADD COLUMN scan_processed INTEGER DEFAULT 0');
+          }
+          if (!columns.includes('scan_last_path')) {
+            this.db.exec("ALTER TABLE folders ADD COLUMN scan_last_path TEXT DEFAULT ''");
+          }
+        },
+      },
+      {
+        version: 3,
+        up: () => {
+          // app_settings 表（为后续地图设置、语言设置做准备）
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS app_settings (
+              key TEXT PRIMARY KEY,
+              value TEXT
+            )
+          `);
+        },
+      },
+    ];
+
+    const pending = migrations.filter(m => m.version > currentVersion);
+    if (pending.length > 0) {
+      log.info(`[DB] Running ${pending.length} schema migrations (from v${currentVersion} to v${pending[pending.length - 1].version})`);
+      for (const m of pending) {
+        this.db.transaction(() => {
+          m.up();
+          this.db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(m.version);
+        })();
+        log.info(`[DB] Migration v${m.version} applied`);
+      }
     }
   }
 
