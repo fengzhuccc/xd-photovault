@@ -487,26 +487,26 @@ export class DatabaseService {
   }
 
   getPhotoStats() {
-    const total = (this.db.prepare('SELECT COUNT(*) as count FROM photos').get() as { count: number }).count;
-    const withLocation = (this.db.prepare(
-      'SELECT COUNT(*) as count FROM photos WHERE latitude IS NOT NULL AND longitude IS NOT NULL'
-    ).get() as { count: number }).count;
-    const duplicates = (this.db.prepare(
-      'SELECT COUNT(*) as count FROM photo_duplicates'
-    ).get() as { count: number }).count;
-    const folders = (this.db.prepare(
-      'SELECT COUNT(*) as count FROM folders'
-    ).get() as { count: number }).count;
+    // D8: 合并为1条查询，减少数据库访问次数
+    const stats = this.db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN latitude IS NOT NULL AND longitude IS NOT NULL THEN 1 ELSE 0 END) as with_location,
+        (SELECT COUNT(*) FROM photo_duplicates) as duplicates,
+        (SELECT COUNT(*) FROM folders) as folders
+      FROM photos
+    `).get() as { total: number; with_location: number; duplicates: number; folders: number };
+
     const cameras = this.db.prepare(
       'SELECT camera, COUNT(*) as count FROM photos WHERE camera IS NOT NULL GROUP BY camera ORDER BY count DESC LIMIT 10'
     ).all() as CameraRow[];
 
     return {
-      total,
-      withLocation,
-      withoutLocation: total - withLocation,
-      duplicates,
-      folders,
+      total: stats.total,
+      withLocation: stats.with_location,
+      withoutLocation: stats.total - stats.with_location,
+      duplicates: stats.duplicates,
+      folders: stats.folders,
       cameras,
     };
   }
@@ -579,31 +579,35 @@ export class DatabaseService {
   }
 
   getDuplicateGroups(): DuplicateGroupDetail[] {
+    // D7: 两步查询替代 json_group_array，避免 JSON 序列化开销
     const groups = this.db.prepare(`
-      SELECT dg.*, 
-        json_group_array(
-          json_object(
-            'id', p.id,
-            'path', p.path,
-            'filename', p.filename,
-            'file_size', p.file_size,
-            'taken_at', p.taken_at,
-            'latitude', p.latitude,
-            'longitude', p.longitude,
-            'width', p.width,
-            'height', p.height,
-            'camera', p.camera
-          )
-        ) as photos
-      FROM duplicate_groups dg
-      JOIN photo_duplicates pd ON dg.id = pd.group_id
+      SELECT * FROM duplicate_groups ORDER BY created_at DESC
+    `).all() as DuplicateGroupRow[];
+
+    if (groups.length === 0) return [];
+
+    const groupIds = groups.map(g => g.id);
+    const placeholders = groupIds.map(() => '?').join(',');
+
+    const photoRows = this.db.prepare(`
+      SELECT pd.group_id, p.id, p.path, p.filename, p.file_size, p.taken_at,
+             p.latitude, p.longitude, p.width, p.height, p.camera
+      FROM photo_duplicates pd
       JOIN photos p ON pd.photo_id = p.id
-      GROUP BY dg.id
-    `).all() as (DuplicateGroupRow & { photos: string })[];
+      WHERE pd.group_id IN (${placeholders})
+    `).all(...groupIds) as (PhotoRow & { group_id: string })[];
+
+    // 按组 ID 分组
+    const photosByGroup = new Map<string, PhotoRow[]>();
+    for (const row of photoRows) {
+      const gid = row.group_id;
+      if (!photosByGroup.has(gid)) photosByGroup.set(gid, []);
+      photosByGroup.get(gid)!.push(row);
+    }
 
     return groups.map(g => ({
       ...g,
-      photos: JSON.parse(g.photos),
+      photos: photosByGroup.get(g.id) || [],
     }));
   }
 

@@ -129,13 +129,13 @@ ALTER TABLE folders ADD COLUMN scan_last_path TEXT DEFAULT '';
 | 编号 | 优先级 | 前后端 | 事项 | 涉及文件 |
 |------|--------|--------|------|----------|
 | D1 | ~~高~~ ✅ | 后端 | INSERT OR REPLACE → INSERT OR IGNORE，防止 folder_id 被静默篡改 | `database.ts` |
-| D2 | 中 | 后端 | 已删除文件清理改批量事务删除（DELETE WHERE id IN） | `database.ts`, `scanner.ts` |
+| D2 | ~~中~~ ✅ | 后端 | 已删除文件清理改批量事务删除（DELETE WHERE id IN） | `database.ts`, `scanner.ts` |
 | D3 | ~~高~~ ✅ | 后端 | Schema Migration 机制：版本号管理 + ALTER TABLE 原地升级 | `database.ts` |
 | D4 | ~~中~~ ✅ | 后端 | 返回类型安全：全部 any 改为具体类型 | `database.ts`, `types/index.ts` |
-| D5 | 中 | 后端 | 事务修复：deletePhotosByFolder 和 clearDuplicateGroups 包裹事务 | `database.ts` |
-| D6 | 中 | 后端 | deletePhoto 后清理空重复组 | `database.ts` |
-| D7 | 低 | 后端 | getDuplicateGroups 优化：两步查询替代 json_group_array | `database.ts` |
-| D8 | 低 | 后端 | getPhotoStats 合并查询：5次 SELECT 合并为1条 | `database.ts` |
+| D5 | ~~中~~ ✅ | 后端 | 事务修复：deletePhotosByFolder 和 clearDuplicateGroups 包裹事务 | `database.ts` |
+| D6 | ~~中~~ ✅ | 后端 | deletePhoto 后清理空重复组 | `database.ts` |
+| D7 | ~~低~~ ✅ | 后端 | getDuplicateGroups 优化：两步查询替代 json_group_array | `database.ts` |
+| D8 | ~~低~~ ✅ | 后端 | getPhotoStats 合并查询：5次 SELECT 合并为1条 | `database.ts` |
 
 ### D1 详细说明
 
