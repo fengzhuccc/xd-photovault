@@ -60,8 +60,28 @@ export class ExifService {
       }
 
       if (!exif) {
+        // exifr 读不到 EXIF，尝试用 exiftool 读取（支持 PNG 等格式）
+        let fallbackTakenAt: Date | null = null;
+        let fallbackLat: number | null = null;
+        let fallbackLng: number | null = null;
+        try {
+          const etTags = await exiftool.read(filePath);
+          const etDate = etTags.DateTimeOriginal || etTags.CreateDate || etTags.ModifyDate;
+          if (etDate) {
+            fallbackTakenAt = etDate instanceof Date ? etDate : new Date(String(etDate));
+          }
+          if (etTags.GPSLatitude != null && etTags.GPSLongitude != null) {
+            fallbackLat = typeof etTags.GPSLatitude === 'number' ? etTags.GPSLatitude : null;
+            fallbackLng = typeof etTags.GPSLongitude === 'number' ? etTags.GPSLongitude : null;
+          }
+        } catch {
+          // exiftool 也读不到，忽略
+        }
         return {
           ...this.getEmptyExif(),
+          takenAt: fallbackTakenAt,
+          latitude: fallbackLat,
+          longitude: fallbackLng,
           width,
           height,
         };
@@ -78,14 +98,38 @@ export class ExifService {
 
       const takenAt = exif.DateTimeOriginal || exif.CreateDate || exif.ModifyDate || null;
 
+      // exifr 读不到时，尝试用 exiftool 读取（支持 PNG 等格式）
+      let finalTakenAt = takenAt;
+      let finalLat = latitude;
+      let finalLng = longitude;
+      if (!finalTakenAt || (finalLat === null && finalLng === null)) {
+        try {
+          const etTags = await exiftool.read(filePath);
+          if (!finalTakenAt) {
+            const etDate = etTags.DateTimeOriginal || etTags.CreateDate || etTags.ModifyDate;
+            if (etDate) {
+              finalTakenAt = etDate instanceof Date ? etDate : new Date(String(etDate));
+            }
+          }
+          if (finalLat === null && finalLng === null) {
+            if (etTags.GPSLatitude != null && etTags.GPSLongitude != null) {
+              finalLat = typeof etTags.GPSLatitude === 'number' ? etTags.GPSLatitude : null;
+              finalLng = typeof etTags.GPSLongitude === 'number' ? etTags.GPSLongitude : null;
+            }
+          }
+        } catch {
+          // exiftool 也读不到，忽略
+        }
+      }
+
       const make = exif.Make || '';
       const model = exif.Model || '';
       const camera = (make + ' ' + model).trim() || null;
 
       return {
-        takenAt,
-        latitude,
-        longitude,
+        takenAt: finalTakenAt,
+        latitude: finalLat,
+        longitude: finalLng,
         width,
         height,
         camera,
@@ -132,12 +176,11 @@ export class ExifService {
 
   async writeDate(filePath: string, date: Date): Promise<void> {
     try {
-      // exiftool-vendored 要求 DateTimeOriginal 为字符串格式
+      // 使用 AllDates 快捷标签同时写入 DateTimeOriginal、CreateDate、ModifyDate
       const dateStr = date.toISOString().replace('Z', '');
       await exiftool.write(filePath, {
-        DateTimeOriginal: dateStr,
-        CreateDate: dateStr,
-      });
+        AllDates: dateStr,
+      }, ['-overwrite_original']);
       log.info(`[ExifService] 写入日期成功: ${filePath}`);
     } catch (error) {
       log.error(`[ExifService] 写入日期失败: ${filePath}`, error);
@@ -152,7 +195,7 @@ export class ExifService {
         GPSLatitudeRef: lat >= 0 ? 'N' : 'S',
         GPSLongitude: lng,
         GPSLongitudeRef: lng >= 0 ? 'E' : 'W',
-      });
+      }, ['-overwrite_original']);
       log.info(`[ExifService] 写入位置成功: ${filePath}`);
     } catch (error) {
       log.error(`[ExifService] 写入位置失败: ${filePath}`, error);

@@ -180,6 +180,12 @@ export function BrowsePage() {
       await window.api.photo.updateDate(selectedPhoto.id, newDate);
       const updatedPhoto = { ...selectedPhoto, taken_at: newDate };
       setSelectedPhoto(updatedPhoto);
+      // 同步更新 photos 列表中的对应照片
+      useAppStore.setState({
+        photos: useAppStore.getState().photos.map(p =>
+          p.id === selectedPhoto.id ? { ...p, taken_at: newDate } : p
+        ),
+      });
       setEditingDate(false);
     } catch (e) {
       alert('保存日期失败：' + String(e));
@@ -201,6 +207,12 @@ export function BrowsePage() {
       await window.api.photo.updateLocation(selectedPhoto.id, lat, lng);
       const updatedPhoto = { ...selectedPhoto, latitude: lat, longitude: lng };
       setSelectedPhoto(updatedPhoto);
+      // 同步更新 photos 列表中的对应照片
+      useAppStore.setState({
+        photos: useAppStore.getState().photos.map(p =>
+          p.id === selectedPhoto.id ? { ...p, latitude: lat, longitude: lng } : p
+        ),
+      });
       setEditingLocation(false);
     } catch (e) {
       alert('保存位置失败：' + String(e));
