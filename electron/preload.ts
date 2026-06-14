@@ -43,6 +43,13 @@ export const api = {
       ipcRenderer.invoke('photo:updateDate', id, date),
     delete: (photoIds: string[]) => ipcRenderer.invoke('photo:delete', photoIds),
     getWithLocation: () => ipcRenderer.invoke('photo:getWithLocation'),
+    getInBounds: (south: number, west: number, north: number, east: number) =>
+      ipcRenderer.invoke('photo:getInBounds', south, west, north, east),
+  },
+
+  mapSetting: {
+    get: (key: string) => ipcRenderer.invoke('map:getSetting', key),
+    set: (key: string, value: string) => ipcRenderer.invoke('map:setSetting', key, value),
   },
   
   duplicate: {

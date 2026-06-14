@@ -253,6 +253,20 @@ function setupIpcHandlers() {
     return db.getPhotosWithLocation();
   });
 
+  ipcMain.handle('photo:getInBounds', async (_event, south: number, west: number, north: number, east: number) => {
+    return db.getPhotosInBounds(south, west, north, east);
+  });
+
+  // 地图设置
+  ipcMain.handle('map:getSetting', async (_event, key: string) => {
+    return db.getSetting(`map_${key}`);
+  });
+
+  ipcMain.handle('map:setSetting', async (_event, key: string, value: string) => {
+    db.setSetting(`map_${key}`, value);
+    return { success: true };
+  });
+
   ipcMain.handle('thumbnail:get', async (_event, photoId: string, photoPath: string) => {
     return await thumbnailService.getThumbnail(photoId, photoPath);
   });

@@ -438,18 +438,18 @@ pHash 比较不能简单用 SQL，O(N²) 全量比较不可接受。使用哈希
 
 ---
 
-## 六、地图模块（M1-M8）
+## 六、地图模块（M1-M7）
 
 | 编号 | 优先级 | 前后端 | 事项 | 涉及文件 |
 |------|--------|--------|------|----------|
-| M1 | 高 | 前端 | 标记样式：用 L.divIcon + 缩略图圆形标记替代默认蓝色图钉 | `MapPage.tsx` |
-| M2 | 高 | 前端 | 同位置多照片：点击标记展开底部抽屉，横向滚动显示该位置所有照片 | `MapPage.tsx` |
-| M3 | 高 | 前后端 | 地图瓦片源：默认 Stadia Dark（无需Key），可选高德/腾讯/天地图（需Key） | `MapPage.tsx`, `config.ts`, `main.ts` |
-| M8 | 高 | 前端 | 设置页面：地图源切换下拉框 + API Key 输入框 + 申请指引链接 | `SettingsPage.tsx` |
-| M4 | 中 | 前后端 | 视口按需加载：拖动/缩放时只加载 bounds 内照片，后端新增 getInBounds 接口 | `MapPage.tsx`, `database.ts`, `main.ts` |
+| M1 | ~~高~~ ✅ | 前端 | 标记样式：用 L.divIcon + 缩略图圆形标记替代默认蓝色图钉 | `MapPage.tsx` |
+| M2 | ~~高~~ ✅ | 前端 | 同位置多照片：点击标记展开底部抽屉，横向滚动显示该位置所有照片（50m 内距离聚合） | `MapPage.tsx` |
+| M3 | ~~高~~ ✅ | 前后端 | 地图瓦片源：默认 CartoDB Dark Matter（无需Key），可选高德/腾讯/天地图（需Key + WGS84→GCJ02 坐标转换） | `MapPage.tsx`, `config.ts`, `main.ts` |
+| M8 | ~~高~~ ✅ | 前端 | 设置页面：地图源切换下拉框 + API Key 输入框 + 申请指引链接 | `SettingsPage.tsx` |
+| M4 | ~~中~~ ✅ | 前后端 | 视口按需加载：拖动/缩放时只加载 bounds 内照片，后端新增 getInBounds 接口 | `MapPage.tsx`, `database.ts`, `main.ts` |
 | M5 | 中 | 前端 | 时间轴筛选：地图上方可折叠时间滑块，拖动只显示对应时间范围照片 | `MapPage.tsx` |
-| M6 | 中 | 前端 | 无GPS照片管理：右上角按钮，左侧弹出列表，支持拖拽照片到地图标记位置 | `MapPage.tsx` |
-| M7 | 低 | 前端 | 改用 react-leaflet 重构，组件化替代当前 DOM 操作 | `MapPage.tsx` |
+| M6 | 中 | 前端 | 无GPS照片管理：右上角按钮，左侧弹出列表，点击地图标记位置（非拖拽） | `MapPage.tsx` |
+| M7 | 低 | 前端 | 改用 react-leaflet 重构，组件化替代当前 DOM操作（纯重构，无功能收益，优先级最低） | `MapPage.tsx` |
 
 ### M1 详细说明
 
@@ -481,18 +481,22 @@ pHash 比较不能简单用 SQL，O(N²) 全量比较不可接受。使用哈希
 
 替代当前逐个点击标记的体验，与 Google Photos、Apple Photos 交互一致。
 
+**距离聚合策略**：同位置不等于同坐标（GPS 精度差异），不能按精确坐标匹配。需按距离聚合：50m 内的照片视为同位置，归入同一组。实现方式：对已加载的照片按坐标排序，相邻照片距离 < 50m 则合并为同一组，共用一个标记。
+
 ### M3 详细说明
 
 地图瓦片源分层策略：
 
 **默认方案（零配置，开箱即用）**
 
-使用 Stadia Dark 或 CartoDB Dark Matter，不需要 API Key，深色主题完美适配：
+使用 CartoDB Dark Matter，不需要 API Key，深色主题完美适配：
 
 ```
 CartoDB Dark Matter 瓦片 URL：
 https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png
 ```
+
+> **注意**：Stadia Maps 自 2024 年起需要 API Key，已非零配置，不再作为默认推荐。
 
 **国内优化方案（用户可选配置）**
 
@@ -500,40 +504,65 @@ https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png
 
 | 地图源 | 需要 Key | 国内速度 | 深色风格 | 申请地址 |
 |--------|---------|---------|---------|---------|
-| Stadia Dark | 不需要 | 中等 | 有 | — |
 | CartoDB Dark | 不需要 | 中等 | 有 | — |
+| Stadia Dark | 需要（2024起） | 中等 | 有 | https://stadiamaps.com/stadia/account/ |
 | OpenStreetMap | 不需要 | 慢/被墙 | 无 | — |
 | 高德地图 | 需要 | 快 | 无 | https://lbs.amap.com/api/javascript-api/guide/abc/prepare |
 | 腾讯地图 | 需要 | 快 | 无 | https://lbs.qq.com/dev/console/application/mine |
 | 天地图 | 需要（免费申请） | 快 | 无 | https://console.tianditu.gov.cn/api/key |
 
+**⚠️ 国内地图源坐标转换（关键）**
+
+高德/腾讯/天地图使用 GCJ02 坐标系，而照片 EXIF GPS 数据是 WGS84 坐标系。不转换会有 100-500m 偏移。选择国内地图源时，需在前端加载照片坐标后做 WGS84→GCJ02 转换：
+
+```typescript
+// WGS84 → GCJ02 转换（简版）
+function wgs84ToGcj02(lng: number, lat: number): [number, number] {
+  const a = 6378245.0;
+  const ee = 0.00669342162296594323;
+  let dLat = transformLat(lng - 105.0, lat - 35.0);
+  let dLng = transformLng(lng - 105.0, lat - 35.0);
+  const radLat = (lat / 180.0) * Math.PI;
+  let magic = Math.sin(radLat);
+  magic = 1 - ee * magic * magic;
+  const sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat * 180.0) / ((a * (1 - ee)) / (magic * sqrtMagic) * Math.PI);
+  dLng = (dLng * 180.0) / (a / sqrtMagic * Math.cos(radLat) * Math.PI);
+  return [lng + dLng, lat + dLat];
+}
+```
+
 瓦片源配置代码：
 
 ```typescript
 const TILE_PROVIDERS = {
-  stadia_dark: {
-    name: 'Stadia Dark（推荐，无需配置）',
-    url: 'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; Stadia Maps',
-    needKey: false,
-  },
   carto_dark: {
-    name: 'CartoDB Dark（无需配置）',
+    name: 'CartoDB Dark（推荐，无需配置）',
     url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
     attribution: '&copy; CartoDB',
     needKey: false,
+    needCoordTransform: false,
+  },
+  stadia_dark: {
+    name: 'Stadia Dark（需 API Key）',
+    url: 'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; Stadia Maps',
+    needKey: true,
+    needCoordTransform: false,
   },
   osm: {
     name: 'OpenStreetMap（无需配置）',
     url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     attribution: '&copy; OpenStreetMap',
     needKey: false,
+    needCoordTransform: false,
   },
   amap: {
     name: '高德地图（需 API Key，国内推荐）',
     url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}&key={apiKey}',
     attribution: '&copy; 高德地图',
     needKey: true,
+    needCoordTransform: true,  // WGS84 → GCJ02
     keyApplyUrl: 'https://lbs.amap.com/api/javascript-api/guide/abc/prepare',
   },
   tencent: {
@@ -541,6 +570,7 @@ const TILE_PROVIDERS = {
     url: 'https://wprd0{s}.is.autonavi.com/appmaptile?...',
     attribution: '&copy; 腾讯地图',
     needKey: true,
+    needCoordTransform: true,  // WGS84 → GCJ02
     keyApplyUrl: 'https://lbs.qq.com/dev/console/application/mine',
   },
   tianditu: {
@@ -548,29 +578,30 @@ const TILE_PROVIDERS = {
     url: 'https://t{s}.tianditu.gov.cn/vec_w/wmts?...',
     attribution: '&copy; 天地图',
     needKey: true,
+    needCoordTransform: true,  // WGS84 → GCJ02
     keyApplyUrl: 'https://console.tianditu.gov.cn/api/key',
   },
 };
 ```
 
-Key 存储在 ConfigService 中，和 dataPath/logPath 一样持久化。
+Key 存储在 `app_settings` 表中（已建好），通过 `getSetting/setSetting` 读写。
 
 ### M8 详细说明
 
 设置页面地图配置 UI：
 
 ```
-地图源：[Stadia Dark ▼]
-  ├─ Stadia Dark（推荐，无需配置）     ← 默认选中
-  ├─ CartoDB Dark（无需配置）
+地图源：[CartoDB Dark ▼]
+  ├─ CartoDB Dark（推荐，无需配置）     ← 默认选中
+  ├─ Stadia Dark（需 API Key）
   ├─ OpenStreetMap（无需配置）
   ├─ 高德地图（需 API Key）→ 申请地址
   ├─ 腾讯地图（需 API Key）→ 申请地址
   └─ 天地图（需 API Key）→ 申请地址
 
 API Key：[__________]  ← 仅选择需Key的源时显示
-         💡 免费申请，个人开发者即可
-         🔗 前往申请 →  ← 点击跳转到对应申请页面
+         免费申请，个人开发者即可
+         前往申请 →  ← 点击跳转到对应申请页面
 ```
 
 ### M4 详细说明
@@ -600,18 +631,20 @@ WHERE latitude BETWEEN ? AND ?
 
 ### M6 详细说明
 
-地图右上角加一个"无位置照片"按钮，点击后左侧弹出照片列表（无 GPS 的照片），用户拖拽照片到地图上标记位置，标记后调用 `updatePhotoLocation()` 写入 GPS：
+地图右上角加一个"无位置照片"按钮，点击后左侧弹出照片列表（无 GPS 的照片），用户选中照片后点击地图标记位置，标记后调用 `updatePhotoLocation()` 写入 GPS：
 
 ```
 ┌──────────┬──────────────────────────┐
 │ 无GPS照片 │                          │
 │          │         地图区域          │
-│ 📷 拖拽  │                          │
-│ 📷 到地图 │                          │
-│ 📷 上标记 │                          │
-│ 位置     │                          │
+│ 📷 选中  │                          │
+│ 📷 后点击│                          │
+│ 📷 地图  │                          │
+│ 标记位置 │                          │
 └──────────┴──────────────────────────┘
 ```
+
+> **注意**：不采用拖拽方式，因为拖拽照片与地图平移手势冲突，桌面端体验不佳。改为"选中照片 → 点击地图"模式。
 
 ### M7 详细说明
 

@@ -1,9 +1,34 @@
 import { useState, useEffect } from 'react';
-import { Database, Trash2, FolderOpen, Info, RefreshCw, FileText, Eye, ExternalLink } from 'lucide-react';
+import { Database, Trash2, FolderOpen, Info, RefreshCw, FileText, Eye, ExternalLink, Map } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
 import { cn } from '@/lib/utils';
+
+// 瓦片源配置（与 MapPage 保持一致）
+const TILE_PROVIDERS: Record<string, {
+  name: string;
+  needKey: boolean;
+  needCoordTransform: boolean;
+  keyApplyUrl?: string;
+}> = {
+  carto_dark: {
+    name: 'CartoDB Dark（推荐，无需配置）',
+    needKey: false,
+    needCoordTransform: false,
+  },
+  stadia_dark: {
+    name: 'Stadia Dark（需 API Key）',
+    needKey: true,
+    needCoordTransform: false,
+    keyApplyUrl: 'https://stadiamaps.com/stadia/account/',
+  },
+  osm: {
+    name: 'OpenStreetMap（无需配置）',
+    needKey: false,
+    needCoordTransform: false,
+  },
+};
 
 export function SettingsPage() {
   const { stats, loadStats } = useAppStore();
@@ -11,6 +36,11 @@ export function SettingsPage() {
   const [dataPath, setDataPath] = useState<string>('');
   const [customPath, setCustomPath] = useState<string | null>(null);
   const [isChanging, setIsChanging] = useState(false);
+
+  // 地图设置状态
+  const [mapTileProvider, setMapTileProvider] = useState<string>('carto_dark');
+  const [mapApiKey, setMapApiKey] = useState<string>('');
+  const [isMapSaving, setIsMapSaving] = useState(false);
 
   // 日志相关状态
   const [logPath, setLogPath] = useState<string>('');
@@ -22,8 +52,40 @@ export function SettingsPage() {
   useEffect(() => {
     loadDataPath();
     loadLogPath();
+    loadMapSettings();
     loadStats();
   }, []);
+
+  const loadMapSettings = async () => {
+    try {
+      const saved = await window.api.mapSetting.get('tileProvider');
+      if (saved && TILE_PROVIDERS[saved]) {
+        setMapTileProvider(saved);
+      }
+      const savedKey = await window.api.mapSetting.get('apiKey');
+      if (savedKey) {
+        setMapApiKey(savedKey);
+      }
+    } catch { /* 使用默认值 */ }
+  };
+
+  const handleSaveMapSettings = async () => {
+    setIsMapSaving(true);
+    try {
+      await window.api.mapSetting.set('tileProvider', mapTileProvider);
+      if (mapApiKey) {
+        await window.api.mapSetting.set('apiKey', mapApiKey);
+      } else {
+        // 清除空 key
+        await window.api.mapSetting.set('apiKey', '');
+      }
+      toast('success', '地图设置已保存，切换到地图页面即可生效');
+    } catch (error) {
+      toast('error', '保存失败：' + error);
+    } finally {
+      setIsMapSaving(false);
+    }
+  };
 
   const loadDataPath = async () => {
     const path = await window.api.config.getDataPath();
@@ -469,6 +531,75 @@ export function SettingsPage() {
                   清除数据库
                 </button>
               </div>
+            </div>
+          </div>
+
+          <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-emerald-500/10 rounded-lg">
+                <Map size={20} className="text-emerald-500" />
+              </div>
+              <div>
+                <h2 className="text-lg font-medium text-zinc-100">地图设置</h2>
+                <p className="text-sm text-zinc-400">配置地图瓦片源和 API Key</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-4 bg-zinc-800 rounded-lg">
+                <p className="text-xs text-zinc-500 mb-2">地图瓦片源</p>
+                <select
+                  value={mapTileProvider}
+                  onChange={(e) => setMapTileProvider(e.target.value)}
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm text-zinc-200 appearance-none cursor-pointer"
+                >
+                  {Object.entries(TILE_PROVIDERS).map(([key, provider]) => (
+                    <option key={key} value={key}>{provider.name}</option>
+                  ))}
+                </select>
+                {TILE_PROVIDERS[mapTileProvider]?.needCoordTransform && (
+                  <p className="text-xs text-amber-500/80 mt-2">
+                    此地图源使用 GCJ02 坐标系，照片坐标将自动从 WGS84 转换
+                  </p>
+                )}
+              </div>
+
+              {TILE_PROVIDERS[mapTileProvider]?.needKey && (
+                <div className="p-4 bg-zinc-800 rounded-lg">
+                  <p className="text-xs text-zinc-500 mb-2">API Key</p>
+                  <input
+                    type="text"
+                    value={mapApiKey}
+                    onChange={(e) => setMapApiKey(e.target.value)}
+                    placeholder="输入 API Key"
+                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm text-zinc-200"
+                  />
+                  {TILE_PROVIDERS[mapTileProvider]?.keyApplyUrl && (
+                    <a
+                      href={TILE_PROVIDERS[mapTileProvider].keyApplyUrl!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-amber-500 hover:text-amber-400 mt-2"
+                    >
+                      <ExternalLink size={12} />
+                      前往申请 API Key
+                    </a>
+                  )}
+                </div>
+              )}
+
+              <button
+                onClick={handleSaveMapSettings}
+                disabled={isMapSaving}
+                className={cn(
+                  'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                  'bg-amber-500 text-zinc-900 hover:bg-amber-400',
+                  'disabled:opacity-50 disabled:cursor-not-allowed'
+                )}
+              >
+                <RefreshCw size={14} className={isMapSaving ? 'animate-spin' : ''} />
+                保存地图设置
+              </button>
             </div>
           </div>
 

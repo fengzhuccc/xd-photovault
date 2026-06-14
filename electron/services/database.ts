@@ -699,6 +699,13 @@ export class DatabaseService {
     return stmt.all() as PhotoWithLocationRow[];
   }
 
+  getPhotosInBounds(south: number, west: number, north: number, east: number): PhotoWithLocationRow[] {
+    const stmt = this.db.prepare(
+      'SELECT id, path, filename, latitude, longitude, taken_at, camera, width, height, file_size FROM photos WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?'
+    );
+    return stmt.all(south, north, west, east) as PhotoWithLocationRow[];
+  }
+
   clearDuplicateGroups(): void {
     const transaction = this.db.transaction(() => {
       this.db.prepare('DELETE FROM photo_duplicates').run();
