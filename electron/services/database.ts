@@ -491,7 +491,7 @@ export class DatabaseService {
     const stats = this.db.prepare(`
       SELECT
         COUNT(*) as total,
-        SUM(CASE WHEN latitude IS NOT NULL AND longitude IS NOT NULL THEN 1 ELSE 0 END) as with_location,
+        COALESCE(SUM(CASE WHEN latitude IS NOT NULL AND longitude IS NOT NULL THEN 1 ELSE 0 END), 0) as with_location,
         (SELECT COUNT(*) FROM photo_duplicates) as duplicates,
         (SELECT COUNT(*) FROM folders) as folders
       FROM photos
