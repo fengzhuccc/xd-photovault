@@ -704,9 +704,9 @@ await exiftool.write(photoPath, {
 
 | 编号 | 优先级 | 前后端 | 事项 | 涉及文件 |
 |------|--------|--------|------|----------|
-| B1 | 高 | 后端 | 照片列表分批加载，新增 photo:getPage 接口（LIMIT + OFFSET） | `database.ts`, `main.ts`, `preload.ts` |
-| B2 | 高 | 前端 | 无限滚动，滚到底部自动加载下一批（100张/批） | `BrowsePage.tsx`, `appStore.ts` |
-| B3 | 高 | 前端 | 虚拟滚动，只渲染可见区域 DOM，引入 react-virtuoso | `BrowsePage.tsx` |
+| B1 | ~~高~~ ✅ | 后端 | 照片列表分批加载，新增 photo:getPage 接口（LIMIT + OFFSET） | `database.ts`, `main.ts`, `preload.ts` |
+| B2 | ~~高~~ ✅ | 前端 | 无限滚动，滚到底部自动加载下一批（100张/批） | `BrowsePage.tsx`, `appStore.ts` |
+| B3 | ~~高~~ ✅ | 前端 | 虚拟滚动，只渲染可见区域 DOM，引入 react-virtuoso | `BrowsePage.tsx` |
 
 ### B1 详细说明
 
