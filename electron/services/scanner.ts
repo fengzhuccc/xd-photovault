@@ -161,7 +161,7 @@ export class ScannerService {
         return { totalPhotos: 0, skipped: 0 };
       }
 
-      // 第二步：获取已有照片，用于增量扫描和ID复用（强制重新扫描时不需要）
+      // 第二步：获取已有照片，用于增量扫描
       const existingPathMap = new Map<string, { id: string; fileHash: string; fileSize: number; modifiedTime: string }>();
       if (!forceRescan) {
         const existingPhotos = this.db.getPhotosByFolder(folderId);
@@ -285,6 +285,11 @@ export class ScannerService {
       const totalPhotos = this.db.getPhotosByFolder(folderId).length;
       this.db.updateFolderScanTime(folderId, totalPhotos);
 
+      // 扫描完成后自动触发增量重复检测
+      if (newCount > 0 || deletedCount > 0) {
+        await this.detectDuplicates(false);
+      }
+
       log.info(`[Scanner] 扫描完成: 总计 ${totalPhotos} 张, 新增 ${newCount} 张, 跳过 ${skipped} 张, 删除 ${deletedCount} 张`);
       onProgress({ current: total, total, currentFile: '', status: 'complete', newCount, skipped, deletedCount });
 
@@ -323,11 +328,13 @@ export class ScannerService {
     }
   }
 
-  async detectDuplicates(): Promise<number> {
-    log.info('[Scanner] 开始检测重复照片...');
+  async detectDuplicates(fullRebuild: boolean = true): Promise<number> {
+    log.info(`[Scanner] 开始检测重复照片 (fullRebuild=${fullRebuild})...`);
 
-    // 清除旧的重复记录
-    this.db.clearDuplicateGroups();
+    if (fullRebuild) {
+      // 全量重建：清除所有旧重复组
+      this.db.clearDuplicateGroups();
+    }
 
     // 使用 SQL 聚合查询找出所有精确重复（跨文件夹）
     const exactDuplicates = this.db.findExactDuplicates() as { file_hash: string; photo_ids: string; count: number }[];
@@ -335,23 +342,67 @@ export class ScannerService {
     let groupCount = 0;
     for (const dup of exactDuplicates) {
       const photoIds = dup.photo_ids.split(',');
-      const photos = photoIds
-        .map((id: string) => this.db.getPhotoById(id))
-        .filter(Boolean);
 
-      if (photos.length > 1) {
-        const groupId = uuidv4();
-        const recommended = this.selectBestPhoto(photos);
-        this.db.insertDuplicateGroup({
-          id: groupId,
-          reason: 'exact',
-          recommendedPhotoId: recommended.id,
+      if (fullRebuild) {
+        // 全量模式：直接创建新组
+        const photos = photoIds
+          .map((id: string) => this.db.getPhotoById(id))
+          .filter(Boolean);
+
+        if (photos.length > 1) {
+          const groupId = uuidv4();
+          const recommended = this.selectBestPhoto(photos);
+          this.db.insertDuplicateGroup({
+            id: groupId,
+            reason: 'exact',
+            recommendedPhotoId: recommended.id,
+          });
+
+          for (const photo of photos) {
+            this.db.insertPhotoDuplicate(photo.id, groupId);
+          }
+          groupCount++;
+        }
+      } else {
+        // 增量模式：只处理尚未分组的重复
+        // 检查这些照片是否已在某个组中
+        const ungroupedPhotos = photoIds.filter((id: string) => {
+          return !this.db.getPhotoDuplicateGroup(id);
         });
 
-        for (const photo of photos) {
-          this.db.insertPhotoDuplicate(photo.id, groupId);
+        if (ungroupedPhotos.length > 0) {
+          // 找出已有组（如果有照片已在组中）
+          const existingGroupId = photoIds
+            .map((id: string) => this.db.getPhotoDuplicateGroup(id))
+            .find(Boolean) || null;
+
+          const allPhotos = photoIds
+            .map((id: string) => this.db.getPhotoById(id))
+            .filter(Boolean);
+
+          if (allPhotos.length > 1) {
+            let groupId: string;
+            if (existingGroupId) {
+              // 加入已有组
+              groupId = existingGroupId;
+            } else {
+              // 创建新组
+              groupId = uuidv4();
+              const recommended = this.selectBestPhoto(allPhotos);
+              this.db.insertDuplicateGroup({
+                id: groupId,
+                reason: 'exact',
+                recommendedPhotoId: recommended.id,
+              });
+              groupCount++;
+            }
+
+            // 只添加未分组的照片
+            for (const photoId of ungroupedPhotos) {
+              this.db.insertPhotoDuplicate(photoId, groupId);
+            }
+          }
         }
-        groupCount++;
       }
 
       // 每处理100组让出一次

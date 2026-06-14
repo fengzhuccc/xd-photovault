@@ -44,7 +44,7 @@ export const api = {
   
   duplicate: {
     getAll: () => ipcRenderer.invoke('duplicate:getAll'),
-    detect: () => ipcRenderer.invoke('duplicate:detect'),
+    detect: (fullRebuild?: boolean) => ipcRenderer.invoke('duplicate:detect', fullRebuild),
     delete: (photoIds: string[]) => ipcRenderer.invoke('duplicate:delete', photoIds),
   },
   

@@ -57,7 +57,26 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setFolders: (folders) => set({ folders }),
   addFolder: (folder) => set((state) => ({ folders: [folder, ...state.folders] })),
-  removeFolder: (id) => set((state) => ({ folders: state.folders.filter(f => f.id !== id) })),
+  removeFolder: (id) => set((state) => {
+    const removedPhotoIds = new Set(
+      state.photos.filter(p => p.folder_id === id).map(p => p.id)
+    );
+    const newPhotos = state.photos.filter(p => p.folder_id !== id);
+    const newThumbnails: Record<string, string> = {};
+    const newOriginalImages: Record<string, string> = {};
+    for (const [k, v] of Object.entries(state.thumbnails)) {
+      if (!removedPhotoIds.has(k)) newThumbnails[k] = v;
+    }
+    for (const [k, v] of Object.entries(state.originalImages)) {
+      if (!removedPhotoIds.has(k)) newOriginalImages[k] = v;
+    }
+    return {
+      folders: state.folders.filter(f => f.id !== id),
+      photos: newPhotos,
+      thumbnails: newThumbnails,
+      originalImages: newOriginalImages,
+    };
+  }),
 
   setPhotos: (photos) => set({ photos }),
   setSelectedPhoto: (photo) => set({ selectedPhoto: photo }),

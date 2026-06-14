@@ -199,8 +199,8 @@ function setupIpcHandlers() {
     return await db.getDuplicateGroups();
   });
 
-  ipcMain.handle('duplicate:detect', async () => {
-    return await scanner.detectDuplicates();
+  ipcMain.handle('duplicate:detect', async (_event, fullRebuild: boolean = true) => {
+    return await scanner.detectDuplicates(fullRebuild);
   });
 
   ipcMain.handle('duplicate:delete', async (_event, photoIds: string[]) => {

@@ -31,7 +31,8 @@ export function BrowsePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const loadingRef = useRef(false);
+  const loadVersionRef = useRef(0);
+  const prevPhotoIdsRef = useRef<string>('');
 
   useEffect(() => {
     loadPhotos({});
@@ -39,49 +40,50 @@ export function BrowsePage() {
   }, [loadPhotos, loadStats]);
 
   useEffect(() => {
+    // 计算 photos ID 摘要，用于检测 photos 是否真正变化
+    const photoIds = photos.map(p => p.id).join(',');
+    if (photoIds === prevPhotoIdsRef.current) return;
+    prevPhotoIdsRef.current = photoIds;
+
+    const currentVersion = ++loadVersionRef.current;
+
     const loadThumbnails = async () => {
-      if (loadingRef.current) return;
-      
-      const photosToLoad = photos.filter(p => !(p.id in thumbnails)).slice(0, 100);
+      // 从 store 获取最新 thumbnails，而非闭包中的旧值
+      const currentThumbnails = get().thumbnails;
+      const photosToLoad = photos.filter(p => !(p.id in currentThumbnails)).slice(0, 100);
       if (photosToLoad.length === 0) return;
-      
-      loadingRef.current = true;
-      
-      // 每次只并发3个请求，避免阻塞主进程
+
       const CONCURRENT = 3;
       const queue = [...photosToLoad];
       const activeTasks: Promise<void>[] = [];
-      
+
       const processOne = async (): Promise<void> => {
         const photo = queue.shift();
         if (!photo) return;
-        
+        if (loadVersionRef.current !== currentVersion) return;
+
         try {
           const thumb = await window.api.thumbnail.get(photo.id, photo.path);
-          // 每生成一张就更新状态，让用户看到进度
+          if (loadVersionRef.current !== currentVersion) return;
           setThumbnails({ ...get().thumbnails, [photo.id]: thumb });
           setOriginalImages({ ...get().originalImages, [photo.id]: `file:///${photo.path.replace(/\\/g, '/')}` });
         } catch {
+          if (loadVersionRef.current !== currentVersion) return;
           setThumbnails({ ...get().thumbnails, [photo.id]: `https://picsum.photos/seed/${photo.image_seed || photo.id}/400/400` });
           setOriginalImages({ ...get().originalImages, [photo.id]: `https://picsum.photos/seed/${photo.image_seed || photo.id}/1200/800` });
         }
-        
-        // 处理完一个后继续处理队列中的下一个
+
         await processOne();
       };
-      
-      // 启动并发任务
+
       for (let i = 0; i < Math.min(CONCURRENT, queue.length); i++) {
         activeTasks.push(processOne());
       }
-      
+
       await Promise.all(activeTasks);
-      loadingRef.current = false;
     };
-    
-    if (photos.length > 0) {
-      loadThumbnails();
-    }
+
+    loadThumbnails();
   }, [photos]);
 
   useEffect(() => {
@@ -420,16 +422,22 @@ export function BrowsePage() {
                             selectMode && isSelected && 'ring-2 ring-amber-500 ring-offset-1 ring-offset-zinc-950'
                           )}
                         >
-                          <img
-                            src={thumbnails[photo.id] || `https://picsum.photos/seed/${photo.image_seed || photo.id}/400/400`}
-                            alt={photo.filename}
-                            className={cn(
-                              'w-full h-full object-cover transition-transform duration-200',
-                              !selectMode && 'group-hover:scale-105',
-                              selectMode && isSelected && 'opacity-80'
-                            )}
-                            loading="lazy"
-                          />
+                          {thumbnails[photo.id] ? (
+                            <img
+                              src={thumbnails[photo.id]}
+                              alt={photo.filename}
+                              className={cn(
+                                'w-full h-full object-cover transition-transform duration-200',
+                                !selectMode && 'group-hover:scale-105',
+                                selectMode && isSelected && 'opacity-80'
+                              )}
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-zinc-800 animate-pulse flex items-center justify-center">
+                              <div className="w-8 h-8 rounded bg-zinc-700/50" />
+                            </div>
+                          )}
                           {selectMode && (
                             <div className="absolute top-2 right-2 z-10">
                               {isSelected ? (

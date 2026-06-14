@@ -170,6 +170,14 @@ export class DatabaseService {
   }
 
   removeFolder(id: string): void {
+    // 先找出包含该文件夹照片的重复组（必须在删 photo_duplicates 之前查）
+    const affectedGroupIds = this.db.prepare(`
+      SELECT DISTINCT pd.group_id FROM photo_duplicates pd
+      JOIN photos p ON pd.photo_id = p.id
+      WHERE p.folder_id = ?
+    `).all(id) as { group_id: string }[];
+
+    // 删除该文件夹照片的 photo_duplicates 关联
     const deletePhotoDuplicates = this.db.prepare(`
       DELETE FROM photo_duplicates WHERE photo_id IN (
         SELECT id FROM photos WHERE folder_id = ?
@@ -177,12 +185,12 @@ export class DatabaseService {
     `);
     deletePhotoDuplicates.run(id);
 
-    const deleteDuplicateGroups = this.db.prepare(`
-      DELETE FROM duplicate_groups WHERE recommended_photo_id IN (
-        SELECT id FROM photos WHERE folder_id = ?
-      )
-    `);
-    deleteDuplicateGroups.run(id);
+    // 删除受影响的重复组
+    for (const g of affectedGroupIds) {
+      this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.group_id);
+      // 删除组内其他照片的关联
+      this.db.prepare('DELETE FROM photo_duplicates WHERE group_id = ?').run(g.group_id);
+    }
 
     const deletePhotos = this.db.prepare('DELETE FROM photos WHERE folder_id = ?');
     deletePhotos.run(id);
@@ -346,6 +354,13 @@ export class DatabaseService {
     return stmt.all() as { file_hash: string; photo_ids: string; count: number }[];
   }
 
+  getPhotoDuplicateGroup(photoId: string): string | null {
+    const row = this.db.prepare(
+      'SELECT group_id FROM photo_duplicates WHERE photo_id = ?'
+    ).get(photoId) as any;
+    return row?.group_id || null;
+  }
+
   insertDuplicateGroup(group: any): void {
     const stmt = this.db.prepare(`
       INSERT INTO duplicate_groups (id, reason, recommended_photo_id) VALUES (?, ?, ?)
@@ -390,10 +405,25 @@ export class DatabaseService {
   }
 
   deletePhoto(id: string): void {
-    const deleteDuplicates = this.db.prepare('DELETE FROM photo_duplicates WHERE photo_id = ?');
-    deleteDuplicates.run(id);
+    // 找到该照片所在的重复组
+    const groups = this.db.prepare(`
+      SELECT group_id FROM photo_duplicates WHERE photo_id = ?
+    `).all(id) as { group_id: string }[];
+
+    // 删除照片（CASCADE 会清理 photo_duplicates）
     const stmt = this.db.prepare('DELETE FROM photos WHERE id = ?');
     stmt.run(id);
+
+    // 清理空重复组（组内仅剩1张或0张时删组）
+    for (const g of groups) {
+      const remaining = this.db.prepare(
+        'SELECT COUNT(*) as count FROM photo_duplicates WHERE group_id = ?'
+      ).get(g.group_id) as any;
+      if (remaining.count <= 1) {
+        this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.group_id);
+        this.db.prepare('DELETE FROM photo_duplicates WHERE group_id = ?').run(g.group_id);
+      }
+    }
   }
 
   updatePhotoLocation(id: string, lat: number, lng: number): void {
