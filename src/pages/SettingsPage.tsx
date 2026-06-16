@@ -12,21 +12,21 @@ const TILE_PROVIDERS: Record<string, {
   needCoordTransform: boolean;
   keyApplyUrl?: string;
 }> = {
-  carto_dark: {
-    name: 'CartoDB Dark（推荐，无需配置）',
+  amap: {
+    name: '高德地图（自动坐标偏移）',
     needKey: false,
-    needCoordTransform: false,
+    needCoordTransform: true,
   },
-  stadia_dark: {
-    name: 'Stadia Dark（需 API Key）',
+  amap_dark: {
+    name: '高德暗色（自动坐标偏移）',
+    needKey: false,
+    needCoordTransform: true,
+  },
+  tianditu: {
+    name: '天地图（需 API Key + 自动坐标偏移）',
     needKey: true,
-    needCoordTransform: false,
-    keyApplyUrl: 'https://stadiamaps.com/stadia/account/',
-  },
-  osm: {
-    name: 'OpenStreetMap（无需配置）',
-    needKey: false,
-    needCoordTransform: false,
+    needCoordTransform: true,
+    keyApplyUrl: 'https://console.tianditu.gov.cn/api/key',
   },
 };
 
@@ -38,7 +38,7 @@ export function SettingsPage() {
   const [isChanging, setIsChanging] = useState(false);
 
   // 地图设置状态
-  const [mapTileProvider, setMapTileProvider] = useState<string>('carto_dark');
+  const [mapTileProvider, setMapTileProvider] = useState<string>('amap');
   const [mapApiKey, setMapApiKey] = useState<string>('');
   const [isMapSaving, setIsMapSaving] = useState(false);
 
@@ -64,7 +64,7 @@ export function SettingsPage() {
       }
       const savedKey = await window.api.mapSetting.get('apiKey');
       if (savedKey) {
-        setMapApiKey(savedKey);
+        setMapApiKey(savedKey.trim());
       }
     } catch { /* 使用默认值 */ }
   };
@@ -73,8 +73,8 @@ export function SettingsPage() {
     setIsMapSaving(true);
     try {
       await window.api.mapSetting.set('tileProvider', mapTileProvider);
-      if (mapApiKey) {
-        await window.api.mapSetting.set('apiKey', mapApiKey);
+      if (mapApiKey.trim()) {
+        await window.api.mapSetting.set('apiKey', mapApiKey.trim());
       } else {
         // 清除空 key
         await window.api.mapSetting.set('apiKey', '');

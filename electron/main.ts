@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu, globalShortcut } from 'electron';
 import { join } from 'path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync } from 'fs';
 import log from 'electron-log';
@@ -66,6 +66,20 @@ function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
+
+  // 设置合理的 User-Agent，避免瓦片服务器拒绝请求
+  mainWindow.webContents.setUserAgent(
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  );
+
+  // 生产环境也支持 Ctrl+Shift+I 打开 DevTools
+  if (!isDev) {
+    mainWindow.webContents.on('before-input-event', (_event, input) => {
+      if (input.key === 'I' && input.control && input.shift) {
+        mainWindow?.webContents.toggleDevTools();
+      }
+    });
+  }
 }
 
 async function initializeServices() {

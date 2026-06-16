@@ -1,11 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { MapPin, X, Calendar, Camera, Image, ChevronLeft, ChevronRight } from 'lucide-react';
+import { MapPin, X, Calendar, Camera, Image } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import 'leaflet.markercluster';
-import 'leaflet.markercluster/dist/MarkerCluster.css';
-import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 
 // 瓦片源配置
 const TILE_PROVIDERS: Record<string, {
@@ -17,31 +14,34 @@ const TILE_PROVIDERS: Record<string, {
   keyApplyUrl?: string;
   subdomains?: string;
 }> = {
-  carto_dark: {
-    name: 'CartoDB Dark',
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+  amap: {
+    name: '高德地图',
+    url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
+    attribution: '&copy; <a href="https://www.amap.com/">高德地图</a>',
     needKey: false,
-    needCoordTransform: false,
-    subdomains: 'abcd',
+    needCoordTransform: true,
+    subdomains: '12',
   },
-  stadia_dark: {
-    name: 'Stadia Dark',
-    url: 'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>',
+  amap_dark: {
+    name: '高德暗色',
+    url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}',
+    attribution: '&copy; <a href="https://www.amap.com/">高德地图</a>',
+    needKey: false,
+    needCoordTransform: true,
+    subdomains: '12',
+  },
+  tianditu: {
+    name: '天地图',
+    url: 'https://t{s}.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk={apiKey}',
+    attribution: '&copy; <a href="https://www.tianditu.gov.cn/">天地图</a>',
     needKey: true,
-    needCoordTransform: false,
-  },
-  osm: {
-    name: 'OpenStreetMap',
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    needKey: false,
-    needCoordTransform: false,
+    needCoordTransform: true,
+    keyApplyUrl: 'https://console.tianditu.gov.cn/api/key',
+    subdomains: '01234567',
   },
 };
 
-const DEFAULT_TILE_PROVIDER = 'carto_dark';
+const DEFAULT_TILE_PROVIDER = 'amap';
 
 // WGS84 -> GCJ02 坐标转换
 function transformLat(lng: number, lat: number): number {
@@ -132,13 +132,13 @@ export function MapPage() {
   const [loading, setLoading] = useState(true);
   const [photoCount, setPhotoCount] = useState(0);
   const [tileProvider, setTileProvider] = useState(DEFAULT_TILE_PROVIDER);
+  const [mapApiKey, setMapApiKey] = useState('');
 
   // 底部抽屉状态
   const [drawerPhotos, setDrawerPhotos] = useState<PhotoWithLocation[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerLocation, setDrawerLocation] = useState('');
   const [drawerThumbnails, setDrawerThumbnails] = useState<Record<string, string>>({});
-  const [drawerScrollIndex, setDrawerScrollIndex] = useState(0);
 
   // 详情弹窗
   const [selectedPhoto, setSelectedPhoto] = useState<PhotoWithLocation | null>(null);
@@ -153,9 +153,18 @@ export function MapPage() {
   useEffect(() => {
     const loadMapConfig = async () => {
       try {
+        const savedKey = await window.api.mapSetting.get('apiKey');
+        if (savedKey) {
+          setMapApiKey(savedKey.trim());
+        }
         const saved = await window.api.mapSetting.get('tileProvider');
         if (saved && TILE_PROVIDERS[saved]) {
-          setTileProvider(saved);
+          // 如果需要 Key 但没配置，回退到默认源
+          if (TILE_PROVIDERS[saved].needKey && !savedKey?.trim()) {
+            setTileProvider(DEFAULT_TILE_PROVIDER);
+          } else {
+            setTileProvider(saved);
+          }
         }
       } catch { /* 使用默认值 */ }
     };
@@ -197,7 +206,6 @@ export function MapPage() {
     }
     setDrawerPhotos(photos);
     setDrawerOpen(true);
-    setDrawerScrollIndex(0);
     setDrawerThumbnails({});
     // 设置位置描述
     const p = photos[0];
@@ -246,6 +254,32 @@ export function MapPage() {
             {stats && stats.withoutLocation > 0 && ` · ${stats.withoutLocation.toLocaleString()} 张无位置`}
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          <select
+            value={tileProvider}
+            onChange={async (e) => {
+              const val = e.target.value;
+              const provider = TILE_PROVIDERS[val];
+              if (provider?.needKey && !mapApiKey) {
+                alert(`${provider.name} 需要 API Key，请先在设置页面配置`);
+                return;
+              }
+              setTileProvider(val);
+              try { await window.api.mapSetting.set('tileProvider', val); } catch {}
+            }}
+            className="bg-zinc-800 border border-zinc-700 text-zinc-300 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-amber-500"
+          >
+            {Object.entries(TILE_PROVIDERS).map(([key, p]) => (
+              <option key={key} value={key}>{p.name}</option>
+            ))}
+          </select>
+          {TILE_PROVIDERS[tileProvider]?.needCoordTransform && (
+            <span className="text-xs text-amber-500/70 bg-amber-500/10 px-2 py-1 rounded">坐标已偏移</span>
+          )}
+          {TILE_PROVIDERS[tileProvider]?.needKey && !mapApiKey && (
+            <span className="text-xs text-red-400 bg-red-500/10 px-2 py-1 rounded">未配置 API Key</span>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 min-h-0 rounded-xl overflow-hidden border border-zinc-800 relative" style={{ minHeight: '400px' }}>
@@ -261,6 +295,7 @@ export function MapPage() {
             photos={photosWithLocation}
             totalPhotoCount={photoCount}
             tileProvider={tileProvider}
+            mapApiKey={mapApiKey}
             transformCoord={transformCoord}
             onPhotoClick={handlePhotoClick}
             onMarkerGroupClick={handleMarkerGroupClick}
@@ -270,30 +305,30 @@ export function MapPage() {
       </div>
 
       {/* 底部抽屉：同位置多照片 */}
-      {drawerOpen && drawerPhotos.length > 1 && (
-        <div className="border-t border-zinc-800 bg-zinc-900/95 backdrop-blur-sm">
-          <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800">
-            <div className="flex items-center gap-2 text-sm text-zinc-400">
-              <MapPin size={14} />
-              <span>{drawerLocation}</span>
-              <span className="text-zinc-600">·</span>
-              <span>{drawerPhotos.length} 张照片</span>
-            </div>
-            <button
-              onClick={() => setDrawerOpen(false)}
-              className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              <X size={16} />
-            </button>
+      <div className={`border-t border-zinc-800 bg-zinc-900/98 backdrop-blur-sm transition-all duration-300 ease-out ${drawerOpen && drawerPhotos.length > 1 ? 'max-h-[240px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden border-t-0'}`}>
+        <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800">
+          <div className="flex items-center gap-2 text-sm text-zinc-400">
+            <MapPin size={14} />
+            <span>{drawerLocation}</span>
+            <span className="text-zinc-600">·</span>
+            <span>{drawerPhotos.length} 张照片</span>
           </div>
-          <div className="relative">
-            <div className="flex gap-2 px-4 py-3 overflow-x-auto scrollbar-thin">
-              {drawerPhotos.map((photo, idx) => (
-                <button
-                  key={photo.id}
-                  onClick={() => handlePhotoClick(photo)}
-                  className="flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden border-2 border-transparent hover:border-amber-500 transition-colors"
-                >
+          <button
+            onClick={() => setDrawerOpen(false)}
+            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <div className="px-4 py-3 overflow-x-auto scrollbar-thin">
+          <div className="flex gap-3">
+            {drawerPhotos.map((photo) => (
+              <button
+                key={photo.id}
+                onClick={() => handlePhotoClick(photo)}
+                className="flex-shrink-0 group"
+              >
+                <div className="w-24 h-24 rounded-lg overflow-hidden border-2 border-transparent group-hover:border-amber-500 transition-colors">
                   {drawerThumbnails[photo.id] ? (
                     <img
                       src={drawerThumbnails[photo.id]}
@@ -305,24 +340,17 @@ export function MapPage() {
                       <Image size={20} className="text-zinc-600" />
                     </div>
                   )}
-                </button>
-              ))}
-            </div>
-            {drawerScrollIndex > 0 && (
-              <button
-                className="absolute left-1 top-1/2 -translate-y-1/2 p-1 rounded-full bg-zinc-800/90 text-zinc-400 hover:text-zinc-200"
-                onClick={() => setDrawerScrollIndex(Math.max(0, drawerScrollIndex - 5))}
-              >
-                <ChevronLeft size={16} />
+                </div>
+                <p className="mt-1 text-xs text-zinc-500 truncate w-24 group-hover:text-zinc-300 transition-colors">{photo.filename}</p>
               </button>
-            )}
+            ))}
           </div>
         </div>
-      )}
+      </div>
 
       {/* 照片详情弹窗 */}
       {selectedPhoto && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-8" onClick={() => setSelectedPhoto(null)}>
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-8" style={{ zIndex: 10000 }} onClick={() => setSelectedPhoto(null)}>
           <div className="relative max-w-2xl w-full bg-zinc-900 rounded-xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <button
               onClick={() => setSelectedPhoto(null)}
@@ -379,6 +407,7 @@ interface LeafletMapProps {
   photos: PhotoWithLocation[];
   totalPhotoCount: number;
   tileProvider: string;
+  mapApiKey: string;
   transformCoord: (lat: number, lng: number) => [number, number];
   onPhotoClick: (photo: PhotoWithLocation) => void;
   onMarkerGroupClick: (photos: PhotoWithLocation[]) => void;
@@ -388,11 +417,12 @@ interface LeafletMapProps {
 // 视口按需加载的照片数量阈值
 const VIEWPORT_LOAD_THRESHOLD = 5000;
 
-function LeafletMap({ photos, totalPhotoCount, tileProvider, transformCoord, onPhotoClick, onMarkerGroupClick, hasNoPhotos }: LeafletMapProps) {
+function LeafletMap({ photos, totalPhotoCount, tileProvider, mapApiKey, transformCoord, onPhotoClick, onMarkerGroupClick, hasNoPhotos }: LeafletMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
-  const markersRef = useRef<L.MarkerClusterGroup | null>(null);
+  const initializedRef = useRef(false);
+  const markersRef = useRef<L.LayerGroup | null>(null);
   const [viewportPhotos, setViewportPhotos] = useState<PhotoWithLocation[]>([]);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialFitRef = useRef(false);
@@ -411,44 +441,25 @@ function LeafletMap({ photos, totalPhotoCount, tileProvider, transformCoord, onP
     });
 
     const provider = TILE_PROVIDERS[tileProvider] || TILE_PROVIDERS[DEFAULT_TILE_PROVIDER];
-    const tileLayer = L.tileLayer(provider.url, {
+    const tileUrl = provider.url.replace('{apiKey}', mapApiKey);
+    const tileLayer = L.tileLayer(tileUrl, {
       attribution: provider.attribution,
       maxZoom: 18,
-      subdomains: provider.subdomains,
+      subdomains: provider.subdomains || 'abc',
     });
     tileLayer.addTo(map);
     tileLayerRef.current = tileLayer;
 
-    const clusterGroup = L.markerClusterGroup({
-      maxClusterRadius: 50,
-      spiderfyOnMaxZoom: true,
-      showCoverageOnHover: false,
-      zoomToBoundsOnClick: true,
-      iconCreateFunction: function (cluster) {
-        const count = cluster.getChildCount();
-        let size = 'small';
-        let dim = 40;
-        if (count > 100) {
-          size = 'large';
-          dim = 56;
-        } else if (count > 10) {
-          size = 'medium';
-          dim = 48;
-        }
-        return L.divIcon({
-          html: `<div><span>${count}</span></div>`,
-          className: `marker-cluster marker-cluster-${size}`,
-          iconSize: L.point(dim, dim),
-        });
-      },
-    });
-
-    clusterGroup.addTo(map);
-    markersRef.current = clusterGroup;
+    // 使用 LayerGroup 而非 MarkerClusterGroup，避免与自定义距离聚合冲突
+    const markerLayer = L.layerGroup().addTo(map);
+    markersRef.current = markerLayer as any;
     mapInstanceRef.current = map;
 
     // 确保 Leaflet 正确计算容器尺寸
-    setTimeout(() => map.invalidateSize(), 100);
+    setTimeout(() => {
+      map.invalidateSize();
+      initializedRef.current = true;
+    }, 200);
 
     // 视口按需加载：监听 moveend 事件
     if (useViewportLoading) {
@@ -487,19 +498,29 @@ function LeafletMap({ photos, totalPhotoCount, tileProvider, transformCoord, onP
 
   // 切换瓦片源
   useEffect(() => {
-    if (!mapInstanceRef.current || !tileLayerRef.current) return;
+    if (!initializedRef.current || !mapInstanceRef.current || !tileLayerRef.current) return;
 
     const provider = TILE_PROVIDERS[tileProvider] || TILE_PROVIDERS[DEFAULT_TILE_PROVIDER];
-    const newTileLayer = L.tileLayer(provider.url, {
+    const tileUrl = provider.url.replace('{apiKey}', mapApiKey);
+    const newTileLayer = L.tileLayer(tileUrl, {
       attribution: provider.attribution,
       maxZoom: 18,
-      subdomains: provider.subdomains,
+      subdomains: provider.subdomains || 'abc',
     });
 
     mapInstanceRef.current.removeLayer(tileLayerRef.current);
     newTileLayer.addTo(mapInstanceRef.current);
     tileLayerRef.current = newTileLayer;
-  }, [tileProvider]);
+
+    // 强制重绘：延迟 invalidateSize + 触发一次微小移动
+    setTimeout(() => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.invalidateSize();
+        const c = mapInstanceRef.current.getCenter();
+        mapInstanceRef.current.setView(c, mapInstanceRef.current.getZoom(), { animate: false });
+      }
+    }, 150);
+  }, [tileProvider, mapApiKey]);
 
   // 实际显示的照片数据
   const displayPhotos = useViewportLoading ? viewportPhotos : photos;
@@ -508,12 +529,11 @@ function LeafletMap({ photos, totalPhotoCount, tileProvider, transformCoord, onP
   useEffect(() => {
     if (!mapInstanceRef.current || !markersRef.current) return;
 
-    const clusterGroup = markersRef.current;
-    clusterGroup.clearLayers();
+    const layerGroup = markersRef.current;
+    layerGroup.clearLayers();
 
     // 距离聚合分组
     const groups = clusterPhotosByDistance(displayPhotos, 50);
-    const markers: L.Marker[] = [];
 
     for (const group of groups) {
       // 取组内第一张照片的坐标作为标记位置
@@ -522,18 +542,18 @@ function LeafletMap({ photos, totalPhotoCount, tileProvider, transformCoord, onP
 
       let icon: L.DivIcon;
       if (group.length === 1) {
-        // 单张照片：圆形缩略图标记
+        // 单张照片：圆形标记
         icon = L.divIcon({
           html: `<div class="photo-marker">
             <div class="photo-marker-inner">
-              <svg width="32" height="32" viewBox="0 0 32 32" class="photo-marker-placeholder">
-                <circle cx="16" cy="16" r="15" fill="#27272a" stroke="#f59e0b" stroke-width="2"/>
-                <circle cx="16" cy="12" r="4" fill="#f59e0b"/>
-                <path d="M8 24c0-4.4 3.6-8 8-8s8 3.6 8 8" fill="#f59e0b" opacity="0.5"/>
+              <svg width="28" height="28" viewBox="0 0 28 28" class="photo-marker-placeholder">
+                <circle cx="14" cy="14" r="13" fill="#27272a" stroke="#f59e0b" stroke-width="2"/>
+                <circle cx="14" cy="11" r="3.5" fill="#f59e0b"/>
+                <path d="M7 22c0-3.9 3.1-7 7-7s7 3.1 7 7" fill="#f59e0b" opacity="0.5"/>
               </svg>
             </div>
           </div>`,
-          className: '',
+          className: 'photo-marker-icon',
           iconSize: [32, 32],
           iconAnchor: [16, 16],
         });
@@ -541,34 +561,35 @@ function LeafletMap({ photos, totalPhotoCount, tileProvider, transformCoord, onP
         // 多张照片：带数字的圆形标记
         icon = L.divIcon({
           html: `<div class="photo-marker-group"><span>${group.length}</span></div>`,
-          className: '',
-          iconSize: [36, 36],
-          iconAnchor: [18, 18],
+          className: 'photo-marker-icon',
+          iconSize: [40, 40],
+          iconAnchor: [20, 20],
         });
       }
 
       const marker = L.marker([lat, lng], { icon });
-      marker.bindTooltip(centerPhoto.filename, { direction: 'top', offset: [0, -10] });
 
       if (group.length === 1) {
+        marker.bindTooltip(centerPhoto.filename, { direction: 'top', offset: [0, -10] });
         marker.on('click', () => onPhotoClick(group[0]));
       } else {
+        marker.bindTooltip(`${group.length} 张照片`, { direction: 'top', offset: [0, -10] });
         marker.on('click', () => onMarkerGroupClick(group));
       }
 
-      markers.push(marker);
+      layerGroup.addLayer(marker);
     }
 
-    clusterGroup.addLayers(markers);
-
-    // 首次加载时 fit bounds（仅非视口加载模式，或视口加载模式首次有数据时）
-    if (!initialFitRef.current && displayPhotos.length > 0 && !useViewportLoading) {
+    // 首次加载时 fit bounds
+    if (!initialFitRef.current && displayPhotos.length > 0) {
       initialFitRef.current = true;
-      const group = L.featureGroup(markers);
-      const bounds = group.getBounds().pad(0.1);
-      mapInstanceRef.current.fitBounds(bounds, { maxZoom: 12 });
+      const allMarkers = Object.values((layerGroup as any)._layers || {});
+      if (allMarkers.length > 0) {
+        const featureGroup = L.featureGroup(allMarkers as L.Marker[]);
+        mapInstanceRef.current.fitBounds(featureGroup.getBounds().pad(0.1), { maxZoom: 12 });
+      }
     }
-  }, [displayPhotos, transformCoord, onPhotoClick, onMarkerGroupClick, useViewportLoading]);
+  }, [displayPhotos, transformCoord, onPhotoClick, onMarkerGroupClick]);
 
   return (
     <div className="w-full h-full relative">
