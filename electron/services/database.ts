@@ -117,6 +117,15 @@ export interface PhotoWithLocationRow {
   file_size: number;
 }
 
+export interface PhotoClusterRow {
+  cluster_lat: number;
+  cluster_lng: number;
+  count: number;
+  representative_id: string;
+  path: string;
+  filename: string;
+}
+
 interface CameraRow {
   camera: string;
   count: number;
@@ -272,6 +281,18 @@ export class DatabaseService {
               key TEXT PRIMARY KEY,
               value TEXT
             )
+          `);
+        },
+      },
+      {
+        version: 4,
+        up: () => {
+          // 复合索引：优化分页、筛选、地图聚合查询
+          this.db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_photos_folder_taken ON photos(folder_id, taken_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_photos_location_bounds ON photos(latitude, longitude);
+            CREATE INDEX IF NOT EXISTS idx_photos_phash_prefix ON photos(SUBSTR(perceptual_hash, 1, 4));
+            CREATE INDEX IF NOT EXISTS idx_photo_duplicates_group ON photo_duplicates(group_id);
           `);
         },
       },
@@ -532,6 +553,19 @@ export class DatabaseService {
     return this.db.prepare('SELECT id, perceptual_hash, path FROM photos').all() as { id: string; perceptual_hash: string | null; path: string }[];
   }
 
+  getPhotoHashBatch(limit: number, offset: number): { id: string; perceptual_hash: string | null; file_size: number }[] {
+    return this.db.prepare(
+      'SELECT id, perceptual_hash, file_size FROM photos WHERE perceptual_hash IS NOT NULL LIMIT ? OFFSET ?'
+    ).all(limit, offset) as { id: string; perceptual_hash: string | null; file_size: number }[];
+  }
+
+  getPhotoCountWithPHash(): number {
+    const row = this.db.prepare(
+      "SELECT COUNT(*) as count FROM photos WHERE perceptual_hash IS NOT NULL AND perceptual_hash != '0000000000000000'"
+    ).get() as { count: number };
+    return row.count;
+  }
+
   findExactDuplicates(): ExactDuplicateRow[] {
     const stmt = this.db.prepare(`
       SELECT file_hash, GROUP_CONCAT(id) as photo_ids, COUNT(*) as count
@@ -682,6 +716,20 @@ export class DatabaseService {
     return stmt.all(folderId) as PhotoRow[];
   }
 
+  getPhotosByPaths(paths: string[]): { id: string; path: string; file_hash: string | null; file_size: number; modified_time: string | null }[] {
+    if (paths.length === 0) return [];
+    const placeholders = paths.map(() => '?').join(',');
+    return this.db.prepare(
+      `SELECT id, path, file_hash, file_size, modified_time FROM photos WHERE path IN (${placeholders})`
+    ).all(...paths) as { id: string; path: string; file_hash: string | null; file_size: number; modified_time: string | null }[];
+  }
+
+  getPhotoPathsByFolder(folderId: string, limit: number, offset: number): { id: string; path: string }[] {
+    return this.db.prepare(
+      'SELECT id, path FROM photos WHERE folder_id = ? LIMIT ? OFFSET ?'
+    ).all(folderId, limit, offset) as { id: string; path: string }[];
+  }
+
   getAllPhotoIds(): string[] {
     const rows = this.db.prepare('SELECT id FROM photos').all() as { id: string }[];
     return rows.map(r => r.id);
@@ -704,6 +752,33 @@ export class DatabaseService {
       'SELECT id, path, filename, latitude, longitude, taken_at, camera, width, height, file_size FROM photos WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?'
     );
     return stmt.all(south, north, west, east) as PhotoWithLocationRow[];
+  }
+
+  /**
+   * 基于地图 zoom 的网格聚合查询。
+   * 把视口内照片按经纬度网格分组，返回聚合簇，避免前端 O(n²) 聚类。
+   */
+  getPhotoClustersInBounds(south: number, west: number, north: number, east: number, zoom: number): PhotoClusterRow[] {
+    // 聚合网格精度：约 64 像素对应的经纬度跨度
+    const precision = Math.max(90 / Math.pow(2, zoom), 0.0001);
+    const stmt = this.db.prepare(`
+      SELECT c.cluster_lat, c.cluster_lng, c.count, c.representative_id, p.path, p.filename
+      FROM (
+        SELECT
+          ROUND(latitude / ?) * ? AS cluster_lat,
+          ROUND(longitude / ?) * ? AS cluster_lng,
+          COUNT(*) AS count,
+          MIN(id) AS representative_id
+        FROM photos
+        WHERE latitude IS NOT NULL
+          AND longitude IS NOT NULL
+          AND latitude BETWEEN ? AND ?
+          AND longitude BETWEEN ? AND ?
+        GROUP BY cluster_lat, cluster_lng
+      ) c
+      JOIN photos p ON p.id = c.representative_id
+    `);
+    return stmt.all(precision, precision, precision, precision, south, north, west, east) as PhotoClusterRow[];
   }
 
   clearDuplicateGroups(): void {

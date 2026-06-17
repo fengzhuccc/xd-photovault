@@ -1,5 +1,4 @@
 import { readdir, stat } from 'fs/promises';
-import { existsSync, unlinkSync } from 'fs';
 import { join, extname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { shell } from 'electron';
@@ -15,6 +14,10 @@ const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif'
 const BATCH_SIZE = 50;
 // 进度上报间隔（每N张上报一次）
 const PROGRESS_INTERVAL = 20;
+// 增量扫描时，每批查询已有记录的路径数量（避免一次性加载整个文件夹）
+const PATH_BATCH_SIZE = 500;
+// 清理已删除照片记录时，每批处理数量
+const DELETE_BATCH_SIZE = 1000;
 
 export interface ScanProgress {
   current: number;
@@ -196,132 +199,153 @@ export class ScannerService {
         return { totalPhotos: 0, skipped: 0 };
       }
 
-      // 第二步：获取已有照片，用于增量扫描
-      const existingPathMap = new Map<string, { id: string; fileHash: string | null; fileSize: number; modifiedTime: string }>();
-      if (!forceRescan) {
-        const existingPhotos = this.db.getPhotosByFolder(folderId);
-        for (const p of existingPhotos) {
-          existingPathMap.set(p.path, {
-            id: p.id,
-            fileHash: p.file_hash,
-            fileSize: p.file_size,
-            modifiedTime: p.modified_time || '',
-          });
-        }
-      }
-
-      // 第三步：分批处理文件
+      // 第二步：分批处理文件，同时按批次查询已有记录，避免一次性加载整个文件夹
       const newPhotos: PhotoInsert[] = [];
       const newHashes: string[] = [];
+      const seenPaths = new Set<string>();
+      const processedPhotoIds: string[] = [];
+      const photoPathMap = new Map<string, string>();
       let skipped = 0;
       let newCount = 0;
 
-      for (let i = 0; i < files.length; i++) {
-        const filePath = files[i];
+      for (let batchStart = 0; batchStart < files.length; batchStart += PATH_BATCH_SIZE) {
+        const batchEnd = Math.min(batchStart + PATH_BATCH_SIZE, files.length);
+        const batchFiles = files.slice(batchStart, batchEnd);
 
-        // 每批处理后让出事件循环
-        if (i > 0 && i % BATCH_SIZE === 0) {
-          // 分批写入数据库
-          if (newPhotos.length > 0) {
-            this.db.insertPhotos(newPhotos);
-            newPhotos.length = 0;
+        // 查询本批次文件的已有记录（避免加载整个文件夹的所有照片）
+        const existingPathMap = new Map<string, { id: string; fileHash: string | null; fileSize: number; modifiedTime: string }>();
+        if (!forceRescan) {
+          const existingRows = this.db.getPhotosByPaths(batchFiles);
+          for (const p of existingRows) {
+            existingPathMap.set(p.path, {
+              id: p.id,
+              fileHash: p.file_hash,
+              fileSize: p.file_size,
+              modifiedTime: p.modified_time || '',
+            });
           }
-          await yieldToMain();
         }
 
-        // 进度上报（每20张或最后一张）
-        if (i % PROGRESS_INTERVAL === 0 || i === files.length - 1) {
-          onProgress({
-            current: i + 1,
-            total,
-            currentFile: filePath.split(/[/\\]/).pop() || filePath,
-            status: 'scanning',
-          });
-        }
+        for (let i = 0; i < batchFiles.length; i++) {
+          const filePath = batchFiles[i];
+          const globalIndex = batchStart + i;
+          seenPaths.add(filePath);
 
-        // S8: 定期更新扫描进度到数据库（每50张）
-        if (i > 0 && i % 50 === 0) {
-          this.db.updateFolderScanStatus(folderId, 'scanning', total, i + 1, filePath);
-        }
-
-        try {
-          const stats = await stat(filePath);
-
-          // 增量扫描：检查文件是否已存在且未修改（强制重新扫描时跳过此检查）
-          const existing = existingPathMap.get(filePath);
-          if (!forceRescan && existing
-              && existing.fileSize === stats.size
-              && existing.modifiedTime === stats.mtime.toISOString()) {
-            // 文件大小和修改时间均相同，未修改，跳过
-            skipped++;
-            existingPathMap.delete(filePath);
-            continue;
+          // 每批处理后让出事件循环
+          if (globalIndex > 0 && globalIndex % BATCH_SIZE === 0) {
+            // 分批写入数据库
+            if (newPhotos.length > 0) {
+              this.db.insertPhotos(newPhotos);
+              newPhotos.length = 0;
+            }
+            await yieldToMain();
           }
 
-          // 新文件或已修改的文件，需要完整处理
-          newCount++;
-
-          // 如果是已修改的文件（existing存在但mtime/size不同），先删除旧记录
-          if (existing) {
-            this.db.deletePhoto(existing.id);
+          // 进度上报（每20张或最后一张）
+          if (globalIndex % PROGRESS_INTERVAL === 0 || globalIndex === files.length - 1) {
+            onProgress({
+              current: globalIndex + 1,
+              total,
+              currentFile: filePath.split(/[/\\]/).pop() || filePath,
+              status: 'scanning',
+            });
           }
 
-          // S5: extractExif 内部已优化，先用 sharp 获取宽高，不再重复 I/O
-          const exifData = await this.exifService.extractExif(filePath);
-          const fileHash = await this.hashService.calculateFileHash(filePath);
+          // S8: 定期更新扫描进度到数据库（每50张）
+          if (globalIndex > 0 && globalIndex % 50 === 0) {
+            this.db.updateFolderScanStatus(folderId, 'scanning', total, globalIndex + 1, filePath);
+          }
 
-          // pHash 延迟到去重检测时按需计算，避免拖慢扫描速度
-          const perceptualHash = null;
+          try {
+            const stats = await stat(filePath);
 
-          const photoId = existing?.id || uuidv4();
+            // 增量扫描：检查文件是否已存在且未修改（强制重新扫描时跳过此检查）
+            const existing = existingPathMap.get(filePath);
+            if (!forceRescan && existing
+                && existing.fileSize === stats.size
+                && existing.modifiedTime === stats.mtime.toISOString()) {
+              // 文件大小和修改时间均相同，未修改，跳过
+              skipped++;
+              continue;
+            }
 
-          // 扫描时不生成缩略图，延迟到浏览时按需生成
-          const takenAt = exifData.takenAt || stats.mtime;
+            // 新文件或已修改的文件，需要完整处理
+            newCount++;
 
-          newPhotos.push({
-            id: photoId,
-            folderId,
-            path: filePath,
-            filename: filePath.split(/[/\\]/).pop() || '',
-            fileSize: stats.size,
-            fileHash,
-            perceptualHash,
-            takenAt: takenAt.toISOString(),
-            latitude: exifData.latitude,
-            longitude: exifData.longitude,
-            width: exifData.width,
-            height: exifData.height,
-            camera: exifData.camera,
-            aperture: exifData.aperture,
-            shutterSpeed: exifData.shutterSpeed,
-            iso: exifData.iso,
-            focalLength: exifData.focalLength,
-            thumbnailPath: null, // 延迟生成
-            modifiedTime: stats.mtime.toISOString(),
-          });
-          newHashes.push(fileHash);
+            // 如果是已修改的文件（existing存在但mtime/size不同），先删除旧记录
+            if (existing) {
+              this.db.deletePhoto(existing.id);
+            }
 
-          existingPathMap.delete(filePath);
-        } catch (error) {
-          log.warn(`[Scanner] 处理文件失败: ${filePath}`, error);
+            // S5: extractExif 内部已优化，先用 sharp 获取宽高，不再重复 I/O
+            const exifData = await this.exifService.extractExif(filePath);
+            const fileHash = await this.hashService.calculateFileHash(filePath);
+
+            // pHash 延迟到去重检测时按需计算，避免拖慢扫描速度
+            const perceptualHash = null;
+
+            const photoId = existing?.id || uuidv4();
+
+            // 扫描时不生成缩略图，延迟到浏览时按需生成
+            const takenAt = exifData.takenAt || stats.mtime;
+
+            newPhotos.push({
+              id: photoId,
+              folderId,
+              path: filePath,
+              filename: filePath.split(/[/\\]/).pop() || '',
+              fileSize: stats.size,
+              fileHash,
+              perceptualHash,
+              takenAt: takenAt.toISOString(),
+              latitude: exifData.latitude,
+              longitude: exifData.longitude,
+              width: exifData.width,
+              height: exifData.height,
+              camera: exifData.camera,
+              aperture: exifData.aperture,
+              shutterSpeed: exifData.shutterSpeed,
+              iso: exifData.iso,
+              focalLength: exifData.focalLength,
+              thumbnailPath: null, // 延迟生成
+              modifiedTime: stats.mtime.toISOString(),
+            });
+            newHashes.push(fileHash);
+            processedPhotoIds.push(photoId);
+            photoPathMap.set(photoId, filePath);
+          } catch (error) {
+            log.warn(`[Scanner] 处理文件失败: ${filePath}`, error);
+          }
         }
+
+        // 每批路径处理完后写入剩余照片并让出事件循环
+        if (newPhotos.length > 0) {
+          this.db.insertPhotos(newPhotos);
+          newPhotos.length = 0;
+        }
+        await yieldToMain();
       }
 
-      // 写入剩余的照片
-      if (newPhotos.length > 0) {
-        this.db.insertPhotos(newPhotos);
-      }
-
-      // 删除不再存在的照片（existingPathMap中剩余的就是已删除的文件）
+      // 删除不再存在的照片（分页查询，避免加载整个文件夹）
       let deletedCount = 0;
-      const deletedIds: string[] = [];
-      for (const [path, info] of existingPathMap) {
-        deletedIds.push(info.id);
-        deletedCount++;
+      let offset = 0;
+      while (true) {
+        const batch = this.db.getPhotoPathsByFolder(folderId, DELETE_BATCH_SIZE, offset);
+        if (batch.length === 0) break;
+
+        const toDelete = batch.filter(p => !seenPaths.has(p.path));
+        if (toDelete.length > 0) {
+          const deletedIds = toDelete.map(p => p.id);
+          this.thumbnailService.deleteThumbnailsByPhotoIds(deletedIds);
+          this.db.deletePhotosBatch(deletedIds);
+          deletedCount += toDelete.length;
+        }
+
+        offset += batch.length;
+        if (batch.length < DELETE_BATCH_SIZE) break;
+        await yieldToMain();
       }
-      if (deletedIds.length > 0) {
-        this.thumbnailService.deleteThumbnailsByPhotoIds(deletedIds);
-        this.db.deletePhotosBatch(deletedIds);
+      if (deletedCount > 0) {
         log.info(`[Scanner] 删除 ${deletedCount} 个不存在的照片记录`);
       }
 
@@ -338,6 +362,18 @@ export class ScannerService {
         // 不 await，让去重检测在后台执行
         this.detectDuplicates(false, newHashes).catch(err => {
           log.error('[Scanner] 后台去重检测失败:', err);
+        });
+      }
+
+      // 后台渐进式生成小尺寸网格缩略图，避免首次浏览时卡顿
+      if (processedPhotoIds.length > 0) {
+        this.thumbnailService.generateThumbnailsInBackground(
+          processedPhotoIds,
+          (id) => photoPathMap.get(id),
+          'small',
+          3
+        ).catch(err => {
+          log.error('[Scanner] 后台缩略图生成失败:', err);
         });
       }
 
@@ -489,30 +525,25 @@ export class ScannerService {
   }
 
   /**
-   * 基于 pHash 汉明距离检测相似图片
+   * 基于 pHash 的 LSH（局部敏感哈希）检测相似图片。
+   * 把 64 位 pHash 分成 4 个 16 位 band，共享任一 band 的照片才进入汉明距离精细比较，
+   * 将 O(n²) 降为接近 O(n)。
    * 阈值 < 10 视为相似（64 位哈希中差异不超过 10 位）
    */
   private async detectSimilarDuplicates(fullRebuild: boolean): Promise<number> {
     const PHASH_THRESHOLD = 10;
+    const LSH_BANDS = 4;
+    const LSH_BAND_SIZE = 16; // 64 / 4
+    const BATCH_SIZE = 5000;
 
-    const allHashes = this.db.getAllPhotoHashes();
-    // 只处理有 pHash 的照片，且排除已在 exact 组中的
-    const withPHash = allHashes.filter(h => h.perceptual_hash !== null && h.perceptual_hash !== '0'.repeat(64));
+    // 统计有 pHash 的照片总数
+    const totalCount = this.db.getPhotoCountWithPHash();
 
-    if (withPHash.length < 2) return 0;
+    if (totalCount < 2) return 0;
 
-    log.info(`[Scanner] 开始相似图片检测: ${withPHash.length} 张照片有 pHash`);
+    log.info(`[Scanner] 开始相似图片检测 (LSH): ${totalCount} 张照片有 pHash`);
 
-    // 按文件大小分组，只比较大小相近的（相似图片大小通常接近）
-    // 先按大小排序，然后滑动窗口比较
-    const photoDetails = withPHash.map(h => {
-      const photo = this.db.getPhotoById(h.id);
-      return photo ? { ...h, file_size: photo.file_size } : null;
-    }).filter((p): p is NonNullable<typeof p> => p !== null);
-
-    photoDetails.sort((a, b) => a.file_size - b.file_size);
-
-    // 用 Union-Find 管理分组
+    // Union-Find
     const parent = new Map<string, string>();
     const find = (id: string): string => {
       if (!parent.has(id)) parent.set(id, id);
@@ -534,48 +565,93 @@ export class ScannerService {
       if (ra !== rb) parent.set(ra, rb);
     };
 
-    // 滑动窗口比较：大小差 2 倍以内的才比较
-    let comparisons = 0;
-    for (let i = 0; i < photoDetails.length; i++) {
-      const a = photoDetails[i];
-      for (let j = i + 1; j < photoDetails.length; j++) {
-        const b = photoDetails[j];
-        // 大小差超过 2 倍，跳过（相似图片大小不会差太多）
-        if (b.file_size > a.file_size * 2) break;
+    const phashMap = new Map<string, string>();
+    const fileSizeMap = new Map<string, number>();
+    const lshBuckets = new Map<string, Set<string>>();
+    const ZERO_PREFIX = '0'.repeat(16);
 
-        // 跳过已在同一组的
-        if (parent.has(a.id) && parent.has(b.id) && find(a.id) === find(b.id)) continue;
+    // 第一趟：分批读取 pHash，构建 LSH 桶
+    let loaded = 0;
+    let offset = 0;
+    while (offset < totalCount) {
+      const batch = this.db.getPhotoHashBatch(BATCH_SIZE, offset);
+      for (const row of batch) {
+        const phash = row.perceptual_hash;
+        if (!phash || phash === '0'.repeat(64)) continue;
 
-        const distance = this.hashService.hammingDistance(a.perceptual_hash!, b.perceptual_hash!);
-        if (distance < PHASH_THRESHOLD) {
-          union(a.id, b.id);
+        phashMap.set(row.id, phash);
+        fileSizeMap.set(row.id, row.file_size);
+
+        for (let i = 0; i < LSH_BANDS; i++) {
+          const band = phash.slice(i * LSH_BAND_SIZE, (i + 1) * LSH_BAND_SIZE);
+          // 跳过全 0 band，避免产生超大桶
+          if (band === ZERO_PREFIX) continue;
+          const key = `${i}_${band}`;
+          if (!lshBuckets.has(key)) lshBuckets.set(key, new Set());
+          lshBuckets.get(key)!.add(row.id);
         }
+      }
+      loaded += batch.length;
+      offset += BATCH_SIZE;
+      if (loaded % 20000 === 0) {
+        await yieldToMain();
+        log.info(`[Scanner] LSH 建桶进度: ${loaded}/${totalCount}`);
+      }
+    }
 
-        comparisons++;
-        if (comparisons % 10000 === 0) {
-          await yieldToMain();
+    // 第二趟：在每个桶内做精细汉明距离比较
+    let comparisons = 0;
+    let bucketIndex = 0;
+    for (const [, ids] of lshBuckets) {
+      if (ids.size < 2) continue;
+
+      const idList = Array.from(ids);
+      // 额外按文件大小排序，大小差 2 倍以上跳过，减少无效比较
+      idList.sort((a, b) => fileSizeMap.get(a)! - fileSizeMap.get(b)!);
+
+      for (let i = 0; i < idList.length; i++) {
+        const a = idList[i];
+        const ha = phashMap.get(a)!;
+        for (let j = i + 1; j < idList.length; j++) {
+          const b = idList[j];
+          // 文件大小差超过 2 倍，后续都更大，跳过
+          if (fileSizeMap.get(b)! > fileSizeMap.get(a)! * 2) break;
+
+          // 已在同一组则跳过
+          if (find(a) === find(b)) continue;
+
+          const distance = this.hashService.hammingDistance(ha, phashMap.get(b)!);
+          if (distance < PHASH_THRESHOLD) {
+            union(a, b);
+          }
+
+          comparisons++;
+          if (comparisons % 50000 === 0) {
+            await yieldToMain();
+          }
         }
       }
 
-      if (i % 200 === 0) {
+      bucketIndex++;
+      if (bucketIndex % 500 === 0) {
         await yieldToMain();
       }
     }
 
     // 收集分组
     const groups = new Map<string, string[]>();
-    for (const photo of photoDetails) {
-      const root = find(photo.id);
+    for (const id of phashMap.keys()) {
+      const root = find(id);
       if (!groups.has(root)) groups.set(root, []);
-      groups.get(root)!.push(photo.id);
+      groups.get(root)!.push(id);
     }
 
     // 只保留多张照片的组
     let similarGroupCount = 0;
-    for (const [_, ids] of groups) {
+    for (const [, ids] of groups) {
       if (ids.length < 2) continue;
 
-      // 检查是否已在 exact 重复组中
+      // 检查是否已在 exact 重复组中（增量模式）
       if (!fullRebuild) {
         const hasGroup = ids.some(id => this.db.getPhotoDuplicateGroup(id));
         if (hasGroup) continue;
@@ -599,9 +675,13 @@ export class ScannerService {
         this.db.insertPhotoDuplicate(photo.id, groupId);
       }
       similarGroupCount++;
+
+      if (similarGroupCount % 100 === 0) {
+        await yieldToMain();
+      }
     }
 
-    log.info(`[Scanner] 相似图片检测完成: ${similarGroupCount} 组 (比较 ${comparisons} 对)`);
+    log.info(`[Scanner] 相似图片检测完成: ${similarGroupCount} 组 (比较 ${comparisons} 对，桶数 ${lshBuckets.size})`);
     return similarGroupCount;
   }
 
@@ -629,15 +709,8 @@ export class ScannerService {
         } catch (e) {
           log.warn(`[Scanner] 移动文件到回收站失败: ${photo.path}`, e);
         }
-        // 删除缩略图文件
-        const thumbnailPath = join(this.thumbnailService.thumbnailDir, `${id}.webp`);
-        try {
-          if (existsSync(thumbnailPath)) {
-            unlinkSync(thumbnailPath);
-          }
-        } catch (e) {
-          log.warn(`[Scanner] 删除缩略图失败: ${thumbnailPath}`, e);
-        }
+        // 删除缩略图文件（含新版多尺寸和旧版无分片）
+        this.thumbnailService.deleteThumbnailsByPhotoIds([id]);
         this.db.deletePhoto(id);
       }
     }

@@ -45,6 +45,8 @@ export const api = {
     getWithLocation: () => ipcRenderer.invoke('photo:getWithLocation'),
     getInBounds: (south: number, west: number, north: number, east: number) =>
       ipcRenderer.invoke('photo:getInBounds', south, west, north, east),
+    getClustersInBounds: (south: number, west: number, north: number, east: number, zoom: number) =>
+      ipcRenderer.invoke('photo:getClustersInBounds', south, west, north, east, zoom),
   },
 
   mapSetting: {
@@ -59,8 +61,8 @@ export const api = {
   },
   
   thumbnail: {
-    get: (photoId: string, photoPath: string) => 
-      ipcRenderer.invoke('thumbnail:get', photoId, photoPath),
+    get: (photoId: string, photoPath: string, size?: 'small' | 'medium') => 
+      ipcRenderer.invoke('thumbnail:get', photoId, photoPath, size),
     clear: () => ipcRenderer.invoke('thumbnail:clear'),
   },
 

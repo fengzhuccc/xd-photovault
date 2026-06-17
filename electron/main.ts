@@ -271,6 +271,10 @@ function setupIpcHandlers() {
     return db.getPhotosInBounds(south, west, north, east);
   });
 
+  ipcMain.handle('photo:getClustersInBounds', async (_event, south: number, west: number, north: number, east: number, zoom: number) => {
+    return db.getPhotoClustersInBounds(south, west, north, east, zoom);
+  });
+
   // 地图设置
   ipcMain.handle('map:getSetting', async (_event, key: string) => {
     return db.getSetting(`map_${key}`);
@@ -281,8 +285,8 @@ function setupIpcHandlers() {
     return { success: true };
   });
 
-  ipcMain.handle('thumbnail:get', async (_event, photoId: string, photoPath: string) => {
-    return await thumbnailService.getThumbnail(photoId, photoPath);
+  ipcMain.handle('thumbnail:get', async (_event, photoId: string, photoPath: string, size?: 'small' | 'medium') => {
+    return await thumbnailService.getThumbnail(photoId, photoPath, size);
   });
 
   ipcMain.handle('thumbnail:clear', async () => {

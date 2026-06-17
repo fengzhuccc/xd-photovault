@@ -61,7 +61,7 @@ export function BrowsePage() {
         if (loadVersionRef.current !== currentVersion) return;
 
         try {
-          const thumb = await window.api.thumbnail.get(photo.id, photo.path);
+          const thumb = await window.api.thumbnail.get(photo.id, photo.path, 'small');
           if (loadVersionRef.current !== currentVersion) return;
           setThumbnails({ ...get().thumbnails, [photo.id]: thumb });
           setOriginalImages({ ...get().originalImages, [photo.id]: `file:///${photo.path.replace(/\\/g, '/')}` });

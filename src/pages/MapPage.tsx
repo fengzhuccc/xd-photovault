@@ -28,7 +28,7 @@ function transformLng(lng: number, lat: number): number {
   let ret = 300.0 + lng + 2.0 * lat + 0.1 * lng * lng + 0.1 * lng * lat + 0.1 * Math.sqrt(Math.abs(lng));
   ret += (20.0 * Math.sin(6.0 * lng * Math.PI) + 20.0 * Math.sin(2.0 * lng * Math.PI)) * 2.0 / 3.0;
   ret += (20.0 * Math.sin(lng * Math.PI) + 40.0 * Math.sin(lng / 3.0 * Math.PI)) * 2.0 / 3.0;
-  ret += (150.0 * Math.sin(lng / 12.0 * Math.PI) + 300.0 * Math.sin(lng / 30.0 * Math.PI)) * 2.0 / 3.0;
+  ret += (150.0 * Math.sin(lng / 12.0 * Math.PI) + 300 * Math.sin(lng / 30.0 * Math.PI)) * 2.0 / 3.0;
   return ret;
 }
 
@@ -47,15 +47,13 @@ function wgs84ToGcj02(lng: number, lat: number): [number, number] {
   return [lng + dLng, lat + dLat];
 }
 
-// Haversine 距离计算（米）
-function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371000;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+interface PhotoCluster {
+  cluster_lat: number;
+  cluster_lng: number;
+  count: number;
+  representative_id: string;
+  path: string;
+  filename: string;
 }
 
 interface PhotoWithLocation {
@@ -71,62 +69,15 @@ interface PhotoWithLocation {
   file_size: number | null;
 }
 
-// 计算照片组的重心坐标
-function groupCentroid(group: PhotoWithLocation[]): { lat: number; lng: number } {
-  const sumLat = group.reduce((sum, p) => sum + p.latitude, 0);
-  const sumLng = group.reduce((sum, p) => sum + p.longitude, 0);
-  return { lat: sumLat / group.length, lng: sumLng / group.length };
-}
-
-// 距离聚合：50m 内的照片归为同一组
-function clusterPhotosByDistance(photos: PhotoWithLocation[], radiusMeters: number = 50): PhotoWithLocation[][] {
-  if (photos.length === 0) return [];
-
-  // 按纬度排序以便聚合
-  const sorted = [...photos].sort((a, b) => a.latitude - b.latitude || a.longitude - b.longitude);
-  const groups: PhotoWithLocation[][] = [];
-  const assigned = new Set<number>();
-
-  // 50m 约等于 0.00045 度纬度，用作经纬度方向粗筛阈值
-  const degreeThreshold = radiusMeters / 111_000;
-
-  for (let i = 0; i < sorted.length; i++) {
-    if (assigned.has(i)) continue;
-    const group: PhotoWithLocation[] = [sorted[i]];
-    assigned.add(i);
-
-    for (let j = i + 1; j < sorted.length; j++) {
-      if (assigned.has(j)) continue;
-      const latDiff = sorted[j].latitude - sorted[i].latitude;
-      const lngDiff = Math.abs(sorted[j].longitude - sorted[i].longitude);
-      // 经纬度差过大直接跳过
-      if (latDiff > degreeThreshold) break;
-      if (lngDiff > degreeThreshold) continue;
-      if (haversineDistance(sorted[i].latitude, sorted[i].longitude, sorted[j].latitude, sorted[j].longitude) <= radiusMeters) {
-        group.push(sorted[j]);
-        assigned.add(j);
-      }
-    }
-    groups.push(group);
-  }
-  return groups;
+// 与后端保持一致的网格精度计算
+function clusterPrecision(zoom: number): number {
+  return Math.max(90 / Math.pow(2, zoom), 0.0001);
 }
 
 export function MapPage() {
   const { stats, loadStats } = useAppStore();
   const [searchParams] = useSearchParams();
   const highlightPhotoId = searchParams.get('photoId');
-  // 当前要高亮的照片 ID，支持 URL 传入和地图内点击切换
-  const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(highlightPhotoId);
-
-  // URL 参数变化时同步高亮状态
-  useEffect(() => {
-    setSelectedPhotoId(highlightPhotoId);
-  }, [highlightPhotoId]);
-
-  const [photosWithLocation, setPhotosWithLocation] = useState<PhotoWithLocation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [photoCount, setPhotoCount] = useState(0);
 
   // 底部抽屉状态
   const [drawerPhotos, setDrawerPhotos] = useState<PhotoWithLocation[]>([]);
@@ -141,29 +92,15 @@ export function MapPage() {
   const thumbnailCacheRef = useRef<Record<string, string>>({});
   const drawerAbortRef = useRef<AbortController | null>(null);
 
-  const loadPhotosWithLocation = useCallback(async () => {
-    try {
-      setLoading(true);
-      const photos = await window.api.photo.getWithLocation();
-      setPhotosWithLocation(photos);
-      setPhotoCount(photos.length);
-    } catch (error) {
-      console.error('Failed to load photos with location:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     loadStats();
-    loadPhotosWithLocation();
-  }, [loadStats, loadPhotosWithLocation]);
+  }, [loadStats]);
 
-  const loadThumbnail = useCallback(async (photo: PhotoWithLocation, signal?: AbortSignal): Promise<string | null> => {
+  const loadThumbnail = useCallback(async (photo: { id: string; path: string }, signal?: AbortSignal): Promise<string | null> => {
     const cached = thumbnailCacheRef.current[photo.id];
     if (cached) return cached;
     try {
-      const thumb = await window.api.thumbnail.get(photo.id, photo.path);
+      const thumb = await window.api.thumbnail.get(photo.id, photo.path, 'small');
       if (signal?.aborted) return null;
       thumbnailCacheRef.current[photo.id] = thumb;
       return thumb;
@@ -172,22 +109,21 @@ export function MapPage() {
     }
   }, []);
 
-  const handlePhotoClick = useCallback((photo: PhotoWithLocation) => {
-    setSelectedPhotoId(photo.id);
-    window.api.photo.getById(photo.id).then(detail => {
+  const handlePhotoClick = useCallback((photoId: string) => {
+    window.api.photo.getById(photoId).then(detail => {
       setSelectedPhoto(detail);
     }).catch(e => {
       console.error('Failed to load photo detail:', e);
     });
   }, []);
 
-  // 点击标记组：打开底部抽屉
-  const handleMarkerGroupClick = useCallback((photos: PhotoWithLocation[]) => {
-    if (photos.length === 1) {
-      handlePhotoClick(photos[0]);
+  // 点击聚合簇：单张直接打开详情，多张打开抽屉
+  const handleClusterClick = useCallback(async (cluster: PhotoCluster, zoom: number) => {
+    if (cluster.count === 1) {
+      handlePhotoClick(cluster.representative_id);
       return;
     }
-    setSelectedPhotoId(photos[0].id);
+
     // 取消上次未完成的缩略图加载
     if (drawerAbortRef.current) {
       drawerAbortRef.current.abort();
@@ -195,19 +131,31 @@ export function MapPage() {
     const abortController = new AbortController();
     drawerAbortRef.current = abortController;
 
-    setDrawerPhotos(photos);
+    const precision = clusterPrecision(zoom);
+    const south = cluster.cluster_lat - precision / 2;
+    const north = cluster.cluster_lat + precision / 2;
+    const west = cluster.cluster_lng - precision / 2;
+    const east = cluster.cluster_lng + precision / 2;
+
     setDrawerOpen(true);
     setDrawerThumbnails({});
-    // 设置位置描述（使用重心）
-    const centroid = groupCentroid(photos);
-    setDrawerLocation(`${centroid.lat.toFixed(2)}, ${centroid.lng.toFixed(2)}`);
-    // 异步加载缩略图
-    photos.forEach(async (photo) => {
-      const thumb = await loadThumbnail(photo, abortController.signal);
-      if (thumb && !abortController.signal.aborted) {
-        setDrawerThumbnails(prev => ({ ...prev, [photo.id]: thumb }));
-      }
-    });
+    setDrawerLocation(`${cluster.cluster_lat.toFixed(4)}, ${cluster.cluster_lng.toFixed(4)}`);
+
+    try {
+      const photos = await window.api.photo.getInBounds(south, west, north, east);
+      if (abortController.signal.aborted) return;
+      setDrawerPhotos(photos);
+      // 异步加载缩略图
+      photos.forEach(async (photo) => {
+        const thumb = await loadThumbnail(photo, abortController.signal);
+        if (thumb && !abortController.signal.aborted) {
+          setDrawerThumbnails(prev => ({ ...prev, [photo.id]: thumb }));
+        }
+      });
+    } catch (e) {
+      console.error('Failed to load cluster photos:', e);
+      setDrawerOpen(false);
+    }
   }, [handlePhotoClick, loadThumbnail]);
 
   // 坐标转换（高德地图使用 GCJ02）
@@ -227,35 +175,26 @@ export function MapPage() {
     setSelectedPhoto(null);
   }, []);
 
+  const hasLocationPhotos = (stats?.withLocation ?? 0) > 0;
+
   return (
     <div className="h-full flex flex-col" style={{ height: 'calc(100vh - 3rem)' }}>
       <div className="mb-4">
         <h1 className="text-2xl font-bold text-zinc-100 mb-1">地图视图</h1>
         <p className="text-sm text-zinc-400">
-          {loading ? '加载中...' : `${photoCount.toLocaleString()} 张照片有位置信息`}
+          {stats ? `${stats.withLocation.toLocaleString()} 张照片有位置信息` : '加载中...'}
           {stats && stats.withoutLocation > 0 && ` · ${stats.withoutLocation.toLocaleString()} 张无位置`}
         </p>
       </div>
 
       <div className="flex-1 min-h-0 rounded-xl overflow-hidden border border-zinc-800 relative" style={{ minHeight: '400px' }}>
-        {loading ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-zinc-900">
-            <div className="text-center text-zinc-500">
-              <div className="animate-spin w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full mx-auto mb-3"></div>
-              <p>加载地图数据...</p>
-            </div>
-          </div>
-        ) : (
-          <LeafletMap
-            photos={photosWithLocation}
-            totalPhotoCount={photoCount}
-            transformCoord={transformCoord}
-            onPhotoClick={handlePhotoClick}
-            onMarkerGroupClick={handleMarkerGroupClick}
-            hasNoPhotos={photosWithLocation.length === 0}
-            highlightPhotoId={selectedPhotoId}
-          />
-        )}
+        <LeafletMap
+          hasNoPhotos={!hasLocationPhotos}
+          transformCoord={transformCoord}
+          onPhotoClick={handlePhotoClick}
+          onClusterClick={handleClusterClick}
+          highlightPhotoId={highlightPhotoId}
+        />
       </div>
 
       {/* 底部抽屉：同位置多照片 */}
@@ -279,7 +218,7 @@ export function MapPage() {
             {drawerPhotos.map((photo) => (
               <button
                 key={photo.id}
-                onClick={() => handlePhotoClick(photo)}
+                onClick={() => handlePhotoClick(photo.id)}
                 className="flex-shrink-0 group"
               >
                 <div className="w-24 h-24 rounded-lg overflow-hidden border-2 border-transparent group-hover:border-amber-500 transition-colors">
@@ -308,11 +247,10 @@ export function MapPage() {
         onClose={closePhotoDetail}
         onUpdate={(updatedPhoto) => {
           setSelectedPhoto(updatedPhoto);
-          loadPhotosWithLocation();
         }}
         onDelete={async () => {
           setSelectedPhoto(null);
-          await loadPhotosWithLocation();
+          await loadStats();
         }}
       />
     </div>
@@ -320,32 +258,60 @@ export function MapPage() {
 }
 
 interface LeafletMapProps {
-  photos: PhotoWithLocation[];
-  totalPhotoCount: number;
-  transformCoord: (lat: number, lng: number) => [number, number];
-  onPhotoClick: (photo: PhotoWithLocation) => void;
-  onMarkerGroupClick: (photos: PhotoWithLocation[]) => void;
   hasNoPhotos: boolean;
+  transformCoord: (lat: number, lng: number) => [number, number];
+  onPhotoClick: (photoId: string) => void;
+  onClusterClick: (cluster: PhotoCluster, zoom: number) => void;
   highlightPhotoId?: string | null;
 }
 
-// 视口按需加载的照片数量阈值
-const VIEWPORT_LOAD_THRESHOLD = 5000;
+const MIN_CLUSTER_ZOOM = 16;
 
-function LeafletMap({ photos, totalPhotoCount, transformCoord, onPhotoClick, onMarkerGroupClick, hasNoPhotos, highlightPhotoId }: LeafletMapProps) {
+function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick, highlightPhotoId }: LeafletMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
-  const initializedRef = useRef(false);
   const markersRef = useRef<L.LayerGroup | null>(null);
-  const [viewportPhotos, setViewportPhotos] = useState<PhotoWithLocation[]>([]);
+  const [clusters, setClusters] = useState<PhotoCluster[]>([]);
   const [viewportLoading, setViewportLoading] = useState(false);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialFitRef = useRef(false);
   const highlightFitRef = useRef(false);
 
-  // 是否启用视口按需加载
-  const useViewportLoading = totalPhotoCount > VIEWPORT_LOAD_THRESHOLD;
+  // 加载当前视口聚合簇
+  const loadViewport = useCallback(async () => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    const bounds = map.getBounds();
+    const sw = bounds.getSouthWest();
+    const ne = bounds.getNorthEast();
+    const zoom = map.getZoom();
+
+    setViewportLoading(true);
+    try {
+      // 高缩放时直接显示单张照片，低缩放时显示聚合簇
+      if (zoom >= MIN_CLUSTER_ZOOM) {
+        const photos = await window.api.photo.getInBounds(sw.lat, sw.lng, ne.lat, ne.lng);
+        // 把单张照片包装成 count=1 的簇格式，统一渲染
+        setClusters(photos.map(p => ({
+          cluster_lat: p.latitude,
+          cluster_lng: p.longitude,
+          count: 1,
+          representative_id: p.id,
+          path: p.path,
+          filename: p.filename,
+        })));
+      } else {
+        const result = await window.api.photo.getClustersInBounds(sw.lat, sw.lng, ne.lat, ne.lng, zoom);
+        setClusters(result);
+      }
+    } catch (e) {
+      console.error('Failed to load viewport photos:', e);
+    } finally {
+      setViewportLoading(false);
+    }
+  }, []);
 
   // 初始化地图
   useEffect(() => {
@@ -365,7 +331,6 @@ function LeafletMap({ photos, totalPhotoCount, transformCoord, onPhotoClick, onM
     tileLayer.addTo(map);
     tileLayerRef.current = tileLayer;
 
-    // 使用 LayerGroup 而非 MarkerClusterGroup，避免与自定义距离聚合冲突
     const markerLayer = L.layerGroup().addTo(map);
     markersRef.current = markerLayer;
     mapInstanceRef.current = map;
@@ -373,34 +338,18 @@ function LeafletMap({ photos, totalPhotoCount, transformCoord, onPhotoClick, onM
     // 确保 Leaflet 正确计算容器尺寸
     setTimeout(() => {
       map.invalidateSize();
-      initializedRef.current = true;
     }, 200);
 
-    // 视口按需加载：监听 moveend 事件
-    if (useViewportLoading) {
-      const loadViewport = async () => {
-        const bounds = map.getBounds();
-        const sw = bounds.getSouthWest();
-        const ne = bounds.getNorthEast();
-        setViewportLoading(true);
-        try {
-          const result = await window.api.photo.getInBounds(sw.lat, sw.lng, ne.lat, ne.lng);
-          setViewportPhotos(result);
-        } catch (e) {
-          console.error('Failed to load photos in bounds:', e);
-        } finally {
-          setViewportLoading(false);
-        }
-      };
+    const scheduleLoad = () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = setTimeout(loadViewport, 300);
+    };
 
-      map.on('moveend', () => {
-        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = setTimeout(loadViewport, 300);
-      });
+    map.on('moveend', scheduleLoad);
+    map.on('zoomend', scheduleLoad);
 
-      // 初始加载当前视口
-      loadViewport();
-    }
+    // 初始加载
+    scheduleLoad();
 
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -409,10 +358,7 @@ function LeafletMap({ photos, totalPhotoCount, transformCoord, onPhotoClick, onM
       markersRef.current = null;
       tileLayerRef.current = null;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // 实际显示的照片数据
-  const displayPhotos = useViewportLoading ? viewportPhotos : photos;
+  }, [loadViewport]);
 
   // 更新标记
   useEffect(() => {
@@ -421,21 +367,14 @@ function LeafletMap({ photos, totalPhotoCount, transformCoord, onPhotoClick, onM
     const layerGroup = markersRef.current;
     layerGroup.clearLayers();
 
-    // 距离聚合分组
-    const groups = clusterPhotosByDistance(displayPhotos, 50);
-
     let highlightedMarker: L.Marker | null = null;
 
-    for (const group of groups) {
-      const centerPhoto = group[0];
-      // 取组内重心作为标记位置
-      const centroid = groupCentroid(group);
-      const [lat, lng] = transformCoord(centroid.lat, centroid.lng);
-      const isHighlighted = !!highlightPhotoId && group.some(p => p.id === highlightPhotoId);
+    for (const cluster of clusters) {
+      const [lat, lng] = transformCoord(cluster.cluster_lat, cluster.cluster_lng);
+      const isHighlighted = cluster.representative_id === highlightPhotoId;
 
       let icon: L.DivIcon;
-      if (group.length === 1) {
-        // 单张照片：圆形标记
+      if (cluster.count === 1) {
         icon = L.divIcon({
           html: `<div class="photo-marker">
             <div class="photo-marker-inner ${isHighlighted ? 'highlight' : ''}">
@@ -451,9 +390,8 @@ function LeafletMap({ photos, totalPhotoCount, transformCoord, onPhotoClick, onM
           iconAnchor: [16, 16],
         });
       } else {
-        // 多张照片：带数字的圆形标记
         icon = L.divIcon({
-          html: `<div class="photo-marker-group ${isHighlighted ? 'highlight' : ''}"><span>${group.length}</span></div>`,
+          html: `<div class="photo-marker-group ${isHighlighted ? 'highlight' : ''}"><span>${cluster.count}</span></div>`,
           className: 'photo-marker-icon',
           iconSize: [40, 40],
           iconAnchor: [20, 20],
@@ -462,12 +400,12 @@ function LeafletMap({ photos, totalPhotoCount, transformCoord, onPhotoClick, onM
 
       const marker = L.marker([lat, lng], { icon });
 
-      if (group.length === 1) {
-        marker.bindTooltip(centerPhoto.filename, { direction: 'top', offset: [0, -10] });
-        marker.on('click', () => onPhotoClick(group[0]));
+      if (cluster.count === 1) {
+        marker.bindTooltip(cluster.filename, { direction: 'top', offset: [0, -10] });
+        marker.on('click', () => onPhotoClick(cluster.representative_id));
       } else {
-        marker.bindTooltip(`${group.length} 张照片`, { direction: 'top', offset: [0, -10] });
-        marker.on('click', () => onMarkerGroupClick(group));
+        marker.bindTooltip(`${cluster.count} 张照片`, { direction: 'top', offset: [0, -10] });
+        marker.on('click', () => onClusterClick(cluster, mapInstanceRef.current!.getZoom()));
       }
 
       if (isHighlighted) {
@@ -478,7 +416,7 @@ function LeafletMap({ photos, totalPhotoCount, transformCoord, onPhotoClick, onM
     }
 
     // 首次加载时 fit bounds
-    if (!initialFitRef.current && displayPhotos.length > 0) {
+    if (!initialFitRef.current && clusters.length > 0) {
       initialFitRef.current = true;
       const allMarkers = layerGroup.getLayers() as L.Marker[];
       if (allMarkers.length > 0) {
@@ -495,9 +433,9 @@ function LeafletMap({ photos, totalPhotoCount, transformCoord, onPhotoClick, onM
       map.flyTo(latLng, 15, { duration: 1 });
       highlightedMarker.openTooltip();
     }
-  }, [displayPhotos, transformCoord, onPhotoClick, onMarkerGroupClick, highlightPhotoId]);
+  }, [clusters, transformCoord, onPhotoClick, onClusterClick, highlightPhotoId]);
 
-  const showEmpty = !hasNoPhotos && displayPhotos.length === 0 && !viewportLoading;
+  const showEmpty = !hasNoPhotos && clusters.length === 0 && !viewportLoading;
 
   return (
     <div className="w-full h-full relative">

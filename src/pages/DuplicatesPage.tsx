@@ -27,7 +27,7 @@ export function DuplicatesPage() {
       const allPhotos = duplicates.flatMap(g => g.photos);
       for (const photo of allPhotos) {
         try {
-          const thumb = await window.api.thumbnail.get(photo.id, photo.path);
+          const thumb = await window.api.thumbnail.get(photo.id, photo.path, 'small');
           thumbMap[photo.id] = thumb;
           origMap[photo.id] = `file:///${photo.path.replace(/\\/g, '/')}`;
         } catch {

@@ -36,24 +36,14 @@ export class HashService {
         .raw()
         .toBuffer({ resolveWithObject: true });
 
-      // 2. DCT 变换
-      const dct = this.dct2d(data, 32);
+      // 2. DCT 变换：只计算 8x8 低频 AC 系数（跳过 DC），约 100 倍快于完整 32x32 DCT
+      const lowFreq = this.dct2dLowFreq(data, 32);
 
-      // 3. 取 8x8 低频系数（左上角）
-      const lowFreq: number[] = [];
-      for (let y = 0; y < 8; y++) {
-        for (let x = 0; x < 8; x++) {
-          // 跳过 DC 分量（0,0），只取 AC 分量
-          if (y === 0 && x === 0) continue;
-          lowFreq.push(dct[y * 32 + x]);
-        }
-      }
-
-      // 4. 计算中值
+      // 3. 计算中值
       const sorted = [...lowFreq].sort((a, b) => a - b);
       const median = sorted[Math.floor(sorted.length / 2)];
 
-      // 5. 生成 64 位哈希：大于中值为 1，否则为 0
+      // 4. 生成 64 位哈希：大于中值为 1，否则为 0
       let hash = '';
       for (const val of lowFreq) {
         hash += val > median ? '1' : '0';
@@ -67,37 +57,42 @@ export class HashService {
   }
 
   /**
-   * 二维 DCT 变换（简化版）
-   * 对 32x32 灰度矩阵进行 DCT-II 变换
+   * 二维 DCT 变换优化版：只计算前 8x8 低频系数（不含 DC）。
+   * 预计算余弦表，避免在热循环中重复调用 Math.cos。
    */
-  private dct2d(data: Buffer, size: number): number[] {
+  private dct2dLowFreq(data: Buffer, size: number): number[] {
     const N = size;
-    const result = new Float64Array(N * N);
-
-    // 先对每行做一维 DCT
-    const rowDct = new Float64Array(N * N);
-    for (let y = 0; y < N; y++) {
-      for (let k = 0; k < N; k++) {
-        let sum = 0;
-        for (let n = 0; n < N; n++) {
-          sum += data[y * N + n] * Math.cos((Math.PI * (2 * n + 1) * k) / (2 * N));
-        }
-        rowDct[y * N + k] = sum;
+    // 预计算 u=0..7, x=0..N-1 的余弦表
+    const cosU = new Float64Array(8 * N);
+    const cosV = new Float64Array(8 * N);
+    for (let u = 0; u < 8; u++) {
+      for (let x = 0; x < N; x++) {
+        cosU[u * N + x] = Math.cos((Math.PI * (2 * x + 1) * u) / (2 * N));
+      }
+    }
+    for (let v = 0; v < 8; v++) {
+      for (let y = 0; y < N; y++) {
+        cosV[v * N + y] = Math.cos((Math.PI * (2 * y + 1) * v) / (2 * N));
       }
     }
 
-    // 再对每列做一维 DCT
-    for (let x = 0; x < N; x++) {
-      for (let k = 0; k < N; k++) {
+    const result: number[] = [];
+    for (let v = 0; v < 8; v++) {
+      for (let u = 0; u < 8; u++) {
+        if (u === 0 && v === 0) continue; // 跳过 DC
         let sum = 0;
-        for (let n = 0; n < N; n++) {
-          sum += rowDct[n * N + x] * Math.cos((Math.PI * (2 * n + 1) * k) / (2 * N));
+        for (let y = 0; y < N; y++) {
+          const vy = cosV[v * N + y];
+          const rowOffset = y * N;
+          for (let x = 0; x < N; x++) {
+            sum += data[rowOffset + x] * cosU[u * N + x] * vy;
+          }
         }
-        result[k * N + x] = sum;
+        result.push(sum);
       }
     }
 
-    return Array.from(result);
+    return result;
   }
 
   /**
