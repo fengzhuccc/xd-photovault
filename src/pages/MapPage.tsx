@@ -1,47 +1,19 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { MapPin, X, Calendar, Camera, Image } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { MapPin, X, Image, Loader2 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
+import { PhotoDetailModal } from '@/components/PhotoDetailModal';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import type { Photo } from '@/types';
 
 // 瓦片源配置
-const TILE_PROVIDERS: Record<string, {
-  name: string;
-  url: string;
-  attribution: string;
-  needKey: boolean;
-  needCoordTransform: boolean;
-  keyApplyUrl?: string;
-  subdomains?: string;
-}> = {
-  amap: {
-    name: '高德地图',
-    url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
-    attribution: '&copy; <a href="https://www.amap.com/">高德地图</a>',
-    needKey: false,
-    needCoordTransform: true,
-    subdomains: '12',
-  },
-  amap_dark: {
-    name: '高德暗色',
-    url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}',
-    attribution: '&copy; <a href="https://www.amap.com/">高德地图</a>',
-    needKey: false,
-    needCoordTransform: true,
-    subdomains: '12',
-  },
-  tianditu: {
-    name: '天地图',
-    url: 'https://t{s}.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk={apiKey}',
-    attribution: '&copy; <a href="https://www.tianditu.gov.cn/">天地图</a>',
-    needKey: true,
-    needCoordTransform: true,
-    keyApplyUrl: 'https://console.tianditu.gov.cn/api/key',
-    subdomains: '01234567',
-  },
+const TILE_PROVIDER = {
+  name: '高德地图',
+  url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
+  attribution: '&copy; <a href="https://www.amap.com/">高德地图</a>',
+  subdomains: '12',
 };
-
-const DEFAULT_TILE_PROVIDER = 'amap';
 
 // WGS84 -> GCJ02 坐标转换
 function transformLat(lng: number, lat: number): number {
@@ -62,6 +34,7 @@ function transformLng(lng: number, lat: number): number {
 
 function wgs84ToGcj02(lng: number, lat: number): [number, number] {
   const a = 6378245.0;
+  // eslint-disable-next-line no-loss-of-precision
   const ee = 0.00669342162296594323;
   let dLat = transformLat(lng - 105.0, lat - 35.0);
   let dLng = transformLng(lng - 105.0, lat - 35.0);
@@ -98,6 +71,13 @@ interface PhotoWithLocation {
   file_size: number | null;
 }
 
+// 计算照片组的重心坐标
+function groupCentroid(group: PhotoWithLocation[]): { lat: number; lng: number } {
+  const sumLat = group.reduce((sum, p) => sum + p.latitude, 0);
+  const sumLng = group.reduce((sum, p) => sum + p.longitude, 0);
+  return { lat: sumLat / group.length, lng: sumLng / group.length };
+}
+
 // 距离聚合：50m 内的照片归为同一组
 function clusterPhotosByDistance(photos: PhotoWithLocation[], radiusMeters: number = 50): PhotoWithLocation[][] {
   if (photos.length === 0) return [];
@@ -107,6 +87,9 @@ function clusterPhotosByDistance(photos: PhotoWithLocation[], radiusMeters: numb
   const groups: PhotoWithLocation[][] = [];
   const assigned = new Set<number>();
 
+  // 50m 约等于 0.00045 度纬度，用作经纬度方向粗筛阈值
+  const degreeThreshold = radiusMeters / 111_000;
+
   for (let i = 0; i < sorted.length; i++) {
     if (assigned.has(i)) continue;
     const group: PhotoWithLocation[] = [sorted[i]];
@@ -114,8 +97,11 @@ function clusterPhotosByDistance(photos: PhotoWithLocation[], radiusMeters: numb
 
     for (let j = i + 1; j < sorted.length; j++) {
       if (assigned.has(j)) continue;
-      // 纬度差过大直接跳过（优化）
-      if ((sorted[j].latitude - sorted[i].latitude) > 0.01) break;
+      const latDiff = sorted[j].latitude - sorted[i].latitude;
+      const lngDiff = Math.abs(sorted[j].longitude - sorted[i].longitude);
+      // 经纬度差过大直接跳过
+      if (latDiff > degreeThreshold) break;
+      if (lngDiff > degreeThreshold) continue;
       if (haversineDistance(sorted[i].latitude, sorted[i].longitude, sorted[j].latitude, sorted[j].longitude) <= radiusMeters) {
         group.push(sorted[j]);
         assigned.add(j);
@@ -128,11 +114,19 @@ function clusterPhotosByDistance(photos: PhotoWithLocation[], radiusMeters: numb
 
 export function MapPage() {
   const { stats, loadStats } = useAppStore();
+  const [searchParams] = useSearchParams();
+  const highlightPhotoId = searchParams.get('photoId');
+  // 当前要高亮的照片 ID，支持 URL 传入和地图内点击切换
+  const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(highlightPhotoId);
+
+  // URL 参数变化时同步高亮状态
+  useEffect(() => {
+    setSelectedPhotoId(highlightPhotoId);
+  }, [highlightPhotoId]);
+
   const [photosWithLocation, setPhotosWithLocation] = useState<PhotoWithLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [photoCount, setPhotoCount] = useState(0);
-  const [tileProvider, setTileProvider] = useState(DEFAULT_TILE_PROVIDER);
-  const [mapApiKey, setMapApiKey] = useState('');
 
   // 底部抽屉状态
   const [drawerPhotos, setDrawerPhotos] = useState<PhotoWithLocation[]>([]);
@@ -141,37 +135,13 @@ export function MapPage() {
   const [drawerThumbnails, setDrawerThumbnails] = useState<Record<string, string>>({});
 
   // 详情弹窗
-  const [selectedPhoto, setSelectedPhoto] = useState<PhotoWithLocation | null>(null);
-  const [selectedThumbnail, setSelectedThumbnail] = useState<string | null>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
 
-  useEffect(() => {
-    loadStats();
-    loadPhotosWithLocation();
-  }, [loadStats]);
+  // 缩略图缓存：避免重复 I/O
+  const thumbnailCacheRef = useRef<Record<string, string>>({});
+  const drawerAbortRef = useRef<AbortController | null>(null);
 
-  // 每次组件挂载时读取最新地图配置
-  useEffect(() => {
-    const loadMapConfig = async () => {
-      try {
-        const savedKey = await window.api.mapSetting.get('apiKey');
-        if (savedKey) {
-          setMapApiKey(savedKey.trim());
-        }
-        const saved = await window.api.mapSetting.get('tileProvider');
-        if (saved && TILE_PROVIDERS[saved]) {
-          // 如果需要 Key 但没配置，回退到默认源
-          if (TILE_PROVIDERS[saved].needKey && !savedKey?.trim()) {
-            setTileProvider(DEFAULT_TILE_PROVIDER);
-          } else {
-            setTileProvider(saved);
-          }
-        }
-      } catch { /* 使用默认值 */ }
-    };
-    loadMapConfig();
-  }, []);
-
-  const loadPhotosWithLocation = async () => {
+  const loadPhotosWithLocation = useCallback(async () => {
     try {
       setLoading(true);
       const photos = await window.api.photo.getWithLocation();
@@ -182,20 +152,33 @@ export function MapPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const loadThumbnail = async (photo: PhotoWithLocation) => {
+  useEffect(() => {
+    loadStats();
+    loadPhotosWithLocation();
+  }, [loadStats, loadPhotosWithLocation]);
+
+  const loadThumbnail = useCallback(async (photo: PhotoWithLocation, signal?: AbortSignal): Promise<string | null> => {
+    const cached = thumbnailCacheRef.current[photo.id];
+    if (cached) return cached;
     try {
       const thumb = await window.api.thumbnail.get(photo.id, photo.path);
-      setSelectedThumbnail(thumb);
+      if (signal?.aborted) return null;
+      thumbnailCacheRef.current[photo.id] = thumb;
+      return thumb;
     } catch {
-      setSelectedThumbnail(null);
+      return null;
     }
-  };
+  }, []);
 
   const handlePhotoClick = useCallback((photo: PhotoWithLocation) => {
-    setSelectedPhoto(photo);
-    loadThumbnail(photo);
+    setSelectedPhotoId(photo.id);
+    window.api.photo.getById(photo.id).then(detail => {
+      setSelectedPhoto(detail);
+    }).catch(e => {
+      console.error('Failed to load photo detail:', e);
+    });
   }, []);
 
   // 点击标记组：打开底部抽屉
@@ -204,82 +187,54 @@ export function MapPage() {
       handlePhotoClick(photos[0]);
       return;
     }
+    setSelectedPhotoId(photos[0].id);
+    // 取消上次未完成的缩略图加载
+    if (drawerAbortRef.current) {
+      drawerAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    drawerAbortRef.current = abortController;
+
     setDrawerPhotos(photos);
     setDrawerOpen(true);
     setDrawerThumbnails({});
-    // 设置位置描述
-    const p = photos[0];
-    setDrawerLocation(`${p.latitude.toFixed(2)}, ${p.longitude.toFixed(2)}`);
+    // 设置位置描述（使用重心）
+    const centroid = groupCentroid(photos);
+    setDrawerLocation(`${centroid.lat.toFixed(2)}, ${centroid.lng.toFixed(2)}`);
     // 异步加载缩略图
     photos.forEach(async (photo) => {
-      try {
-        const thumb = await window.api.thumbnail.get(photo.id, photo.path);
+      const thumb = await loadThumbnail(photo, abortController.signal);
+      if (thumb && !abortController.signal.aborted) {
         setDrawerThumbnails(prev => ({ ...prev, [photo.id]: thumb }));
-      } catch { /* skip */ }
+      }
     });
-  }, [handlePhotoClick]);
+  }, [handlePhotoClick, loadThumbnail]);
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '未知日期';
-    return new Date(dateStr).toLocaleDateString('zh-CN', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-  };
-
-  const formatFileSize = (bytes: number | null) => {
-    if (!bytes) return '';
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  };
-
-  // 坐标转换（根据当前瓦片源）
+  // 坐标转换（高德地图使用 GCJ02）
   const transformCoord = useCallback((lat: number, lng: number): [number, number] => {
-    const provider = TILE_PROVIDERS[tileProvider];
-    if (provider?.needCoordTransform) {
-      return wgs84ToGcj02(lng, lat).reverse() as [number, number];
-    }
-    return [lat, lng];
-  }, [tileProvider]);
+    const [gcjLng, gcjLat] = wgs84ToGcj02(lng, lat);
+    return [gcjLat, gcjLng];
+  }, []);
+
+  // 清理未完成的缩略图请求
+  useEffect(() => {
+    return () => {
+      drawerAbortRef.current?.abort();
+    };
+  }, []);
+
+  const closePhotoDetail = useCallback(() => {
+    setSelectedPhoto(null);
+  }, []);
 
   return (
     <div className="h-full flex flex-col" style={{ height: 'calc(100vh - 3rem)' }}>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-bold text-zinc-100 mb-1">地图视图</h1>
-          <p className="text-sm text-zinc-400">
-            {loading ? '加载中...' : `${photoCount.toLocaleString()} 张照片有位置信息`}
-            {stats && stats.withoutLocation > 0 && ` · ${stats.withoutLocation.toLocaleString()} 张无位置`}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <select
-            value={tileProvider}
-            onChange={async (e) => {
-              const val = e.target.value;
-              const provider = TILE_PROVIDERS[val];
-              if (provider?.needKey && !mapApiKey) {
-                alert(`${provider.name} 需要 API Key，请先在设置页面配置`);
-                return;
-              }
-              setTileProvider(val);
-              try { await window.api.mapSetting.set('tileProvider', val); } catch {}
-            }}
-            className="bg-zinc-800 border border-zinc-700 text-zinc-300 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-amber-500"
-          >
-            {Object.entries(TILE_PROVIDERS).map(([key, p]) => (
-              <option key={key} value={key}>{p.name}</option>
-            ))}
-          </select>
-          {TILE_PROVIDERS[tileProvider]?.needCoordTransform && (
-            <span className="text-xs text-amber-500/70 bg-amber-500/10 px-2 py-1 rounded">坐标已偏移</span>
-          )}
-          {TILE_PROVIDERS[tileProvider]?.needKey && !mapApiKey && (
-            <span className="text-xs text-red-400 bg-red-500/10 px-2 py-1 rounded">未配置 API Key</span>
-          )}
-        </div>
+      <div className="mb-4">
+        <h1 className="text-2xl font-bold text-zinc-100 mb-1">地图视图</h1>
+        <p className="text-sm text-zinc-400">
+          {loading ? '加载中...' : `${photoCount.toLocaleString()} 张照片有位置信息`}
+          {stats && stats.withoutLocation > 0 && ` · ${stats.withoutLocation.toLocaleString()} 张无位置`}
+        </p>
       </div>
 
       <div className="flex-1 min-h-0 rounded-xl overflow-hidden border border-zinc-800 relative" style={{ minHeight: '400px' }}>
@@ -294,12 +249,11 @@ export function MapPage() {
           <LeafletMap
             photos={photosWithLocation}
             totalPhotoCount={photoCount}
-            tileProvider={tileProvider}
-            mapApiKey={mapApiKey}
             transformCoord={transformCoord}
             onPhotoClick={handlePhotoClick}
             onMarkerGroupClick={handleMarkerGroupClick}
             hasNoPhotos={photosWithLocation.length === 0}
+            highlightPhotoId={selectedPhotoId}
           />
         )}
       </div>
@@ -349,56 +303,18 @@ export function MapPage() {
       </div>
 
       {/* 照片详情弹窗 */}
-      {selectedPhoto && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-8" style={{ zIndex: 10000 }} onClick={() => setSelectedPhoto(null)}>
-          <div className="relative max-w-2xl w-full bg-zinc-900 rounded-xl overflow-hidden" onClick={e => e.stopPropagation()}>
-            <button
-              onClick={() => setSelectedPhoto(null)}
-              className="absolute top-3 right-3 p-2 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 z-10"
-            >
-              <X size={18} />
-            </button>
-            {selectedThumbnail ? (
-              <img
-                src={selectedThumbnail}
-                alt={selectedPhoto.filename}
-                className="w-full max-h-[60vh] object-contain bg-zinc-950"
-              />
-            ) : (
-              <div className="w-full h-60 flex items-center justify-center bg-zinc-950">
-                <Image size={48} className="text-zinc-700" />
-              </div>
-            )}
-            <div className="p-4 border-t border-zinc-800">
-              <h3 className="text-base font-medium text-zinc-100 mb-2">{selectedPhoto.filename}</h3>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-zinc-400">
-                {selectedPhoto.taken_at && (
-                  <span className="flex items-center gap-1">
-                    <Calendar size={14} />
-                    {formatDate(selectedPhoto.taken_at)}
-                  </span>
-                )}
-                <span className="flex items-center gap-1">
-                  <MapPin size={14} />
-                  {selectedPhoto.latitude.toFixed(4)}, {selectedPhoto.longitude.toFixed(4)}
-                </span>
-                {selectedPhoto.camera && (
-                  <span className="flex items-center gap-1">
-                    <Camera size={14} />
-                    {selectedPhoto.camera}
-                  </span>
-                )}
-                {selectedPhoto.file_size && (
-                  <span>{formatFileSize(selectedPhoto.file_size)}</span>
-                )}
-                {selectedPhoto.width && selectedPhoto.height && (
-                  <span>{selectedPhoto.width} x {selectedPhoto.height}</span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <PhotoDetailModal
+        photo={selectedPhoto}
+        onClose={closePhotoDetail}
+        onUpdate={(updatedPhoto) => {
+          setSelectedPhoto(updatedPhoto);
+          loadPhotosWithLocation();
+        }}
+        onDelete={async () => {
+          setSelectedPhoto(null);
+          await loadPhotosWithLocation();
+        }}
+      />
     </div>
   );
 }
@@ -406,26 +322,27 @@ export function MapPage() {
 interface LeafletMapProps {
   photos: PhotoWithLocation[];
   totalPhotoCount: number;
-  tileProvider: string;
-  mapApiKey: string;
   transformCoord: (lat: number, lng: number) => [number, number];
   onPhotoClick: (photo: PhotoWithLocation) => void;
   onMarkerGroupClick: (photos: PhotoWithLocation[]) => void;
   hasNoPhotos: boolean;
+  highlightPhotoId?: string | null;
 }
 
 // 视口按需加载的照片数量阈值
 const VIEWPORT_LOAD_THRESHOLD = 5000;
 
-function LeafletMap({ photos, totalPhotoCount, tileProvider, mapApiKey, transformCoord, onPhotoClick, onMarkerGroupClick, hasNoPhotos }: LeafletMapProps) {
+function LeafletMap({ photos, totalPhotoCount, transformCoord, onPhotoClick, onMarkerGroupClick, hasNoPhotos, highlightPhotoId }: LeafletMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const initializedRef = useRef(false);
   const markersRef = useRef<L.LayerGroup | null>(null);
   const [viewportPhotos, setViewportPhotos] = useState<PhotoWithLocation[]>([]);
+  const [viewportLoading, setViewportLoading] = useState(false);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialFitRef = useRef(false);
+  const highlightFitRef = useRef(false);
 
   // 是否启用视口按需加载
   const useViewportLoading = totalPhotoCount > VIEWPORT_LOAD_THRESHOLD;
@@ -440,19 +357,17 @@ function LeafletMap({ photos, totalPhotoCount, tileProvider, mapApiKey, transfor
       zoomControl: true,
     });
 
-    const provider = TILE_PROVIDERS[tileProvider] || TILE_PROVIDERS[DEFAULT_TILE_PROVIDER];
-    const tileUrl = provider.url.replace('{apiKey}', mapApiKey);
-    const tileLayer = L.tileLayer(tileUrl, {
-      attribution: provider.attribution,
+    const tileLayer = L.tileLayer(TILE_PROVIDER.url, {
+      attribution: TILE_PROVIDER.attribution,
       maxZoom: 18,
-      subdomains: provider.subdomains || 'abc',
+      subdomains: TILE_PROVIDER.subdomains,
     });
     tileLayer.addTo(map);
     tileLayerRef.current = tileLayer;
 
     // 使用 LayerGroup 而非 MarkerClusterGroup，避免与自定义距离聚合冲突
     const markerLayer = L.layerGroup().addTo(map);
-    markersRef.current = markerLayer as any;
+    markersRef.current = markerLayer;
     mapInstanceRef.current = map;
 
     // 确保 Leaflet 正确计算容器尺寸
@@ -463,28 +378,28 @@ function LeafletMap({ photos, totalPhotoCount, tileProvider, mapApiKey, transfor
 
     // 视口按需加载：监听 moveend 事件
     if (useViewportLoading) {
+      const loadViewport = async () => {
+        const bounds = map.getBounds();
+        const sw = bounds.getSouthWest();
+        const ne = bounds.getNorthEast();
+        setViewportLoading(true);
+        try {
+          const result = await window.api.photo.getInBounds(sw.lat, sw.lng, ne.lat, ne.lng);
+          setViewportPhotos(result);
+        } catch (e) {
+          console.error('Failed to load photos in bounds:', e);
+        } finally {
+          setViewportLoading(false);
+        }
+      };
+
       map.on('moveend', () => {
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = setTimeout(async () => {
-          const bounds = map.getBounds();
-          const sw = bounds.getSouthWest();
-          const ne = bounds.getNorthEast();
-          try {
-            const result = await window.api.photo.getInBounds(sw.lat, sw.lng, ne.lat, ne.lng);
-            setViewportPhotos(result);
-          } catch (e) {
-            console.error('Failed to load photos in bounds:', e);
-          }
-        }, 300);
+        debounceTimerRef.current = setTimeout(loadViewport, 300);
       });
 
       // 初始加载当前视口
-      const bounds = map.getBounds();
-      const sw = bounds.getSouthWest();
-      const ne = bounds.getNorthEast();
-      window.api.photo.getInBounds(sw.lat, sw.lng, ne.lat, ne.lng).then(result => {
-        setViewportPhotos(result);
-      }).catch(e => console.error('Failed to load initial viewport:', e));
+      loadViewport();
     }
 
     return () => {
@@ -495,32 +410,6 @@ function LeafletMap({ photos, totalPhotoCount, tileProvider, mapApiKey, transfor
       tileLayerRef.current = null;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // 切换瓦片源
-  useEffect(() => {
-    if (!initializedRef.current || !mapInstanceRef.current || !tileLayerRef.current) return;
-
-    const provider = TILE_PROVIDERS[tileProvider] || TILE_PROVIDERS[DEFAULT_TILE_PROVIDER];
-    const tileUrl = provider.url.replace('{apiKey}', mapApiKey);
-    const newTileLayer = L.tileLayer(tileUrl, {
-      attribution: provider.attribution,
-      maxZoom: 18,
-      subdomains: provider.subdomains || 'abc',
-    });
-
-    mapInstanceRef.current.removeLayer(tileLayerRef.current);
-    newTileLayer.addTo(mapInstanceRef.current);
-    tileLayerRef.current = newTileLayer;
-
-    // 强制重绘：延迟 invalidateSize + 触发一次微小移动
-    setTimeout(() => {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.invalidateSize();
-        const c = mapInstanceRef.current.getCenter();
-        mapInstanceRef.current.setView(c, mapInstanceRef.current.getZoom(), { animate: false });
-      }
-    }, 150);
-  }, [tileProvider, mapApiKey]);
 
   // 实际显示的照片数据
   const displayPhotos = useViewportLoading ? viewportPhotos : photos;
@@ -535,17 +424,21 @@ function LeafletMap({ photos, totalPhotoCount, tileProvider, mapApiKey, transfor
     // 距离聚合分组
     const groups = clusterPhotosByDistance(displayPhotos, 50);
 
+    let highlightedMarker: L.Marker | null = null;
+
     for (const group of groups) {
-      // 取组内第一张照片的坐标作为标记位置
       const centerPhoto = group[0];
-      const [lat, lng] = transformCoord(centerPhoto.latitude, centerPhoto.longitude);
+      // 取组内重心作为标记位置
+      const centroid = groupCentroid(group);
+      const [lat, lng] = transformCoord(centroid.lat, centroid.lng);
+      const isHighlighted = !!highlightPhotoId && group.some(p => p.id === highlightPhotoId);
 
       let icon: L.DivIcon;
       if (group.length === 1) {
         // 单张照片：圆形标记
         icon = L.divIcon({
           html: `<div class="photo-marker">
-            <div class="photo-marker-inner">
+            <div class="photo-marker-inner ${isHighlighted ? 'highlight' : ''}">
               <svg width="28" height="28" viewBox="0 0 28 28" class="photo-marker-placeholder">
                 <circle cx="14" cy="14" r="13" fill="#27272a" stroke="#f59e0b" stroke-width="2"/>
                 <circle cx="14" cy="11" r="3.5" fill="#f59e0b"/>
@@ -560,7 +453,7 @@ function LeafletMap({ photos, totalPhotoCount, tileProvider, mapApiKey, transfor
       } else {
         // 多张照片：带数字的圆形标记
         icon = L.divIcon({
-          html: `<div class="photo-marker-group"><span>${group.length}</span></div>`,
+          html: `<div class="photo-marker-group ${isHighlighted ? 'highlight' : ''}"><span>${group.length}</span></div>`,
           className: 'photo-marker-icon',
           iconSize: [40, 40],
           iconAnchor: [20, 20],
@@ -577,19 +470,34 @@ function LeafletMap({ photos, totalPhotoCount, tileProvider, mapApiKey, transfor
         marker.on('click', () => onMarkerGroupClick(group));
       }
 
+      if (isHighlighted) {
+        highlightedMarker = marker;
+      }
+
       layerGroup.addLayer(marker);
     }
 
     // 首次加载时 fit bounds
     if (!initialFitRef.current && displayPhotos.length > 0) {
       initialFitRef.current = true;
-      const allMarkers = Object.values((layerGroup as any)._layers || {});
+      const allMarkers = layerGroup.getLayers() as L.Marker[];
       if (allMarkers.length > 0) {
-        const featureGroup = L.featureGroup(allMarkers as L.Marker[]);
+        const featureGroup = L.featureGroup(allMarkers);
         mapInstanceRef.current.fitBounds(featureGroup.getBounds().pad(0.1), { maxZoom: 12 });
       }
     }
-  }, [displayPhotos, transformCoord, onPhotoClick, onMarkerGroupClick]);
+
+    // 高亮目标照片：定位并打开 tooltip
+    if (highlightedMarker && !highlightFitRef.current) {
+      highlightFitRef.current = true;
+      const map = mapInstanceRef.current;
+      const latLng = highlightedMarker.getLatLng();
+      map.flyTo(latLng, 15, { duration: 1 });
+      highlightedMarker.openTooltip();
+    }
+  }, [displayPhotos, transformCoord, onPhotoClick, onMarkerGroupClick, highlightPhotoId]);
+
+  const showEmpty = !hasNoPhotos && displayPhotos.length === 0 && !viewportLoading;
 
   return (
     <div className="w-full h-full relative">
@@ -601,6 +509,21 @@ function LeafletMap({ photos, totalPhotoCount, tileProvider, mapApiKey, transfor
             <p>没有带位置信息的照片</p>
             <p className="text-sm mt-1">照片需要有GPS数据才能在地图上显示</p>
           </div>
+        </div>
+      )}
+      {showEmpty && (
+        <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/60 pointer-events-none z-[999]">
+          <div className="text-center text-zinc-500">
+            <MapPin size={40} className="mx-auto mb-3 opacity-50" />
+            <p>当前视口没有照片</p>
+            <p className="text-sm mt-1">移动或缩放地图查看更多位置</p>
+          </div>
+        </div>
+      )}
+      {viewportLoading && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900/80 text-xs text-zinc-400 z-[1001]">
+          <Loader2 size={14} className="animate-spin" />
+          <span>加载视口照片...</span>
         </div>
       )}
     </div>

@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Filter, Grid3X3, Calendar, MapPin, Camera, X, ChevronLeft, ChevronRight, Clock, Pencil, Check, MapPinned, Trash2, CheckCircle2, Circle, Loader2 } from 'lucide-react';
+
+import { Filter, Grid3X3, MapPin, Camera, Trash2, CheckCircle2, Circle, Loader2 } from 'lucide-react';
 import { VirtuosoGrid } from 'react-virtuoso';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
 import { cn } from '@/lib/utils';
-import type { Photo, PhotoDetail } from '@/types';
+import { PhotoDetailModal } from '@/components/PhotoDetailModal';
+import type { Photo } from '@/types';
 
 export function BrowsePage() {
-  const navigate = useNavigate();
   const { 
     photos, 
     photosTotal,
@@ -20,20 +20,12 @@ export function BrowsePage() {
     currentFilter, 
     setCurrentFilter,
     thumbnails,
-    originalImages,
     setThumbnails,
     setOriginalImages,
   } = useAppStore();
   const get = useAppStore.getState;
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
-  const [photoDetail, setPhotoDetail] = useState<PhotoDetail | null>(null);
   const [showFilters, setShowFilters] = useState(false);
-  const [editingDate, setEditingDate] = useState(false);
-  const [editingLocation, setEditingLocation] = useState(false);
-  const [editDateValue, setEditDateValue] = useState('');
-  const [editLatValue, setEditLatValue] = useState('');
-  const [editLngValue, setEditLngValue] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loadingMore, setLoadingMore] = useState(false);
@@ -92,55 +84,12 @@ export function BrowsePage() {
     loadThumbnails();
   }, [photos]);
 
-  useEffect(() => {
-    if (selectedPhoto?.taken_at) {
-      const date = new Date(selectedPhoto.taken_at);
-      setEditDateValue(date.toISOString().slice(0, 16));
-    }
-    if (selectedPhoto?.latitude && selectedPhoto?.longitude) {
-      setEditLatValue(selectedPhoto.latitude.toString());
-      setEditLngValue(selectedPhoto.longitude.toString());
-    }
-  }, [selectedPhoto]);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!selectedPhoto) return;
-      if (e.key === 'Escape') {
-        if (editingDate || editingLocation) {
-          setEditingDate(false);
-          setEditingLocation(false);
-        } else {
-          setSelectedPhoto(null);
-          setPhotoDetail(null);
-        }
-      } else if (e.key === 'Delete' && !editingDate && !editingLocation) {
-        handleDeletePhoto();
-      } else if (e.key === 'ArrowLeft' && !editingDate && !editingLocation) {
-        navigatePhoto(-1);
-      } else if (e.key === 'ArrowRight' && !editingDate && !editingLocation) {
-        navigatePhoto(1);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedPhoto, editingDate, editingLocation]);
-
-  const navigatePhoto = useCallback((direction: number) => {
-    if (!selectedPhoto) return;
-    const currentIndex = photos.findIndex(p => p.id === selectedPhoto.id);
-    const newIndex = currentIndex + direction;
-    if (newIndex >= 0 && newIndex < photos.length) {
-      handleSelectPhoto(photos[newIndex]);
-    }
-  }, [selectedPhoto, photos]);
-
-  const handleSelectPhoto = async (photo: Photo) => {
-    setEditingDate(false);
-    setEditingLocation(false);
+  const navigatePhoto = useCallback((photo: Photo) => {
     setSelectedPhoto(photo);
-    const detail = await window.api.photo.getById(photo.id);
-    setPhotoDetail(detail);
+  }, []);
+
+  const handleSelectPhoto = (photo: Photo) => {
+    setSelectedPhoto(photo);
   };
 
   const loadMore = useCallback(async () => {
@@ -168,83 +117,33 @@ export function BrowsePage() {
     });
   };
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  const handleUpdatePhoto = (updatedPhoto: Photo) => {
+    setSelectedPhoto(updatedPhoto);
+    useAppStore.setState({
+      photos: useAppStore.getState().photos.map(p =>
+        p.id === updatedPhoto.id ? updatedPhoto : p
+      ),
+    });
   };
 
-  const handleSaveDate = async () => {
-    if (!selectedPhoto || !editDateValue) return;
-    setIsSaving(true);
+  const handleDeletePhoto = async (photo: Photo) => {
     try {
-      const newDate = new Date(editDateValue).toISOString();
-      await window.api.photo.updateDate(selectedPhoto.id, newDate);
-      const updatedPhoto = { ...selectedPhoto, taken_at: newDate };
-      setSelectedPhoto(updatedPhoto);
-      // 同步更新 photos 列表中的对应照片
-      useAppStore.setState({
-        photos: useAppStore.getState().photos.map(p =>
-          p.id === selectedPhoto.id ? { ...p, taken_at: newDate } : p
-        ),
-      });
-      setEditingDate(false);
-    } catch (e) {
-      toast('error', '保存日期失败：' + String(e));
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleSaveLocation = async () => {
-    if (!selectedPhoto) return;
-    const lat = parseFloat(editLatValue);
-    const lng = parseFloat(editLngValue);
-    if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-      toast('warning', '请输入有效的经纬度坐标');
-      return;
-    }
-    setIsSaving(true);
-    try {
-      await window.api.photo.updateLocation(selectedPhoto.id, lat, lng);
-      const updatedPhoto = { ...selectedPhoto, latitude: lat, longitude: lng };
-      setSelectedPhoto(updatedPhoto);
-      // 同步更新 photos 列表中的对应照片
-      useAppStore.setState({
-        photos: useAppStore.getState().photos.map(p =>
-          p.id === selectedPhoto.id ? { ...p, latitude: lat, longitude: lng } : p
-        ),
-      });
-      setEditingLocation(false);
-    } catch (e) {
-      toast('error', '保存位置失败：' + String(e));
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleDeletePhoto = async () => {
-    if (!selectedPhoto) return;
-    if (!await confirm(`确定要删除这张照片吗？\n\n${selectedPhoto.filename}\n\n照片将移到系统回收站，可从回收站恢复。`, { variant: 'danger', confirmText: '删除' })) {
-      return;
-    }
-    try {
-      await window.api.photo.delete([selectedPhoto.id]);
-      const currentIndex = photos.findIndex(p => p.id === selectedPhoto.id);
-      if (photos.length > 1 && currentIndex < photos.length - 1) {
-        handleSelectPhoto(photos[currentIndex + 1]);
-      } else if (photos.length > 1 && currentIndex > 0) {
-        handleSelectPhoto(photos[currentIndex - 1]);
-      } else {
-        setSelectedPhoto(null);
-        setPhotoDetail(null);
-      }
+      const currentIndex = photos.findIndex(p => p.id === photo.id);
       const newThumbnails = { ...get().thumbnails };
-      delete newThumbnails[selectedPhoto.id];
+      delete newThumbnails[photo.id];
       setThumbnails(newThumbnails);
       const newOriginalImages = { ...get().originalImages };
-      delete newOriginalImages[selectedPhoto.id];
+      delete newOriginalImages[photo.id];
       setOriginalImages(newOriginalImages);
+
+      if (photos.length > 1 && currentIndex < photos.length - 1) {
+        setSelectedPhoto(photos[currentIndex + 1]);
+      } else if (photos.length > 1 && currentIndex > 0) {
+        setSelectedPhoto(photos[currentIndex - 1]);
+      } else {
+        setSelectedPhoto(null);
+      }
+
       loadPhotosPage(currentFilter);
       loadStats();
     } catch (error) {
@@ -568,246 +467,14 @@ export function BrowsePage() {
         </div>
       </div>
 
-      {selectedPhoto && (
-        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center">
-          <button
-            onClick={() => { setSelectedPhoto(null); setPhotoDetail(null); setEditingDate(false); setEditingLocation(false); }}
-            className="absolute top-4 right-4 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors z-10"
-          >
-            <X size={20} />
-          </button>
-          
-          <button
-            onClick={handleDeletePhoto}
-            className="absolute top-4 right-14 p-2 rounded-lg bg-zinc-800 hover:bg-red-500/20 text-zinc-300 hover:text-red-400 transition-colors z-10"
-            title="删除照片"
-          >
-            <Trash2 size={20} />
-          </button>
-          
-          {!editingDate && !editingLocation && (
-            <>
-              <button
-                onClick={() => navigatePhoto(-1)}
-                className="absolute left-4 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
-              >
-                <ChevronLeft size={24} />
-              </button>
-              
-              <button
-                onClick={() => navigatePhoto(1)}
-                className="absolute right-4 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
-              >
-                <ChevronRight size={24} />
-              </button>
-            </>
-          )}
-
-          <div className="flex h-full w-full">
-            <div className="flex-1 flex items-center justify-center p-4">
-              <img
-                src={originalImages[selectedPhoto.id] || `file:///${selectedPhoto.path.replace(/\\/g, '/')}`}
-                alt={selectedPhoto.filename}
-                className="max-w-full max-h-full object-contain"
-              />
-            </div>
-            
-            <div className="w-64 bg-zinc-900/95 border-l border-zinc-800 p-4 overflow-auto">
-              <h3 className="text-base font-medium text-zinc-100 mb-3 truncate">{selectedPhoto.filename}</h3>
-              
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs text-zinc-500 uppercase tracking-wider">文件信息</label>
-                  <div className="mt-1.5 space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-zinc-400">大小</span>
-                      <span className="text-zinc-200">{formatFileSize(selectedPhoto.file_size)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-zinc-400">分辨率</span>
-                      <span className="text-zinc-200">{selectedPhoto.width} × {selectedPhoto.height}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs text-zinc-500 uppercase tracking-wider flex items-center justify-between">
-                    拍摄信息
-                    <button
-                      onClick={() => {
-                        setEditingDate(!editingDate);
-                        if (!editingDate && selectedPhoto.taken_at) {
-                          const date = new Date(selectedPhoto.taken_at);
-                          setEditDateValue(date.toISOString().slice(0, 16));
-                        }
-                      }}
-                      className="text-amber-500 hover:text-amber-400 transition-colors"
-                    >
-                      <Pencil size={12} />
-                    </button>
-                  </label>
-                  <div className="mt-1.5 space-y-1 text-sm">
-                    {editingDate ? (
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-2">
-                          <Calendar size={14} className="text-zinc-500" />
-                          <input
-                            type="datetime-local"
-                            value={editDateValue}
-                            onChange={(e) => setEditDateValue(e.target.value)}
-                            className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 text-sm"
-                          />
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => setEditingDate(false)}
-                            className="flex-1 px-2 py-1 rounded bg-zinc-800 text-zinc-400 text-sm hover:bg-zinc-700 transition-colors"
-                          >
-                            取消
-                          </button>
-                          <button
-                            onClick={handleSaveDate}
-                            disabled={isSaving}
-                            className="flex-1 px-2 py-1 rounded bg-amber-500 text-zinc-900 text-sm font-medium hover:bg-amber-400 transition-colors disabled:opacity-50"
-                          >
-                            {isSaving ? '保存中...' : '保存'}
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex justify-between items-center">
-                        <span className="text-zinc-400">日期</span>
-                        <span className={cn(
-                          selectedPhoto.taken_at ? 'text-zinc-200' : 'text-zinc-500 italic'
-                        )}>
-                          {formatDate(selectedPhoto.taken_at)}
-                        </span>
-                      </div>
-                    )}
-                    {selectedPhoto.camera && (
-                      <div className="flex justify-between">
-                        <span className="text-zinc-400">相机</span>
-                        <span className="text-zinc-200">{selectedPhoto.camera}</span>
-                      </div>
-                    )}
-                    {photoDetail?.aperture && (
-                      <div className="flex justify-between">
-                        <span className="text-zinc-400">光圈</span>
-                        <span className="text-zinc-200">{photoDetail.aperture}</span>
-                      </div>
-                    )}
-                    {photoDetail?.shutter_speed && (
-                      <div className="flex justify-between">
-                        <span className="text-zinc-400">快门</span>
-                        <span className="text-zinc-200">{photoDetail.shutter_speed}</span>
-                      </div>
-                    )}
-                    {photoDetail?.iso && (
-                      <div className="flex justify-between">
-                        <span className="text-zinc-400">ISO</span>
-                        <span className="text-zinc-200">{photoDetail.iso}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs text-zinc-500 uppercase tracking-wider flex items-center justify-between">
-                    位置
-                    <button
-                      onClick={() => {
-                        setEditingLocation(!editingLocation);
-                        if (!editingLocation) {
-                          setEditLatValue(selectedPhoto.latitude?.toString() || '');
-                          setEditLngValue(selectedPhoto.longitude?.toString() || '');
-                        }
-                      }}
-                      className="text-amber-500 hover:text-amber-400 transition-colors"
-                    >
-                      <Pencil size={12} />
-                    </button>
-                  </label>
-                  <div className="mt-1.5">
-                    {editingLocation ? (
-                      <div className="space-y-1.5">
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-zinc-500 w-8">纬度</span>
-                            <input
-                              type="number"
-                              value={editLatValue}
-                              onChange={(e) => setEditLatValue(e.target.value)}
-                              placeholder="-90 到 90"
-                              min="-90"
-                              max="90"
-                              step="0.0001"
-                              className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 text-sm"
-                            />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-zinc-500 w-8">经度</span>
-                            <input
-                              type="number"
-                              value={editLngValue}
-                              onChange={(e) => setEditLngValue(e.target.value)}
-                              placeholder="-180 到 180"
-                              min="-180"
-                              max="180"
-                              step="0.0001"
-                              className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 text-sm"
-                            />
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => setEditingLocation(false)}
-                            className="flex-1 px-2 py-1 rounded bg-zinc-800 text-zinc-400 text-sm hover:bg-zinc-700 transition-colors"
-                          >
-                            取消
-                          </button>
-                          <button
-                            onClick={handleSaveLocation}
-                            disabled={isSaving}
-                            className="flex-1 px-2 py-1 rounded bg-amber-500 text-zinc-900 text-sm font-medium hover:bg-amber-400 transition-colors disabled:opacity-50"
-                          >
-                            {isSaving ? '保存中...' : '保存'}
-                          </button>
-                        </div>
-                      </div>
-                    ) : selectedPhoto.latitude && selectedPhoto.longitude ? (
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 text-sm text-zinc-200">
-                          <MapPin size={14} className="text-green-500" />
-                          <span>
-                            {selectedPhoto.latitude.toFixed(4)}, {selectedPhoto.longitude.toFixed(4)}
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => navigate('/map')}
-                          className="flex items-center gap-1 text-xs text-amber-500 hover:text-amber-400 transition-colors"
-                        >
-                          <MapPinned size={12} />
-                          在地图上查看
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="p-2 bg-zinc-800 rounded text-center">
-                        <p className="text-xs text-zinc-500">此照片没有GPS信息</p>
-                        <button
-                          onClick={() => setEditingLocation(true)}
-                          className="mt-1 text-xs text-amber-500 hover:text-amber-400 transition-colors"
-                        >
-                          点击添加位置
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <PhotoDetailModal
+        photo={selectedPhoto}
+        photos={photos}
+        onClose={() => setSelectedPhoto(null)}
+        onNavigate={navigatePhoto}
+        onUpdate={handleUpdatePhoto}
+        onDelete={handleDeletePhoto}
+      />
     </div>
   );
 }
