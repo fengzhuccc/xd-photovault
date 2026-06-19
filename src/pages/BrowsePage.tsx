@@ -84,7 +84,7 @@ const GridList = React.forwardRef<HTMLDivElement, any>(({ style, children, ...pr
     ref={ref}
     style={style}
     {...props}
-    className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-1 p-1"
+    className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-1 p-1"
   >
     {children}
   </div>
@@ -114,9 +114,12 @@ export function BrowsePage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loadingMore, setLoadingMore] = useState(false);
   const [activeTimelineKey, setActiveTimelineKey] = useState<string | null>(null);
+  const [visibleRange, setVisibleRange] = useState({ startIndex: 0, endIndex: 0 });
   const loadVersionRef = useRef(0);
   const prevPhotoIdsRef = useRef<string>('');
   const virtuosoRef = useRef<VirtuosoGridHandle>(null);
+  const mediumUpgradeVersionRef = useRef(0);
+  const upgradedIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     loadPhotosPage({});
@@ -158,6 +161,45 @@ export function BrowsePage() {
 
     loadThumbnails();
   }, [photos, get, setThumbnails]);
+
+  // 可视区域缩略图升级为 medium（512px），提升浏览清晰度
+  useEffect(() => {
+    if (photos.length === 0) return;
+
+    const timer = setTimeout(() => {
+      const currentVersion = ++mediumUpgradeVersionRef.current;
+      const { startIndex, endIndex } = visibleRange;
+      if (startIndex < 0 || endIndex < startIndex) return;
+
+      const visiblePhotos = photos.slice(startIndex, endIndex + 1);
+      const currentThumbnails = get().thumbnails;
+      const photosToUpgrade = visiblePhotos.filter(p => {
+        if (upgradedIdsRef.current.has(p.id)) return false;
+        const url = currentThumbnails[p.id];
+        // 已经是 medium 则跳过
+        if (url && url.includes('_medium.webp')) return false;
+        return true;
+      });
+
+      if (photosToUpgrade.length === 0) return;
+      photosToUpgrade.forEach(p => upgradedIdsRef.current.add(p.id));
+
+      const items = photosToUpgrade.map(p => ({
+        photoId: p.id,
+        photoPath: p.path,
+        size: 'medium' as const,
+      }));
+
+      window.api.thumbnail.getBatch(items).then(batch => {
+        if (currentVersion !== mediumUpgradeVersionRef.current) return;
+        setThumbnails({ ...get().thumbnails, ...batch });
+      }).catch(() => {
+        // 升级失败时保持 small 缩略图，不影响浏览
+      });
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [photos, visibleRange, get, setThumbnails]);
 
   const navigatePhoto = useCallback((photo: Photo) => {
     setSelectedPhoto(photo);
@@ -305,7 +347,8 @@ export function BrowsePage() {
     }
   }, [photos, photosHasMore, currentFilter, loadPhotosPage, getPhotoMonthKey]);
 
-  const handleRangeChanged = useCallback(({ startIndex }: { startIndex: number; endIndex: number }) => {
+  const handleRangeChanged = useCallback(({ startIndex, endIndex }: { startIndex: number; endIndex: number }) => {
+    setVisibleRange({ startIndex, endIndex });
     const photo = photos[startIndex];
     if (photo) {
       setActiveTimelineKey(getPhotoMonthKey(photo));
