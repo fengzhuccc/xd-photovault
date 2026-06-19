@@ -4,6 +4,7 @@ import type { Folder, Photo, PhotoStats, DuplicateGroup, ScanProgress, PhotoFilt
 interface AppState {
   folders: Folder[];
   photos: Photo[];
+  photosOffset: number;
   photosTotal: number;
   photosHasMore: boolean;
   timeline: TimelineGroup[];
@@ -42,6 +43,8 @@ interface AppState {
   loadStats: () => Promise<void>;
   loadPhotos: (filter?: PhotoFilter) => Promise<void>;
   loadPhotosPage: (filter?: PhotoFilter, append?: boolean, limit?: number) => Promise<{ hasMore: boolean; total: number } | undefined>;
+  loadPhotosAtOffset: (filter: PhotoFilter | undefined, offset: number, limit?: number) => Promise<{ hasMore: boolean; total: number } | undefined>;
+  loadPreviousPhotosPage: (filter?: PhotoFilter, limit?: number) => Promise<{ hasMore: boolean; total: number } | undefined>;
   loadTimeline: (filter?: PhotoFilter) => Promise<void>;
   loadDuplicates: () => Promise<void>;
   loadDuplicatesPage: (append?: boolean) => Promise<{ hasMore: boolean; total: number } | undefined>;
@@ -50,6 +53,7 @@ interface AppState {
 export const useAppStore = create<AppState>((set, get) => ({
   folders: [],
   photos: [],
+  photosOffset: 0,
   photosTotal: 0,
   photosHasMore: true,
   timeline: [],
@@ -134,7 +138,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   loadPhotosPage: async (filter, append = false, limit = 100) => {
     const currentFilter = filter || get().currentFilter;
-    const offset = append ? get().photos.length : 0;
+    const offset = append ? get().photos.length + get().photosOffset : 0;
     const result = await window.api.photo.getPage({ ...currentFilter, limit, offset });
     const existingIds = new Set(get().photos.map(p => p.id));
     const newPhotos = append
@@ -142,8 +146,43 @@ export const useAppStore = create<AppState>((set, get) => ({
       : result.photos;
     set({
       photos: newPhotos,
+      photosOffset: append ? get().photosOffset : 0,
       photosTotal: result.total,
       photosHasMore: result.hasMore,
+      currentFilter,
+    });
+    return { hasMore: result.hasMore, total: result.total };
+  },
+
+  loadPhotosAtOffset: async (filter, offset, limit = 500) => {
+    const currentFilter = filter || get().currentFilter;
+    const safeOffset = Math.max(0, offset);
+    const result = await window.api.photo.getPage({ ...currentFilter, limit, offset: safeOffset });
+    set({
+      photos: result.photos,
+      photosOffset: safeOffset,
+      photosTotal: result.total,
+      photosHasMore: result.hasMore,
+      currentFilter,
+    });
+    return { hasMore: result.hasMore, total: result.total };
+  },
+
+  loadPreviousPhotosPage: async (filter, limit = 100) => {
+    const currentFilter = filter || get().currentFilter;
+    const currentOffset = get().photosOffset;
+    if (currentOffset <= 0) {
+      return { hasMore: get().photosHasMore, total: get().photosTotal };
+    }
+    const newOffset = Math.max(0, currentOffset - limit);
+    const actualLimit = currentOffset - newOffset;
+    const result = await window.api.photo.getPage({ ...currentFilter, limit: actualLimit, offset: newOffset });
+    const existingIds = new Set(get().photos.map(p => p.id));
+    const newPhotos = [...result.photos.filter((p: Photo) => !existingIds.has(p.id)), ...get().photos];
+    set({
+      photos: newPhotos,
+      photosOffset: newOffset,
+      photosTotal: result.total,
       currentFilter,
     });
     return { hasMore: result.hasMore, total: result.total };

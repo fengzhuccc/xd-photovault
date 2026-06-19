@@ -14,6 +14,7 @@ export function LibraryPage() {
     loadFolders,
     loadStats,
     loadPhotosPage,
+    loadTimeline,
     addFolder,
     removeFolder,
     setScanProgress,
@@ -35,14 +36,15 @@ export function LibraryPage() {
       if (progress.status === 'complete') {
         setIsScanning(false);
         setScanResult(progress);
-        // 扫描完成后刷新照片列表，缩略图保留已有缓存按需补充
+        // 扫描完成后刷新照片列表、时间线和统计，缩略图保留已有缓存按需补充
         loadPhotosPage({});
+        loadTimeline({});
         loadFolders();
         loadStats();
       }
     });
     return () => { unsubscribe(); };
-  }, [setScanProgress, setIsScanning, loadPhotosPage, loadFolders, loadStats]);
+  }, [setScanProgress, setIsScanning, loadPhotosPage, loadTimeline, loadFolders, loadStats]);
 
   const handleAddFolder = async () => {
     setIsAddingFolder(true);

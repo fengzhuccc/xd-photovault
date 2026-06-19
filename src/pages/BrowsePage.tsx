@@ -95,11 +95,14 @@ const GridItem = ({ children }: { children?: React.ReactNode }) => <div>{childre
 export function BrowsePage() {
   const { 
     photos, 
+    photosOffset,
     photosTotal,
     photosHasMore,
     timeline,
     stats,
     loadPhotosPage,
+    loadPhotosAtOffset,
+    loadPreviousPhotosPage,
     loadTimeline,
     loadStats, 
     currentFilter, 
@@ -120,6 +123,7 @@ export function BrowsePage() {
   const virtuosoRef = useRef<VirtuosoGridHandle>(null);
   const mediumUpgradeVersionRef = useRef(0);
   const upgradedIdsRef = useRef<Set<string>>(new Set());
+  const scrollRestoreIndexRef = useRef<number | null>(null);
 
   useEffect(() => {
     loadPhotosPage({});
@@ -201,6 +205,16 @@ export function BrowsePage() {
     return () => clearTimeout(timer);
   }, [photos, visibleRange, get, setThumbnails]);
 
+  // 向上加载更早照片后，恢复视口位置，避免 prepending 导致滚动跳动
+  useEffect(() => {
+    if (scrollRestoreIndexRef.current === null || !virtuosoRef.current) return;
+    const localIndex = scrollRestoreIndexRef.current - photosOffset;
+    scrollRestoreIndexRef.current = null;
+    if (localIndex >= 0 && localIndex < photos.length) {
+      virtuosoRef.current.scrollToIndex({ index: localIndex, behavior: 'auto' });
+    }
+  }, [photos, photosOffset]);
+
   const navigatePhoto = useCallback((photo: Photo) => {
     setSelectedPhoto(photo);
   }, []);
@@ -218,6 +232,25 @@ export function BrowsePage() {
       setLoadingMore(false);
     }
   }, [loadingMore, photosHasMore, loadPhotosPage, currentFilter]);
+
+  const loadPrevious = useCallback(async () => {
+    if (loadingMore || photosOffset <= 0) return;
+    setLoadingMore(true);
+    try {
+      const previousOffset = photosOffset;
+      await loadPreviousPhotosPage(currentFilter);
+      // 加载完成后需要把视口恢复到之前的第一项位置，避免 prepending 导致滚动跳动
+      scrollRestoreIndexRef.current = previousOffset;
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, photosOffset, loadPreviousPhotosPage, currentFilter]);
+
+  const handleAtTopChange = useCallback((atTop: boolean) => {
+    if (atTop) {
+      loadPrevious();
+    }
+  }, [loadPrevious]);
 
   const handleFilterChange = (key: string, value: any) => {
     const newFilter = { ...currentFilter, [key]: value };
@@ -326,30 +359,39 @@ export function BrowsePage() {
     setActiveTimelineKey(key);
 
     // 先查目标月份在当前排序下的 offset，避免一页页盲加载
-    const offset = await window.api.photo.getOffsetByMonth(currentFilter, key);
-    if (offset === null) {
+    const targetOffset = await window.api.photo.getOffsetByMonth(currentFilter, key);
+    if (targetOffset === null) {
       return;
     }
 
-    // 如果目标月份还没有加载，使用较大分页快速加载到目标位置
-    while (photos.length <= offset && photosHasMore) {
+    const windowSize = 1500;
+    const buffer = 500;
+    // 让目标月份落在加载窗口内偏中间的位置，留出向上/向下滚动的空间
+    const loadOffset = Math.max(0, targetOffset - buffer);
+
+    // 如果目标已经在当前加载窗口内，直接滚动；否则直接加载目标窗口
+    const inCurrentWindow = targetOffset >= photosOffset && targetOffset < photosOffset + photos.length;
+    if (!inCurrentWindow) {
       setLoadingMore(true);
       try {
-        await loadPhotosPage(currentFilter, true, 500);
+        await loadPhotosAtOffset(currentFilter, loadOffset, windowSize);
       } finally {
         setLoadingMore(false);
       }
     }
 
-    const index = photos.findIndex(p => getPhotoMonthKey(p) === key);
-    if (index !== -1 && virtuosoRef.current) {
+    const localIndex = targetOffset - (inCurrentWindow ? photosOffset : loadOffset);
+    const index = Math.max(0, Math.min(localIndex, photos.length - 1));
+    if (virtuosoRef.current) {
       virtuosoRef.current.scrollToIndex({ index, behavior: 'auto' });
     }
-  }, [photos, photosHasMore, currentFilter, loadPhotosPage, getPhotoMonthKey]);
+  }, [photos, photosOffset, photosHasMore, currentFilter, loadPhotosPage, loadPhotosAtOffset, getPhotoMonthKey]);
 
   const handleRangeChanged = useCallback(({ startIndex, endIndex }: { startIndex: number; endIndex: number }) => {
     setVisibleRange({ startIndex, endIndex });
-    const photo = photos[startIndex];
+    // 用可视区域中间位置的照片所属月份作为高亮，比起始位置更贴合用户当前在看的内容
+    const centerIndex = Math.floor((startIndex + endIndex) / 2);
+    const photo = photos[centerIndex];
     if (photo) {
       setActiveTimelineKey(getPhotoMonthKey(photo));
     }
@@ -441,6 +483,7 @@ export function BrowsePage() {
               ref={virtuosoRef}
               data={photos}
               endReached={loadMore}
+              atTopStateChange={handleAtTopChange}
               overscan={200}
               rangeChanged={handleRangeChanged}
               components={{
