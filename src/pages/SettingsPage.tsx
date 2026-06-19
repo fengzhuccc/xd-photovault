@@ -33,6 +33,8 @@ const TILE_PROVIDERS: Record<string, {
 export function SettingsPage() {
   const { stats, loadStats } = useAppStore();
   const [isClearing, setIsClearing] = useState(false);
+  const [thumbnailStats, setThumbnailStats] = useState<{ count: number; totalSize: number; smallCount: number; mediumCount: number } | null>(null);
+  const [isLoadingThumbnailStats, setIsLoadingThumbnailStats] = useState(false);
   const [dataPath, setDataPath] = useState<string>('');
   const [customPath, setCustomPath] = useState<string | null>(null);
   const [isChanging, setIsChanging] = useState(false);
@@ -54,7 +56,28 @@ export function SettingsPage() {
     loadLogPath();
     loadMapSettings();
     loadStats();
+    loadThumbnailStats();
   }, []);
+
+  const loadThumbnailStats = async () => {
+    setIsLoadingThumbnailStats(true);
+    try {
+      const stats = await window.api.thumbnail.stats();
+      setThumbnailStats(stats);
+    } catch (error) {
+      toast('error', '获取缩略图统计失败：' + error);
+    } finally {
+      setIsLoadingThumbnailStats(false);
+    }
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
 
   const loadMapSettings = async () => {
     try {
@@ -109,6 +132,7 @@ export function SettingsPage() {
     try {
       await window.api.thumbnail.clear();
       toast('success', '缩略图缓存已清除');
+      await loadThumbnailStats();
     } catch (error) {
       toast('error', '清除失败：' + error);
     } finally {
@@ -499,22 +523,46 @@ export function SettingsPage() {
             </div>
             
             <div className="space-y-3">
-              <div className="flex items-center justify-between p-4 bg-zinc-800 rounded-lg">
-                <div>
-                  <p className="text-sm text-zinc-200">缩略图缓存</p>
-                  <p className="text-xs text-zinc-500 mt-1">清除后下次浏览时会重新生成</p>
+              <div className="p-4 bg-zinc-800 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-zinc-200">缩略图缓存</p>
+                    <p className="text-xs text-zinc-500 mt-1">清除后下次浏览时会重新生成</p>
+                  </div>
+                  <button
+                    onClick={handleClearThumbnails}
+                    disabled={isClearing || isLoadingThumbnailStats}
+                    className={cn(
+                      'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                      'bg-red-500/10 text-red-500 hover:bg-red-500/20',
+                      'disabled:opacity-50 disabled:cursor-not-allowed'
+                    )}
+                  >
+                    {isClearing ? '清除中...' : '清除'}
+                  </button>
                 </div>
-                <button
-                  onClick={handleClearThumbnails}
-                  disabled={isClearing}
-                  className={cn(
-                    'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-                    'bg-red-500/10 text-red-500 hover:bg-red-500/20',
-                    'disabled:opacity-50 disabled:cursor-not-allowed'
-                  )}
-                >
-                  {isClearing ? '清除中...' : '清除'}
-                </button>
+                <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-zinc-700/50">
+                  <div>
+                    <p className="text-xs text-zinc-500">文件总数</p>
+                    <p className="text-lg font-semibold text-zinc-200">
+                      {isLoadingThumbnailStats ? '-' : (thumbnailStats?.count ?? 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-zinc-500">占用空间</p>
+                    <p className="text-lg font-semibold text-zinc-200">
+                      {isLoadingThumbnailStats ? '-' : formatBytes(thumbnailStats?.totalSize ?? 0)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-zinc-500">尺寸分布</p>
+                    <p className="text-sm text-zinc-300 mt-0.5">
+                      {isLoadingThumbnailStats
+                        ? '-'
+                        : `small ${(thumbnailStats?.smallCount ?? 0).toLocaleString()} / medium ${(thumbnailStats?.mediumCount ?? 0).toLocaleString()}`}
+                    </p>
+                  </div>
+                </div>
               </div>
               <div className="flex items-center justify-between p-4 bg-zinc-800 rounded-lg">
                 <div>

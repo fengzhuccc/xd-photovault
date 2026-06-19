@@ -162,6 +162,36 @@ export class ThumbnailService {
     log.info('[Thumbnail] 缩略图缓存已清除');
   }
 
+  getStats(): { count: number; totalSize: number; smallCount: number; mediumCount: number } {
+    const stats = { count: 0, totalSize: 0, smallCount: 0, mediumCount: 0 };
+    this.collectStats(this.thumbnailDir, stats);
+    return stats;
+  }
+
+  private collectStats(dirPath: string, stats: { count: number; totalSize: number; smallCount: number; mediumCount: number }): void {
+    if (!existsSync(dirPath)) return;
+    const entries = readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        this.collectStats(fullPath, stats);
+      } else if (entry.name.endsWith('.webp')) {
+        try {
+          const stat = statSync(fullPath);
+          stats.count++;
+          stats.totalSize += stat.size;
+          if (entry.name.endsWith('_small.webp')) {
+            stats.smallCount++;
+          } else if (entry.name.endsWith('_medium.webp')) {
+            stats.mediumCount++;
+          }
+        } catch (e) {
+          log.warn(`[Thumbnail] 获取缩略图 stat 失败: ${fullPath}`, e);
+        }
+      }
+    }
+  }
+
   private removeDirRecursive(dirPath: string): void {
     const entries = readdirSync(dirPath, { withFileTypes: true });
     for (const entry of entries) {

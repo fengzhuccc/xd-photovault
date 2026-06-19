@@ -67,6 +67,7 @@ export const api = {
       ipcRenderer.invoke('thumbnail:get', photoId, photoPath, size),
     getBatch: (items: { photoId: string; photoPath: string; size?: 'small' | 'medium' }[]) =>
       ipcRenderer.invoke('thumbnail:getBatch', items),
+    stats: () => ipcRenderer.invoke('thumbnail:stats') as Promise<{ count: number; totalSize: number; smallCount: number; mediumCount: number }>,
     clear: () => ipcRenderer.invoke('thumbnail:clear'),
   },
 

@@ -307,6 +307,10 @@ function setupIpcHandlers() {
     return await thumbnailService.getThumbnailsBatch(items);
   });
 
+  ipcMain.handle('thumbnail:stats', async () => {
+    return thumbnailService.getStats();
+  });
+
   ipcMain.handle('thumbnail:clear', async () => {
     return await thumbnailService.clearThumbnails();
   });
