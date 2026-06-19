@@ -18,10 +18,11 @@ const SCAN_STATUS_INTERVAL = 200;
 const PATH_BATCH_SIZE = 500;
 // 清理已删除照片记录时，每批处理数量
 const DELETE_BATCH_SIZE = 1000;
-// 扫描过程中实时生成缩略图的并发数
-const THUMBNAIL_WORKER_CONCURRENCY = 2;
-// 文件处理 worker pool 并发数
-const FILE_WORKER_CONCURRENCY = 4;
+// 机械硬盘等 I/O 受限场景下，扫描并发不宜过高，避免磁头来回寻道
+const THUMBNAIL_WORKER_CONCURRENCY = 1;
+const FILE_WORKER_CONCURRENCY = 2;
+// 扫描期间不实时生成缩略图，扫描结束后统一后台生成，避免 I/O 争抢
+const DEFER_THUMBNAILS_DURING_SCAN = true;
 
 export interface ScanProgress {
   current: number;
@@ -199,7 +200,10 @@ export class ScannerService {
         modifiedTime: stats.mtime.toISOString(),
       };
 
-      this.enqueueThumbnail(photoId, filePath);
+      // 机械硬盘场景：扫描期间不入队实时缩略图，扫描结束后统一生成
+      if (!DEFER_THUMBNAILS_DURING_SCAN) {
+        this.enqueueThumbnail(photoId, filePath);
+      }
       return { photo, hash: fileHash };
     } catch (error) {
       log.warn(`[Scanner] 处理文件失败: ${filePath}`, error);
@@ -219,9 +223,10 @@ export class ScannerService {
     total: number,
     processedCountRef: { count: number },
     onProgress: (progress: ScanProgress) => void
-  ): Promise<{ hashes: string[]; newCount: number; skipped: number }> {
+  ): Promise<{ hashes: string[]; photoIds: string[]; newCount: number; skipped: number }> {
     const queue = [...files];
     const hashes: string[] = [];
+    const photoIds: string[] = [];
     let newCount = 0;
     let skipped = 0;
 
@@ -240,6 +245,7 @@ export class ScannerService {
           skipped++;
         } else if (result) {
           hashes.push(result.hash);
+          photoIds.push(result.photo.id);
           newCount++;
           localBatch.push(result.photo);
         }
@@ -279,7 +285,7 @@ export class ScannerService {
     const workers = Array.from({ length: FILE_WORKER_CONCURRENCY }, () => worker());
     await Promise.all(workers);
 
-    return { hashes, newCount, skipped };
+    return { hashes, photoIds, newCount, skipped };
   }
 
   /**
@@ -321,6 +327,27 @@ export class ScannerService {
       // 让出事件循环，避免缩略图生成阻塞主进程
       await yieldToMain();
     }
+  }
+
+  /**
+   * 扫描结束后统一后台生成缩略图，适用于机械硬盘等 I/O 受限场景。
+   * 分批从数据库读取照片路径，避免一次性加载大量记录到内存。
+   */
+  private async generateThumbnailsAfterScan(photoIds: string[]): Promise<void> {
+    log.info(`[Scanner] 扫描结束后统一生成 ${photoIds.length} 张缩略图`);
+    const BATCH = 100;
+    for (let i = 0; i < photoIds.length; i += BATCH) {
+      const batchIds = photoIds.slice(i, i + BATCH);
+      const photos = this.db.getPhotosByIds(batchIds);
+      const items = photos
+        .filter((p): p is PhotoRow => p !== null)
+        .map(p => ({ photoId: p.id, photoPath: p.path, size: 'small' as const }));
+      if (items.length > 0) {
+        await this.thumbnailService.getThumbnailsBatch(items, 2);
+      }
+      await yieldToMain();
+    }
+    log.info(`[Scanner] 扫描结束后缩略图生成完成`);
   }
 
   async addFolder(path: string): Promise<{ id: string; path: string; isNew: boolean; conflict?: { type: 'child' | 'parent'; childFolderIds: string[]; childFolderPaths: string[] } }> {
@@ -442,6 +469,7 @@ export class ScannerService {
 
       // 第二步：分批处理文件，同时按批次查询已有记录，避免一次性加载整个文件夹
       const newHashes: string[] = [];
+      const newPhotoIds: string[] = [];
       const seenPaths = new Set(files);
       let skipped = 0;
       let newCount = 0;
@@ -485,6 +513,7 @@ export class ScannerService {
         );
 
         newHashes.push(...batchResult.hashes);
+        newPhotoIds.push(...batchResult.photoIds);
         newCount += batchResult.newCount;
         skipped += batchResult.skipped;
 
@@ -546,7 +575,13 @@ export class ScannerService {
         });
       }
 
-      // 缩略图已在扫描过程中实时入队生成，此处无需再批量生成
+      // 机械硬盘场景：扫描期间未实时生成缩略图，扫描结束后统一后台生成
+      if (DEFER_THUMBNAILS_DURING_SCAN && newPhotoIds.length > 0) {
+        this.generateThumbnailsAfterScan(newPhotoIds).catch(err => {
+          log.error('[Scanner] 扫描后批量生成缩略图失败:', err);
+        });
+      }
+
       return { totalPhotos, skipped };
     } finally {
       this.scanning = false;
