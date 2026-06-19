@@ -17,6 +17,8 @@ const THUMBNAIL_CONFIG: Record<ThumbnailSize, ThumbnailConfig> = {
 
 export class ThumbnailService {
   thumbnailDir: string;
+  // 同一 photoId + size 的缩略图请求共享一次生成过程，避免扫描线程和浏览线程并发写同一文件
+  private inFlight = new Map<string, Promise<string>>();
 
   constructor(userDataPath: string) {
     this.thumbnailDir = join(userDataPath, 'thumbnails');
@@ -68,6 +70,20 @@ export class ThumbnailService {
   }
 
   async getThumbnail(photoId: string, photoPath: string, thumbSize: ThumbnailSize = 'medium'): Promise<string> {
+    const key = `${photoId}:${thumbSize}`;
+    const existing = this.inFlight.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const promise = this.doGetThumbnail(photoId, photoPath, thumbSize).finally(() => {
+      this.inFlight.delete(key);
+    });
+    this.inFlight.set(key, promise);
+    return promise;
+  }
+
+  private async doGetThumbnail(photoId: string, photoPath: string, thumbSize: ThumbnailSize): Promise<string> {
     const thumbnailPath = this.getThumbnailPath(photoId, thumbSize);
 
     if (this.isThumbnailFresh(thumbnailPath, photoPath)) {
@@ -97,6 +113,36 @@ export class ThumbnailService {
       log.warn(`[Thumbnail] 生成缩略图失败: ${photoPath}`, error);
       return this.fileUrl(photoPath);
     }
+  }
+
+  /**
+   * 批量获取缩略图，带并发限制。
+   * 返回 photoId -> URL 的映射；失败的条目回退到原图 URL。
+   */
+  async getThumbnailsBatch(
+    items: { photoId: string; photoPath: string; size?: ThumbnailSize }[],
+    concurrency: number = 4
+  ): Promise<Record<string, string>> {
+    const result: Record<string, string> = {};
+    if (items.length === 0) return result;
+
+    const queue = [...items];
+
+    const worker = async () => {
+      while (queue.length > 0) {
+        const item = queue.shift()!;
+        try {
+          result[item.photoId] = await this.getThumbnail(item.photoId, item.photoPath, item.size || 'small');
+        } catch (e) {
+          log.warn(`[Thumbnail] 批量生成缩略图失败: ${item.photoPath}`, e);
+          result[item.photoId] = this.fileUrl(item.photoPath);
+        }
+      }
+    };
+
+    const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+    await Promise.all(workers);
+    return result;
   }
 
   async clearThumbnails(): Promise<void> {
@@ -198,45 +244,5 @@ export class ThumbnailService {
     if (fileCount > 0) {
       log.info(`[Thumbnail] 已清理孤立缩略图，扫描目录: ${dirPath}`);
     }
-  }
-
-  /**
-   * 后台批量生成缩略图，带并发限制。
-   * 用于扫描完成后渐进式生成网格缩略图，避免首次浏览卡顿。
-   */
-  async generateThumbnailsInBackground(
-    photoIds: string[],
-    getPhotoPath: (id: string) => string | undefined,
-    size: ThumbnailSize = 'small',
-    concurrency: number = 3
-  ): Promise<void> {
-    if (photoIds.length === 0) return;
-
-    log.info(`[Thumbnail] 后台开始生成 ${photoIds.length} 张 ${size} 缩略图`);
-    const queue = [...photoIds];
-    let completed = 0;
-    let failed = 0;
-
-    const worker = async () => {
-      while (queue.length > 0) {
-        const id = queue.shift()!;
-        const path = getPhotoPath(id);
-        if (!path) continue;
-        try {
-          await this.getThumbnail(id, path, size);
-          completed++;
-        } catch (e) {
-          failed++;
-          log.warn(`[Thumbnail] 后台生成缩略图失败: ${path}`, e);
-        }
-        if ((completed + failed) % 100 === 0) {
-          log.info(`[Thumbnail] 后台缩略图进度: ${completed + failed}/${photoIds.length}`);
-        }
-      }
-    };
-
-    const workers = Array.from({ length: Math.min(concurrency, photoIds.length) }, () => worker());
-    await Promise.all(workers);
-    log.info(`[Thumbnail] 后台缩略图生成完成: 成功 ${completed}，失败 ${failed}`);
   }
 }

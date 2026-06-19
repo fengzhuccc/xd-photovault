@@ -164,7 +164,12 @@ export class DatabaseService {
     log.info('DatabaseService initialize - Opening database at:', this.dbPath);
     try {
       this.db = new Database(this.dbPath);
+      // 性能调优：WAL 模式适合写多读少的场景（扫描、去重），大缓存减少磁盘 I/O
       this.db.pragma('journal_mode = WAL');
+      this.db.pragma('synchronous = NORMAL');
+      this.db.pragma('cache_size = -64000');      // 64MB page cache
+      this.db.pragma('temp_store = MEMORY');
+      this.db.pragma('busy_timeout = 5000');
       this.createTables();
       log.info('DatabaseService - Database initialized successfully');
     } catch (error) {
@@ -368,6 +373,11 @@ export class DatabaseService {
     return stmt.all() as FolderRow[];
   }
 
+  getFolderById(id: string): FolderRow | null {
+    const stmt = this.db.prepare('SELECT * FROM folders WHERE id = ?');
+    return stmt.get(id) as FolderRow | null;
+  }
+
   getFolderByPath(path: string): FolderRow | null {
     const stmt = this.db.prepare('SELECT * FROM folders WHERE path = ?');
     return stmt.get(path) as FolderRow | null;
@@ -465,6 +475,117 @@ export class DatabaseService {
     return stmt.all(...params) as PhotoRow[];
   }
 
+  getTimeline(filter: PhotoFilter = {}): { key: string; label: string; count: number }[] {
+    let sql = `
+      SELECT
+        COALESCE(strftime('%Y-%m', taken_at), 'unknown') as key,
+        COUNT(*) as count,
+        MIN(taken_at) as first_date
+      FROM photos
+      WHERE 1=1
+    `;
+    const params: (string | number)[] = [];
+
+    if (filter.folderId) {
+      sql += ' AND folder_id = ?';
+      params.push(filter.folderId);
+    }
+    if (filter.dateStart) {
+      sql += ' AND taken_at >= ?';
+      params.push(filter.dateStart);
+    }
+    if (filter.dateEnd) {
+      sql += ' AND taken_at <= ?';
+      params.push(filter.dateEnd);
+    }
+    if (filter.hasLocation === true) {
+      sql += ' AND latitude IS NOT NULL AND longitude IS NOT NULL';
+    }
+    if (filter.hasLocation === false) {
+      sql += ' AND (latitude IS NULL OR longitude IS NULL)';
+    }
+    if (filter.camera) {
+      sql += ' AND camera = ?';
+      params.push(filter.camera);
+    }
+
+    sql += ' GROUP BY key ORDER BY first_date DESC NULLS LAST';
+
+    const rows = this.db.prepare(sql).all(...params) as { key: string; count: number; first_date: string | null }[];
+
+    return rows.map(row => {
+      if (row.key === 'unknown' || !row.first_date) {
+        return { key: 'unknown', label: '未知时间', count: row.count };
+      }
+      const date = new Date(row.first_date);
+      const label = date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long' });
+      return { key: row.key, label, count: row.count };
+    });
+  }
+
+  /**
+   * 查询某个月份的第一张照片在当前排序下的 0-based offset。
+   * 照片按 taken_at DESC 排序，offset 即 taken_at 大于该月份最大 taken_at 的照片数量。
+   */
+  getPhotoOffsetByMonth(filter: PhotoFilter = {}, monthKey: string): number | null {
+    const baseWhere: string[] = ['1=1'];
+    const baseParams: (string | number)[] = [];
+
+    if (filter.folderId) {
+      baseWhere.push('folder_id = ?');
+      baseParams.push(filter.folderId);
+    }
+    if (filter.dateStart) {
+      baseWhere.push('taken_at >= ?');
+      baseParams.push(filter.dateStart);
+    }
+    if (filter.dateEnd) {
+      baseWhere.push('taken_at <= ?');
+      baseParams.push(filter.dateEnd);
+    }
+    if (filter.hasLocation === true) {
+      baseWhere.push('latitude IS NOT NULL AND longitude IS NOT NULL');
+    }
+    if (filter.hasLocation === false) {
+      baseWhere.push('(latitude IS NULL OR longitude IS NULL)');
+    }
+    if (filter.camera) {
+      baseWhere.push('camera = ?');
+      baseParams.push(filter.camera);
+    }
+
+    const whereSql = baseWhere.join(' AND ');
+
+    if (monthKey === 'unknown') {
+      // 未知时间对应 taken_at 为 NULL 的照片，排序在最后
+      const checkSql = `SELECT COUNT(*) as count FROM photos WHERE ${whereSql} AND taken_at IS NULL`;
+      const checkRow = this.db.prepare(checkSql).get(...baseParams) as { count: number } | undefined;
+      if (!checkRow || checkRow.count === 0) {
+        return null;
+      }
+      const offsetSql = `SELECT COUNT(*) as offset FROM photos WHERE ${whereSql} AND taken_at IS NOT NULL`;
+      const row = this.db.prepare(offsetSql).get(...baseParams) as { offset: number } | undefined;
+      return row ? row.offset : null;
+    }
+
+    // 先确认目标月份是否有照片
+    const checkSql = `SELECT COUNT(*) as count FROM photos WHERE ${whereSql} AND strftime('%Y-%m', taken_at) = ?`;
+    const checkRow = this.db.prepare(checkSql).get(...baseParams, monthKey) as { count: number } | undefined;
+    if (!checkRow || checkRow.count === 0) {
+      return null;
+    }
+
+    // 计算 offset
+    const offsetSql = `
+      SELECT COUNT(*) as offset FROM photos
+      WHERE ${whereSql}
+        AND taken_at > (SELECT MAX(taken_at) FROM photos WHERE ${whereSql} AND strftime('%Y-%m', taken_at) = ?)
+    `;
+    const offsetParams = [...baseParams, ...baseParams, monthKey];
+    const row = this.db.prepare(offsetSql).get(...offsetParams) as { offset: number } | undefined;
+    return row ? row.offset : null;
+  }
+
   getPhotosPaged(filter: PhotoFilter = {}): { photos: PhotoRow[]; total: number; hasMore: boolean } {
     const limit = filter.limit || 100;
     const offset = filter.offset || 0;
@@ -506,6 +627,12 @@ export class DatabaseService {
     return stmt.get(id) as PhotoRow | null;
   }
 
+  getPhotosByIds(ids: string[]): PhotoRow[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(',');
+    return this.db.prepare(`SELECT * FROM photos WHERE id IN (${placeholders})`).all(...ids) as PhotoRow[];
+  }
+
   getPhotoStats() {
     // D8: 合并为1条查询，减少数据库访问次数
     const stats = this.db.prepare(`
@@ -543,6 +670,20 @@ export class DatabaseService {
 
   updatePhotoPerceptualHash(id: string, phash: string): void {
     this.db.prepare('UPDATE photos SET perceptual_hash = ? WHERE id = ?').run(phash, id);
+  }
+
+  updatePhotoFileHash(id: string, fileHash: string): void {
+    this.db.prepare('UPDATE photos SET file_hash = ? WHERE id = ?').run(fileHash, id);
+  }
+
+  getPhotosWithLegacyMd5Hashes(limit: number, offset: number): { id: string; path: string }[] {
+    return this.db.prepare(`
+      SELECT id, path FROM photos
+      WHERE file_hash IS NOT NULL
+        AND LENGTH(file_hash) = 32
+        AND file_hash GLOB '[a-fA-F0-9]*'
+      LIMIT ? OFFSET ?
+    `).all(limit, offset) as { id: string; path: string }[];
   }
 
   getPhotosWithoutPHash(): PhotoRow[] {
@@ -642,6 +783,42 @@ export class DatabaseService {
       ...g,
       photos: photosByGroup.get(g.id) || [],
     }));
+  }
+
+  getDuplicateGroupsPaged(limit: number = 50, offset: number = 0): { groups: DuplicateGroupDetail[]; total: number } {
+    const total = (this.db.prepare('SELECT COUNT(*) as total FROM duplicate_groups').get() as { total: number }).total;
+
+    const groups = this.db.prepare(`
+      SELECT * FROM duplicate_groups ORDER BY created_at DESC LIMIT ? OFFSET ?
+    `).all(limit, offset) as DuplicateGroupRow[];
+
+    if (groups.length === 0) return { groups: [], total };
+
+    const groupIds = groups.map(g => g.id);
+    const placeholders = groupIds.map(() => '?').join(',');
+
+    const photoRows = this.db.prepare(`
+      SELECT pd.group_id, p.id, p.path, p.filename, p.file_size, p.taken_at,
+             p.latitude, p.longitude, p.width, p.height, p.camera
+      FROM photo_duplicates pd
+      JOIN photos p ON pd.photo_id = p.id
+      WHERE pd.group_id IN (${placeholders})
+    `).all(...groupIds) as (PhotoRow & { group_id: string })[];
+
+    const photosByGroup = new Map<string, PhotoRow[]>();
+    for (const row of photoRows) {
+      const gid = row.group_id;
+      if (!photosByGroup.has(gid)) photosByGroup.set(gid, []);
+      photosByGroup.get(gid)!.push(row);
+    }
+
+    return {
+      groups: groups.map(g => ({
+        ...g,
+        photos: photosByGroup.get(g.id) || [],
+      })),
+      total,
+    };
   }
 
   deletePhoto(id: string): void {

@@ -1,26 +1,71 @@
-import { createHash } from 'crypto';
 import { createReadStream } from 'fs';
+import { createXXHash64 } from 'hash-wasm';
 import sharp from 'sharp';
 
+type XXHash64Hasher = Awaited<ReturnType<typeof createXXHash64>>;
+
 export class HashService {
+  private hasherPool: XXHash64Hasher[] = [];
+
+  async initialize(): Promise<void> {
+    // 预创建一组 hasher，供并发文件处理使用；hash-wasm 的 hasher 不能跨调用并发共享
+    const poolSize = 4;
+    for (let i = 0; i < poolSize; i++) {
+      this.hasherPool.push(await createXXHash64());
+    }
+  }
+
+  private async acquireHasher(): Promise<XXHash64Hasher> {
+    if (this.hasherPool.length > 0) {
+      return this.hasherPool.pop()!;
+    }
+    return createXXHash64();
+  }
+
+  private releaseHasher(hasher: XXHash64Hasher): void {
+    this.hasherPool.push(hasher);
+  }
+
+  /**
+   * 计算文件内容 hash，使用 xxhash64（比 MD5 快数倍，碰撞率对照片去重足够低）。
+   * 每次从池中取独立 hasher，避免并发 digest/init 竞态。
+   */
   async calculateFileHash(filePath: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const hash = createHash('md5');
-      const stream = createReadStream(filePath, { highWaterMark: 64 * 1024 });
-      stream.on('data', (chunk) => hash.update(chunk));
-      stream.on('end', () => resolve(hash.digest('hex')));
-      stream.on('error', reject);
-    });
+    const hasher = await this.acquireHasher();
+    try {
+      return await new Promise((resolve, reject) => {
+        hasher.init();
+        const stream = createReadStream(filePath, { highWaterMark: 256 * 1024 });
+        stream.on('data', (chunk) => hasher.update(chunk as Buffer));
+        stream.on('end', () => resolve(hasher.digest()));
+        stream.on('error', reject);
+      });
+    } finally {
+      this.releaseHasher(hasher);
+    }
   }
 
   async calculatePartialHash(filePath: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const hash = createHash('md5');
-      const stream = createReadStream(filePath, { start: 0, end: 1023 });
-      stream.on('data', (chunk) => hash.update(chunk));
-      stream.on('end', () => resolve(hash.digest('hex')));
-      stream.on('error', reject);
-    });
+    const hasher = await this.acquireHasher();
+    try {
+      return await new Promise((resolve, reject) => {
+        hasher.init();
+        const stream = createReadStream(filePath, { start: 0, end: 1023, highWaterMark: 64 * 1024 });
+        stream.on('data', (chunk) => hasher.update(chunk as Buffer));
+        stream.on('end', () => resolve(hasher.digest()));
+        stream.on('error', reject);
+      });
+    } finally {
+      this.releaseHasher(hasher);
+    }
+  }
+
+  /**
+   * 判断 file_hash 是否为旧版 MD5（32 位十六进制）。
+   * xxhash64 输出为 16 位十六进制。
+   */
+  isLegacyMd5Hash(hash: string | null): boolean {
+    return !!hash && /^[a-f0-9]{32}$/i.test(hash);
   }
 
   /**

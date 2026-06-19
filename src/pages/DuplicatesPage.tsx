@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, Check, Trash2, Star, MapPin, Calendar, HardDrive, X, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
@@ -7,10 +7,10 @@ import { cn } from '@/lib/utils';
 import type { DuplicateGroup, Photo } from '@/types';
 
 export function DuplicatesPage() {
-  const { duplicates, loadDuplicates, stats } = useAppStore();
+  const { duplicates, duplicatesTotal, duplicatesHasMore, loadDuplicates, loadDuplicatesPage, stats } = useAppStore();
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
+  const [loadingMore, setLoadingMore] = useState(false);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
-  const [originalImages, setOriginalImages] = useState<Record<string, string>>({});
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDetecting, setIsDetecting] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
@@ -22,26 +22,41 @@ export function DuplicatesPage() {
 
   useEffect(() => {
     const loadThumbnails = async () => {
-      const thumbMap: Record<string, string> = {};
-      const origMap: Record<string, string> = {};
       const allPhotos = duplicates.flatMap(g => g.photos);
-      for (const photo of allPhotos) {
+      const missing = allPhotos.filter(p => !(p.id in thumbnails));
+      if (missing.length === 0) return;
+
+      // 分批请求，避免单次 IPC 负载过大
+      const BATCH = 100;
+      for (let i = 0; i < missing.length; i += BATCH) {
+        const chunk = missing.slice(i, i + BATCH);
+        const items = chunk.map(p => ({ photoId: p.id, photoPath: p.path, size: 'small' as const }));
         try {
-          const thumb = await window.api.thumbnail.get(photo.id, photo.path, 'small');
-          thumbMap[photo.id] = thumb;
-          origMap[photo.id] = `file:///${photo.path.replace(/\\/g, '/')}`;
+          const batch = await window.api.thumbnail.getBatch(items);
+          setThumbnails(prev => ({ ...prev, ...batch }));
         } catch {
-          thumbMap[photo.id] = `https://picsum.photos/seed/${photo.id}/256/256`;
-          origMap[photo.id] = `https://picsum.photos/seed/${photo.id}/800/600`;
+          const fallback: Record<string, string> = {};
+          for (const photo of chunk) {
+            fallback[photo.id] = `https://picsum.photos/seed/${photo.id}/256/256`;
+          }
+          setThumbnails(prev => ({ ...prev, ...fallback }));
         }
       }
-      setThumbnails(thumbMap);
-      setOriginalImages(origMap);
     };
     if (duplicates.length > 0) {
       loadThumbnails();
     }
-  }, [duplicates]);
+  }, [duplicates, thumbnails]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !duplicatesHasMore) return;
+    setLoadingMore(true);
+    try {
+      await loadDuplicatesPage(true);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, duplicatesHasMore, loadDuplicatesPage]);
 
   const handleRedetect = async () => {
     if (!await confirm('将重新检测所有照片的重复情况，这可能需要一些时间。确定继续吗？', { variant: 'info', confirmText: '开始检测' })) {
@@ -138,7 +153,7 @@ export function DuplicatesPage() {
         <div>
           <h1 className="text-2xl font-bold text-zinc-100 mb-1">重复照片</h1>
           <p className="text-sm text-zinc-400">
-            发现 {duplicates.length} 组重复，共 {stats?.duplicates || 0} 张重复照片
+            发现 {duplicatesTotal.toLocaleString()} 组重复，共 {stats?.duplicates || 0} 张重复照片
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -202,6 +217,28 @@ export function DuplicatesPage() {
                 onPhotoClick={handlePhotoClick}
               />
             ))}
+            {duplicatesHasMore && (
+              <div className="flex justify-center py-4">
+                <button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className={cn(
+                    'px-4 py-2 rounded-lg text-sm transition-colors',
+                    'bg-zinc-800 hover:bg-zinc-700 text-zinc-300',
+                    'disabled:opacity-50 disabled:cursor-not-allowed'
+                  )}
+                >
+                  {loadingMore ? (
+                    <span className="flex items-center gap-2">
+                      <RefreshCw size={14} className="animate-spin" />
+                      加载中...
+                    </span>
+                  ) : (
+                    '加载更多'
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -232,7 +269,7 @@ export function DuplicatesPage() {
           <div className="flex h-full w-full">
             <div className="flex-1 flex items-center justify-center p-4">
               <img
-                src={originalImages[selectedPhoto.id] || `file:///${selectedPhoto.path.replace(/\\/g, '/')}`}
+                src={`file:///${selectedPhoto.path.replace(/\\/g, '/')}`}
                 alt={selectedPhoto.filename}
                 className="max-w-full max-h-full object-contain"
               />

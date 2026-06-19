@@ -1,5 +1,5 @@
 import { readdir, stat } from 'fs/promises';
-import { join, extname } from 'path';
+import { join, extname, sep } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { shell } from 'electron';
 import { DatabaseService, PhotoRow, PhotoInsert } from './database';
@@ -10,14 +10,18 @@ import log from 'electron-log';
 
 const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.raw', '.cr2', '.nef', '.arw'];
 
-// 每批处理数量，处理完让出事件循环
-const BATCH_SIZE = 50;
 // 进度上报间隔（每N张上报一次）
-const PROGRESS_INTERVAL = 20;
+const PROGRESS_INTERVAL = 200;
+// 扫描状态写入数据库间隔（每N张写一次）
+const SCAN_STATUS_INTERVAL = 200;
 // 增量扫描时，每批查询已有记录的路径数量（避免一次性加载整个文件夹）
 const PATH_BATCH_SIZE = 500;
 // 清理已删除照片记录时，每批处理数量
 const DELETE_BATCH_SIZE = 1000;
+// 扫描过程中实时生成缩略图的并发数
+const THUMBNAIL_WORKER_CONCURRENCY = 2;
+// 文件处理 worker pool 并发数
+const FILE_WORKER_CONCURRENCY = 4;
 
 export interface ScanProgress {
   current: number;
@@ -67,6 +71,10 @@ export class ScannerService {
   private exifService: ExifService;
   private thumbnailService: ThumbnailService;
   private scanning = false;
+  private activeScanFolderId: string | null = null;
+  private cancelRequested = false;
+  private thumbnailQueue: Array<{ id: string; path: string }> = [];
+  private thumbnailWorkersActive = false;
 
   constructor(
     db: DatabaseService,
@@ -82,6 +90,237 @@ export class ScannerService {
 
   get isScanning(): boolean {
     return this.scanning;
+  }
+
+  /**
+   * 请求停止对指定文件夹的扫描，并等待扫描真正结束。
+   * 同时清理该文件夹下照片未处理的缩略图任务。
+   */
+  async stopScan(folderId: string): Promise<void> {
+    if (this.activeScanFolderId !== folderId) {
+      return;
+    }
+    this.cancelRequested = true;
+    log.info(`[Scanner] 请求停止扫描文件夹: ${folderId}`);
+
+    // 清理该文件夹未处理的缩略图任务
+    const folder = this.db.getFolderById(folderId);
+    if (folder) {
+      this.clearThumbnailQueueForFolder(folder.path);
+    }
+
+    // 等待扫描循环结束
+    while (this.scanning) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  }
+
+  private clearThumbnailQueueForFolder(folderPath: string): void {
+    const prefix = folderPath.endsWith(sep) ? folderPath : folderPath + sep;
+    this.thumbnailQueue = this.thumbnailQueue.filter(item => !item.path.startsWith(prefix));
+  }
+
+  private checkCancelled(folderId: string): boolean {
+    if (!this.cancelRequested || this.activeScanFolderId !== folderId) {
+      return false;
+    }
+    log.info(`[Scanner] 扫描已取消，提前结束: ${folderId}`);
+    return true;
+  }
+
+  private completeScanEarly(
+    folderId: string,
+    onProgress: (progress: ScanProgress) => void,
+    reason: 'cancelled' | 'folder_deleted'
+  ): { totalPhotos: number; skipped: number } {
+    log.info(`[Scanner] 扫描提前结束 (${reason}): ${folderId}`);
+    // 如果 folder 仍存在（仅取消而非删除），把状态重置为 idle
+    if (reason === 'cancelled' && this.db.getFolderById(folderId)) {
+      this.db.updateFolderScanStatus(folderId, 'idle', 0, 0, '');
+    }
+    // 通知 UI 扫描已结束，让 LibraryPage 重置 isScanning
+    onProgress({ current: 0, total: 0, currentFile: '', status: 'complete' });
+    return { totalPhotos: 0, skipped: 0 };
+  }
+
+  /**
+   * 处理单张照片：stat → 检查是否变化 → EXIF + hash → 入队缩略图。
+   * 返回 'skipped' 表示未变化跳过；null 表示处理失败；否则返回 photo 和 hash。
+   */
+  private async processSingleFile(
+    filePath: string,
+    folderId: string,
+    existingPathMap: Map<string, { id: string; fileHash: string | null; fileSize: number; modifiedTime: string }>,
+    forceRescan: boolean
+  ): Promise<{ photo: PhotoInsert; hash: string } | 'skipped' | null> {
+    if (this.checkCancelled(folderId)) return null;
+
+    try {
+      const stats = await stat(filePath);
+
+      const existing = existingPathMap.get(filePath);
+      if (!forceRescan && existing
+        && existing.fileSize === stats.size
+        && existing.modifiedTime === stats.mtime.toISOString()) {
+        return 'skipped';
+      }
+
+      if (existing) {
+        this.db.deletePhoto(existing.id);
+      }
+
+      const [exifData, fileHash] = await Promise.all([
+        this.exifService.extractExif(filePath),
+        this.hashService.calculateFileHash(filePath),
+      ]);
+
+      const photoId = existing?.id || uuidv4();
+      const takenAt = exifData.takenAt || stats.mtime;
+
+      const photo: PhotoInsert = {
+        id: photoId,
+        folderId,
+        path: filePath,
+        filename: filePath.split(/[/\\]/).pop() || '',
+        fileSize: stats.size,
+        fileHash,
+        perceptualHash: null,
+        takenAt: takenAt.toISOString(),
+        latitude: exifData.latitude,
+        longitude: exifData.longitude,
+        width: exifData.width,
+        height: exifData.height,
+        camera: exifData.camera,
+        aperture: exifData.aperture,
+        shutterSpeed: exifData.shutterSpeed,
+        iso: exifData.iso,
+        focalLength: exifData.focalLength,
+        thumbnailPath: null,
+        modifiedTime: stats.mtime.toISOString(),
+      };
+
+      this.enqueueThumbnail(photoId, filePath);
+      return { photo, hash: fileHash };
+    } catch (error) {
+      log.warn(`[Scanner] 处理文件失败: ${filePath}`, error);
+      return null;
+    }
+  }
+
+  /**
+   * 使用 worker pool 并发处理一批文件。
+   * 每个 worker 维护自己的 DB 写入批次，避免集中 flush 阻塞主循环。
+   */
+  private async processFilesConcurrently(
+    files: string[],
+    folderId: string,
+    existingPathMap: Map<string, { id: string; fileHash: string | null; fileSize: number; modifiedTime: string }>,
+    forceRescan: boolean,
+    total: number,
+    processedCountRef: { count: number },
+    onProgress: (progress: ScanProgress) => void
+  ): Promise<{ hashes: string[]; newCount: number; skipped: number }> {
+    const queue = [...files];
+    const hashes: string[] = [];
+    let newCount = 0;
+    let skipped = 0;
+
+    const worker = async () => {
+      const localBatch: PhotoInsert[] = [];
+
+      while (true) {
+        const filePath = queue.shift();
+        if (!filePath) break;
+        if (this.checkCancelled(folderId)) break;
+
+        const result = await this.processSingleFile(filePath, folderId, existingPathMap, forceRescan);
+        processedCountRef.count++;
+
+        if (result === 'skipped') {
+          skipped++;
+        } else if (result) {
+          hashes.push(result.hash);
+          newCount++;
+          localBatch.push(result.photo);
+        }
+
+        // 进度上报（全 worker 共享计数）
+        if (processedCountRef.count % PROGRESS_INTERVAL === 0 || processedCountRef.count === total) {
+          onProgress({
+            current: processedCountRef.count,
+            total,
+            currentFile: filePath.split(/[/\\]/).pop() || filePath,
+            status: 'scanning',
+          });
+        }
+
+        // 扫描状态写入数据库
+        if (processedCountRef.count > 0 && processedCountRef.count % SCAN_STATUS_INTERVAL === 0) {
+          this.db.updateFolderScanStatus(folderId, 'scanning', total, processedCountRef.count, filePath);
+        }
+
+        // 分批写入数据库，避免内存堆积
+        if (localBatch.length >= 50) {
+          this.db.insertPhotos(localBatch);
+          localBatch.length = 0;
+        }
+
+        // 让出事件循环，避免阻塞 UI 和其他 IPC
+        if (processedCountRef.count % 10 === 0) {
+          await yieldToMain();
+        }
+      }
+
+      if (localBatch.length > 0) {
+        this.db.insertPhotos(localBatch);
+      }
+    };
+
+    const workers = Array.from({ length: FILE_WORKER_CONCURRENCY }, () => worker());
+    await Promise.all(workers);
+
+    return { hashes, newCount, skipped };
+  }
+
+  /**
+   * 扫描过程中实时入队生成缩略图，不阻塞主扫描循环。
+   */
+  private enqueueThumbnail(photoId: string, photoPath: string): void {
+    this.thumbnailQueue.push({ id: photoId, path: photoPath });
+    this.startThumbnailWorkers();
+  }
+
+  private startThumbnailWorkers(): void {
+    if (this.thumbnailWorkersActive) return;
+    this.thumbnailWorkersActive = true;
+
+    const workers = Array.from({ length: THUMBNAIL_WORKER_CONCURRENCY }, () => this.thumbnailWorker());
+    Promise.all(workers).then(() => {
+      this.thumbnailWorkersActive = false;
+      // 如果扫描期间又入队了新任务，继续消费
+      if (this.thumbnailQueue.length > 0) {
+        this.startThumbnailWorkers();
+      }
+    });
+  }
+
+  private async thumbnailWorker(): Promise<void> {
+    while (this.thumbnailQueue.length > 0) {
+      const item = this.thumbnailQueue.shift();
+      if (!item) continue;
+
+      // 生成前先确认照片仍在数据库中，避免扫描取消/文件夹删除后生成孤儿缩略图
+      const photo = this.db.getPhotoById(item.id);
+      if (!photo) continue;
+
+      try {
+        await this.thumbnailService.getThumbnail(item.id, item.path, 'small');
+      } catch (e) {
+        log.warn(`[Scanner] 实时缩略图生成失败: ${item.path}`, e);
+      }
+      // 让出事件循环，避免缩略图生成阻塞主进程
+      await yieldToMain();
+    }
   }
 
   async addFolder(path: string): Promise<{ id: string; path: string; isNew: boolean; conflict?: { type: 'child' | 'parent'; childFolderIds: string[]; childFolderPaths: string[] } }> {
@@ -161,6 +400,8 @@ export class ScannerService {
     }
 
     this.scanning = true;
+    this.activeScanFolderId = folderId;
+    this.cancelRequested = false;
     log.info(`[Scanner] 开始${forceRescan ? '强制重新' : ''}扫描文件夹: ${folder.path}`);
 
     try {
@@ -200,15 +441,21 @@ export class ScannerService {
       }
 
       // 第二步：分批处理文件，同时按批次查询已有记录，避免一次性加载整个文件夹
-      const newPhotos: PhotoInsert[] = [];
       const newHashes: string[] = [];
-      const seenPaths = new Set<string>();
-      const processedPhotoIds: string[] = [];
-      const photoPathMap = new Map<string, string>();
+      const seenPaths = new Set(files);
       let skipped = 0;
       let newCount = 0;
+      const processedCountRef = { count: 0 };
 
       for (let batchStart = 0; batchStart < files.length; batchStart += PATH_BATCH_SIZE) {
+        // 检查是否已取消，或 folder 已被删除
+        if (this.checkCancelled(folderId)) {
+          return this.completeScanEarly(folderId, onProgress, 'cancelled');
+        }
+        if (!this.db.getFolderById(folderId)) {
+          return this.completeScanEarly(folderId, onProgress, 'folder_deleted');
+        }
+
         const batchEnd = Math.min(batchStart + PATH_BATCH_SIZE, files.length);
         const batchFiles = files.slice(batchStart, batchEnd);
 
@@ -226,104 +473,30 @@ export class ScannerService {
           }
         }
 
-        for (let i = 0; i < batchFiles.length; i++) {
-          const filePath = batchFiles[i];
-          const globalIndex = batchStart + i;
-          seenPaths.add(filePath);
+        // 使用 worker pool 并发处理本批次文件
+        const batchResult = await this.processFilesConcurrently(
+          batchFiles,
+          folderId,
+          existingPathMap,
+          forceRescan,
+          total,
+          processedCountRef,
+          onProgress
+        );
 
-          // 每批处理后让出事件循环
-          if (globalIndex > 0 && globalIndex % BATCH_SIZE === 0) {
-            // 分批写入数据库
-            if (newPhotos.length > 0) {
-              this.db.insertPhotos(newPhotos);
-              newPhotos.length = 0;
-            }
-            await yieldToMain();
-          }
+        newHashes.push(...batchResult.hashes);
+        newCount += batchResult.newCount;
+        skipped += batchResult.skipped;
 
-          // 进度上报（每20张或最后一张）
-          if (globalIndex % PROGRESS_INTERVAL === 0 || globalIndex === files.length - 1) {
-            onProgress({
-              current: globalIndex + 1,
-              total,
-              currentFile: filePath.split(/[/\\]/).pop() || filePath,
-              status: 'scanning',
-            });
-          }
-
-          // S8: 定期更新扫描进度到数据库（每50张）
-          if (globalIndex > 0 && globalIndex % 50 === 0) {
-            this.db.updateFolderScanStatus(folderId, 'scanning', total, globalIndex + 1, filePath);
-          }
-
-          try {
-            const stats = await stat(filePath);
-
-            // 增量扫描：检查文件是否已存在且未修改（强制重新扫描时跳过此检查）
-            const existing = existingPathMap.get(filePath);
-            if (!forceRescan && existing
-                && existing.fileSize === stats.size
-                && existing.modifiedTime === stats.mtime.toISOString()) {
-              // 文件大小和修改时间均相同，未修改，跳过
-              skipped++;
-              continue;
-            }
-
-            // 新文件或已修改的文件，需要完整处理
-            newCount++;
-
-            // 如果是已修改的文件（existing存在但mtime/size不同），先删除旧记录
-            if (existing) {
-              this.db.deletePhoto(existing.id);
-            }
-
-            // S5: extractExif 内部已优化，先用 sharp 获取宽高，不再重复 I/O
-            const exifData = await this.exifService.extractExif(filePath);
-            const fileHash = await this.hashService.calculateFileHash(filePath);
-
-            // pHash 延迟到去重检测时按需计算，避免拖慢扫描速度
-            const perceptualHash = null;
-
-            const photoId = existing?.id || uuidv4();
-
-            // 扫描时不生成缩略图，延迟到浏览时按需生成
-            const takenAt = exifData.takenAt || stats.mtime;
-
-            newPhotos.push({
-              id: photoId,
-              folderId,
-              path: filePath,
-              filename: filePath.split(/[/\\]/).pop() || '',
-              fileSize: stats.size,
-              fileHash,
-              perceptualHash,
-              takenAt: takenAt.toISOString(),
-              latitude: exifData.latitude,
-              longitude: exifData.longitude,
-              width: exifData.width,
-              height: exifData.height,
-              camera: exifData.camera,
-              aperture: exifData.aperture,
-              shutterSpeed: exifData.shutterSpeed,
-              iso: exifData.iso,
-              focalLength: exifData.focalLength,
-              thumbnailPath: null, // 延迟生成
-              modifiedTime: stats.mtime.toISOString(),
-            });
-            newHashes.push(fileHash);
-            processedPhotoIds.push(photoId);
-            photoPathMap.set(photoId, filePath);
-          } catch (error) {
-            log.warn(`[Scanner] 处理文件失败: ${filePath}`, error);
-          }
-        }
-
-        // 每批路径处理完后写入剩余照片并让出事件循环
-        if (newPhotos.length > 0) {
-          this.db.insertPhotos(newPhotos);
-          newPhotos.length = 0;
-        }
         await yieldToMain();
+      }
+
+      // 如果文件夹已被删除，跳过后续清理和状态更新
+      if (this.checkCancelled(folderId)) {
+        return this.completeScanEarly(folderId, onProgress, 'cancelled');
+      }
+      if (!this.db.getFolderById(folderId)) {
+        return this.completeScanEarly(folderId, onProgress, 'folder_deleted');
       }
 
       // 删除不再存在的照片（分页查询，避免加载整个文件夹）
@@ -349,6 +522,14 @@ export class ScannerService {
         log.info(`[Scanner] 删除 ${deletedCount} 个不存在的照片记录`);
       }
 
+      // 如果文件夹已被删除，不再更新状态或触发去重
+      if (this.checkCancelled(folderId)) {
+        return this.completeScanEarly(folderId, onProgress, 'cancelled');
+      }
+      if (!this.db.getFolderById(folderId)) {
+        return this.completeScanEarly(folderId, onProgress, 'folder_deleted');
+      }
+
       // S7: 使用 SELECT COUNT(*) 代替加载全部照片
       const totalPhotos = this.db.getPhotoCountByFolder(folderId);
       this.db.updateFolderScanTime(folderId, totalPhotos);
@@ -365,21 +546,12 @@ export class ScannerService {
         });
       }
 
-      // 后台渐进式生成小尺寸网格缩略图，避免首次浏览时卡顿
-      if (processedPhotoIds.length > 0) {
-        this.thumbnailService.generateThumbnailsInBackground(
-          processedPhotoIds,
-          (id) => photoPathMap.get(id),
-          'small',
-          3
-        ).catch(err => {
-          log.error('[Scanner] 后台缩略图生成失败:', err);
-        });
-      }
-
+      // 缩略图已在扫描过程中实时入队生成，此处无需再批量生成
       return { totalPhotos, skipped };
     } finally {
       this.scanning = false;
+      this.activeScanFolderId = null;
+      this.cancelRequested = false;
     }
   }
 
@@ -406,11 +578,47 @@ export class ScannerService {
     return { recoveredCount: folderPaths.length, folderPaths };
   }
 
+  /**
+   * 全量去重前，将旧版 MD5 file_hash 迁移为 xxhash64。
+   * 增量扫描时新文件已使用 xxhash64，无需迁移。
+   */
+  private async migrateLegacyHashes(): Promise<number> {
+    const BATCH = 200;
+    let migrated = 0;
+    let offset = 0;
+
+    while (true) {
+      const photos = this.db.getPhotosWithLegacyMd5Hashes(BATCH, offset);
+      if (photos.length === 0) break;
+
+      for (const photo of photos) {
+        try {
+          const newHash = await this.hashService.calculateFileHash(photo.path);
+          this.db.updatePhotoFileHash(photo.id, newHash);
+          migrated++;
+        } catch (error) {
+          log.warn(`[Scanner] 迁移旧 hash 失败: ${photo.path}`, error);
+        }
+      }
+
+      offset += photos.length;
+      await yieldToMain();
+      if (photos.length < BATCH) break;
+    }
+
+    if (migrated > 0) {
+      log.info(`[Scanner] 已迁移 ${migrated} 张旧照片 hash 为 xxhash64`);
+    }
+    return migrated;
+  }
+
   async detectDuplicates(fullRebuild: boolean = true, newHashes: string[] = []): Promise<number> {
     log.info(`[Scanner] 开始检测重复照片 (fullRebuild=${fullRebuild}, newHashes=${newHashes.length})...`);
 
     if (fullRebuild) {
-      // 全量重建：清除所有旧重复组
+      // 全量重建：先把旧版 MD5 hash 迁移为 xxhash64，确保精确去重结果一致
+      await this.migrateLegacyHashes();
+      // 清除所有旧重复组
       this.db.clearDuplicateGroups();
     }
 
@@ -425,10 +633,11 @@ export class ScannerService {
     let groupCount = 0;
     for (const dup of exactDuplicates) {
       const photoIds = dup.photo_ids.split(',');
+      const photoMap = new Map(this.db.getPhotosByIds(photoIds).map(p => [p.id, p]));
 
       if (fullRebuild) {
         const photos = photoIds
-          .map((id: string) => this.db.getPhotoById(id))
+          .map((id: string) => photoMap.get(id))
           .filter((p): p is PhotoRow => p !== null);
 
         if (photos.length > 1) {
@@ -456,7 +665,7 @@ export class ScannerService {
             .find(Boolean) || null;
 
           const allPhotos = photoIds
-            .map((id: string) => this.db.getPhotoById(id))
+            .map((id: string) => photoMap.get(id))
             .filter((p): p is PhotoRow => p !== null);
 
           if (allPhotos.length > 1) {
@@ -701,18 +910,22 @@ export class ScannerService {
   }
 
   async deletePhotos(photoIds: string[]): Promise<void> {
-    for (const id of photoIds) {
-      const photo = this.db.getPhotoById(id);
-      if (photo) {
-        try {
-          await shell.trashItem(photo.path);
-        } catch (e) {
-          log.warn(`[Scanner] 移动文件到回收站失败: ${photo.path}`, e);
-        }
-        // 删除缩略图文件（含新版多尺寸和旧版无分片）
-        this.thumbnailService.deleteThumbnailsByPhotoIds([id]);
-        this.db.deletePhoto(id);
+    const photos = this.db.getPhotosByIds(photoIds);
+    if (photos.length === 0) return;
+
+    // 移动文件到回收站（顺序执行，避免文件系统竞争）
+    for (const photo of photos) {
+      try {
+        await shell.trashItem(photo.path);
+      } catch (e) {
+        log.warn(`[Scanner] 移动文件到回收站失败: ${photo.path}`, e);
       }
     }
+
+    // 批量删除缩略图文件（含新版多尺寸和旧版无分片）
+    this.thumbnailService.deleteThumbnailsByPhotoIds(photos.map(p => p.id));
+
+    // 批量删除数据库记录
+    this.db.deletePhotosBatch(photos.map(p => p.id));
   }
 }

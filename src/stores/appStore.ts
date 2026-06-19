@@ -1,13 +1,16 @@
 import { create } from 'zustand';
-import type { Folder, Photo, PhotoStats, DuplicateGroup, ScanProgress, PhotoFilter } from '@/types';
+import type { Folder, Photo, PhotoStats, DuplicateGroup, ScanProgress, PhotoFilter, TimelineGroup } from '@/types';
 
 interface AppState {
   folders: Folder[];
   photos: Photo[];
   photosTotal: number;
   photosHasMore: boolean;
+  timeline: TimelineGroup[];
   stats: PhotoStats | null;
   duplicates: DuplicateGroup[];
+  duplicatesTotal: number;
+  duplicatesHasMore: boolean;
   scanProgress: ScanProgress | null;
   isScanning: boolean;
   selectedPhoto: Photo | null;
@@ -15,7 +18,6 @@ interface AppState {
   sidebarCollapsed: boolean;
   activeTab: 'library' | 'browse' | 'duplicates' | 'map';
   thumbnails: Record<string, string>;
-  originalImages: Record<string, string>;
   
   setFolders: (folders: Folder[]) => void;
   addFolder: (folder: Folder) => void;
@@ -35,13 +37,14 @@ interface AppState {
   setActiveTab: (tab: 'library' | 'browse' | 'duplicates' | 'map') => void;
   
   setThumbnails: (thumbnails: Record<string, string>) => void;
-  setOriginalImages: (originalImages: Record<string, string>) => void;
   
   loadFolders: () => Promise<void>;
   loadStats: () => Promise<void>;
   loadPhotos: (filter?: PhotoFilter) => Promise<void>;
-  loadPhotosPage: (filter?: PhotoFilter, append?: boolean) => Promise<{ hasMore: boolean; total: number } | undefined>;
+  loadPhotosPage: (filter?: PhotoFilter, append?: boolean, limit?: number) => Promise<{ hasMore: boolean; total: number } | undefined>;
+  loadTimeline: (filter?: PhotoFilter) => Promise<void>;
   loadDuplicates: () => Promise<void>;
+  loadDuplicatesPage: (append?: boolean) => Promise<{ hasMore: boolean; total: number } | undefined>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -49,8 +52,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   photos: [],
   photosTotal: 0,
   photosHasMore: true,
+  timeline: [],
   stats: null,
   duplicates: [],
+  duplicatesTotal: 0,
+  duplicatesHasMore: true,
   scanProgress: null,
   isScanning: false,
   selectedPhoto: null,
@@ -58,7 +64,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   sidebarCollapsed: false,
   activeTab: 'library',
   thumbnails: {},
-  originalImages: {},
 
   setFolders: (folders) => set({ folders }),
   addFolder: (folder) => set((state) => ({ folders: [folder, ...state.folders] })),
@@ -68,18 +73,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     );
     const newPhotos = state.photos.filter(p => p.folder_id !== id);
     const newThumbnails: Record<string, string> = {};
-    const newOriginalImages: Record<string, string> = {};
     for (const [k, v] of Object.entries(state.thumbnails)) {
       if (!removedPhotoIds.has(k)) newThumbnails[k] = v;
-    }
-    for (const [k, v] of Object.entries(state.originalImages)) {
-      if (!removedPhotoIds.has(k)) newOriginalImages[k] = v;
     }
     return {
       folders: state.folders.filter(f => f.id !== id),
       photos: newPhotos,
       thumbnails: newThumbnails,
-      originalImages: newOriginalImages,
     };
   }),
 
@@ -97,7 +97,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   setActiveTab: (tab) => set({ activeTab: tab }),
 
   setThumbnails: (thumbnails) => set({ thumbnails }),
-  setOriginalImages: (originalImages) => set({ originalImages }),
 
   loadFolders: async () => {
     const folders = await window.api.folder.getAll();
@@ -115,23 +114,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 清理不在当前照片列表中的缩略图缓存
     const photoIds = new Set(photos.map(p => p.id));
     const oldThumbnails = get().thumbnails;
-    const oldOriginalImages = get().originalImages;
     let thumbnailsChanged = false;
-    let originalsChanged = false;
     const newThumbnails: Record<string, string> = {};
-    const newOriginalImages: Record<string, string> = {};
     for (const id of Object.keys(oldThumbnails)) {
       if (photoIds.has(id)) {
         newThumbnails[id] = oldThumbnails[id];
       } else {
         thumbnailsChanged = true;
-      }
-    }
-    for (const id of Object.keys(oldOriginalImages)) {
-      if (photoIds.has(id)) {
-        newOriginalImages[id] = oldOriginalImages[id];
-      } else {
-        originalsChanged = true;
       }
     }
     set({
@@ -140,14 +129,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       photosHasMore: false,
       currentFilter,
       ...(thumbnailsChanged ? { thumbnails: newThumbnails } : {}),
-      ...(originalsChanged ? { originalImages: newOriginalImages } : {}),
     });
   },
 
-  loadPhotosPage: async (filter, append = false) => {
+  loadPhotosPage: async (filter, append = false, limit = 100) => {
     const currentFilter = filter || get().currentFilter;
     const offset = append ? get().photos.length : 0;
-    const result = await window.api.photo.getPage({ ...currentFilter, limit: 100, offset });
+    const result = await window.api.photo.getPage({ ...currentFilter, limit, offset });
     const existingIds = new Set(get().photos.map(p => p.id));
     const newPhotos = append
       ? [...get().photos, ...result.photos.filter((p: Photo) => !existingIds.has(p.id))]
@@ -161,8 +149,34 @@ export const useAppStore = create<AppState>((set, get) => ({
     return { hasMore: result.hasMore, total: result.total };
   },
 
+  loadTimeline: async (filter) => {
+    const currentFilter = filter || get().currentFilter;
+    const timeline = await window.api.photo.getTimeline(currentFilter);
+    set({ timeline, currentFilter });
+  },
+
   loadDuplicates: async () => {
-    const duplicates = await window.api.duplicate.getAll();
-    set({ duplicates });
+    const result = await window.api.duplicate.getAll(50, 0);
+    set({
+      duplicates: result.groups,
+      duplicatesTotal: result.total,
+      duplicatesHasMore: result.groups.length < result.total,
+    });
+  },
+
+  loadDuplicatesPage: async (append = false) => {
+    const limit = 50;
+    const offset = append ? get().duplicates.length : 0;
+    const result = await window.api.duplicate.getAll(limit, offset);
+    const existingIds = new Set(get().duplicates.map(g => g.id));
+    const newDuplicates = append
+      ? [...get().duplicates, ...result.groups.filter((g: DuplicateGroup) => !existingIds.has(g.id))]
+      : result.groups;
+    set({
+      duplicates: newDuplicates,
+      duplicatesTotal: result.total,
+      duplicatesHasMore: offset + result.groups.length < result.total,
+    });
+    return { hasMore: offset + result.groups.length < result.total, total: result.total };
   },
 }));

@@ -35,6 +35,8 @@ export const api = {
   photo: {
     getAll: (filter?: PhotoFilter) => ipcRenderer.invoke('photo:getAll', filter),
     getPage: (filter?: PhotoFilter) => ipcRenderer.invoke('photo:getPage', filter),
+    getTimeline: (filter?: PhotoFilter) => ipcRenderer.invoke('photo:getTimeline', filter),
+    getOffsetByMonth: (filter: PhotoFilter, monthKey: string) => ipcRenderer.invoke('photo:getOffsetByMonth', filter, monthKey),
     getById: (id: string) => ipcRenderer.invoke('photo:getById', id),
     getStats: () => ipcRenderer.invoke('photo:getStats'),
     updateLocation: (id: string, lat: number, lng: number) => 
@@ -55,7 +57,7 @@ export const api = {
   },
   
   duplicate: {
-    getAll: () => ipcRenderer.invoke('duplicate:getAll'),
+    getAll: (limit?: number, offset?: number) => ipcRenderer.invoke('duplicate:getAll', limit, offset),
     detect: (fullRebuild?: boolean) => ipcRenderer.invoke('duplicate:detect', fullRebuild),
     delete: (photoIds: string[]) => ipcRenderer.invoke('duplicate:delete', photoIds),
   },
@@ -63,6 +65,8 @@ export const api = {
   thumbnail: {
     get: (photoId: string, photoPath: string, size?: 'small' | 'medium') => 
       ipcRenderer.invoke('thumbnail:get', photoId, photoPath, size),
+    getBatch: (items: { photoId: string; photoPath: string; size?: 'small' | 'medium' }[]) =>
+      ipcRenderer.invoke('thumbnail:getBatch', items),
     clear: () => ipcRenderer.invoke('thumbnail:clear'),
   },
 

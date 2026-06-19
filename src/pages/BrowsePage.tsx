@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
 import { Filter, Grid3X3, MapPin, Camera, Trash2, CheckCircle2, Circle, Loader2 } from 'lucide-react';
-import { VirtuosoGrid } from 'react-virtuoso';
+import { VirtuosoGrid, type VirtuosoGridHandle } from 'react-virtuoso';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
@@ -9,19 +9,103 @@ import { cn } from '@/lib/utils';
 import { PhotoDetailModal } from '@/components/PhotoDetailModal';
 import type { Photo } from '@/types';
 
+interface PhotoGridItemProps {
+  photo: Photo;
+  thumbnail?: string;
+  isSelected: boolean;
+  selectMode: boolean;
+  onSelect: (photo: Photo) => void;
+  onToggleSelect: (photoId: string, e?: React.MouseEvent) => void;
+  formatDate: (date: string | null) => string;
+}
+
+const PhotoGridItem = React.memo(function PhotoGridItem({
+  photo,
+  thumbnail,
+  isSelected,
+  selectMode,
+  onSelect,
+  onToggleSelect,
+  formatDate,
+}: PhotoGridItemProps) {
+  return (
+    <div
+      onClick={() => {
+        if (selectMode) {
+          onToggleSelect(photo.id);
+        } else {
+          onSelect(photo);
+        }
+      }}
+      className={cn(
+        'aspect-square cursor-pointer group relative overflow-hidden rounded-lg bg-zinc-800',
+        selectMode && isSelected && 'ring-2 ring-amber-500 ring-offset-1 ring-offset-zinc-950'
+      )}
+    >
+      {thumbnail ? (
+        <img
+          src={thumbnail}
+          alt={photo.filename}
+          className={cn(
+            'w-full h-full object-cover transition-transform duration-200',
+            !selectMode && 'group-hover:scale-105',
+            selectMode && isSelected && 'opacity-80'
+          )}
+          loading="lazy"
+        />
+      ) : (
+        <div className="w-full h-full bg-zinc-800 animate-pulse flex items-center justify-center">
+          <div className="w-8 h-8 rounded bg-zinc-700/50" />
+        </div>
+      )}
+      {selectMode && (
+        <div className="absolute top-2 right-2 z-10">
+          {isSelected ? (
+            <CheckCircle2 size={24} className="text-amber-500 drop-shadow-lg" />
+          ) : (
+            <Circle size={24} className="text-white/60 drop-shadow-lg" />
+          )}
+        </div>
+      )}
+      {!selectMode && (
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="absolute bottom-0 left-0 right-0 p-2">
+            <p className="text-xs text-white truncate">{photo.filename}</p>
+            <p className="text-xs text-zinc-400">{formatDate(photo.taken_at)}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+const GridList = React.forwardRef<HTMLDivElement, any>(({ style, children, ...props }, ref) => (
+  <div
+    ref={ref}
+    style={style}
+    {...props}
+    className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-1 p-1"
+  >
+    {children}
+  </div>
+));
+
+const GridItem = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>;
+
 export function BrowsePage() {
   const { 
     photos, 
     photosTotal,
     photosHasMore,
+    timeline,
     stats,
     loadPhotosPage,
+    loadTimeline,
     loadStats, 
     currentFilter, 
     setCurrentFilter,
     thumbnails,
     setThumbnails,
-    setOriginalImages,
   } = useAppStore();
   const get = useAppStore.getState;
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
@@ -29,13 +113,16 @@ export function BrowsePage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loadingMore, setLoadingMore] = useState(false);
+  const [activeTimelineKey, setActiveTimelineKey] = useState<string | null>(null);
   const loadVersionRef = useRef(0);
   const prevPhotoIdsRef = useRef<string>('');
+  const virtuosoRef = useRef<VirtuosoGridHandle>(null);
 
   useEffect(() => {
     loadPhotosPage({});
+    loadTimeline({});
     loadStats();
-  }, [loadPhotosPage, loadStats]);
+  }, [loadPhotosPage, loadTimeline, loadStats]);
 
   useEffect(() => {
     // 计算 photos ID 摘要，用于检测 photos 是否真正变化
@@ -46,51 +133,39 @@ export function BrowsePage() {
     const currentVersion = ++loadVersionRef.current;
 
     const loadThumbnails = async () => {
-      // 从 store 获取最新 thumbnails，而非闭包中的旧值
-      const currentThumbnails = get().thumbnails;
-      const photosToLoad = photos.filter(p => !(p.id in currentThumbnails)).slice(0, 100);
-      if (photosToLoad.length === 0) return;
+      // 分批加载当前照片列表中所有缺失的缩略图，避免时间线跳转后只加载前 100 张
+      while (true) {
+        // 从 store 获取最新 thumbnails，而非闭包中的旧值
+        const currentThumbnails = get().thumbnails;
+        const photosToLoad = photos.filter(p => !(p.id in currentThumbnails)).slice(0, 100);
+        if (photosToLoad.length === 0) return;
 
-      const CONCURRENT = 3;
-      const queue = [...photosToLoad];
-      const activeTasks: Promise<void>[] = [];
-
-      const processOne = async (): Promise<void> => {
-        const photo = queue.shift();
-        if (!photo) return;
-        if (loadVersionRef.current !== currentVersion) return;
-
+        const items = photosToLoad.map(p => ({ photoId: p.id, photoPath: p.path, size: 'small' as const }));
         try {
-          const thumb = await window.api.thumbnail.get(photo.id, photo.path, 'small');
+          const batch = await window.api.thumbnail.getBatch(items);
           if (loadVersionRef.current !== currentVersion) return;
-          setThumbnails({ ...get().thumbnails, [photo.id]: thumb });
-          setOriginalImages({ ...get().originalImages, [photo.id]: `file:///${photo.path.replace(/\\/g, '/')}` });
+          setThumbnails({ ...get().thumbnails, ...batch });
         } catch {
           if (loadVersionRef.current !== currentVersion) return;
-          setThumbnails({ ...get().thumbnails, [photo.id]: `https://picsum.photos/seed/${photo.image_seed || photo.id}/400/400` });
-          setOriginalImages({ ...get().originalImages, [photo.id]: `https://picsum.photos/seed/${photo.image_seed || photo.id}/1200/800` });
+          const fallback: Record<string, string> = {};
+          for (const photo of photosToLoad) {
+            fallback[photo.id] = `file:///${photo.path.replace(/\\/g, '/')}`;
+          }
+          setThumbnails({ ...get().thumbnails, ...fallback });
         }
-
-        await processOne();
-      };
-
-      for (let i = 0; i < Math.min(CONCURRENT, queue.length); i++) {
-        activeTasks.push(processOne());
       }
-
-      await Promise.all(activeTasks);
     };
 
     loadThumbnails();
-  }, [photos]);
+  }, [photos, get, setThumbnails]);
 
   const navigatePhoto = useCallback((photo: Photo) => {
     setSelectedPhoto(photo);
   }, []);
 
-  const handleSelectPhoto = (photo: Photo) => {
+  const handleSelectPhoto = useCallback((photo: Photo) => {
     setSelectedPhoto(photo);
-  };
+  }, []);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || !photosHasMore) return;
@@ -106,6 +181,7 @@ export function BrowsePage() {
     const newFilter = { ...currentFilter, [key]: value };
     setCurrentFilter(newFilter);
     loadPhotosPage(newFilter);
+    loadTimeline(newFilter);
   };
 
   const formatDate = (dateStr: string | null) => {
@@ -132,9 +208,6 @@ export function BrowsePage() {
       const newThumbnails = { ...get().thumbnails };
       delete newThumbnails[photo.id];
       setThumbnails(newThumbnails);
-      const newOriginalImages = { ...get().originalImages };
-      delete newOriginalImages[photo.id];
-      setOriginalImages(newOriginalImages);
 
       if (photos.length > 1 && currentIndex < photos.length - 1) {
         setSelectedPhoto(photos[currentIndex + 1]);
@@ -151,7 +224,7 @@ export function BrowsePage() {
     }
   };
 
-  const toggleSelect = (photoId: string, e?: React.MouseEvent) => {
+  const toggleSelect = useCallback((photoId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -162,7 +235,7 @@ export function BrowsePage() {
       }
       return next;
     });
-  };
+  }, []);
 
   const selectAll = () => {
     setSelectedIds(new Set(photos.map(p => p.id)));
@@ -187,13 +260,10 @@ export function BrowsePage() {
       await window.api.photo.delete(Array.from(selectedIds));
       // 清除已删除照片的缩略图缓存
       const newThumbnails = { ...get().thumbnails };
-      const newOriginalImages = { ...get().originalImages };
       for (const id of selectedIds) {
         delete newThumbnails[id];
-        delete newOriginalImages[id];
       }
       setThumbnails(newThumbnails);
-      setOriginalImages(newOriginalImages);
       setSelectedIds(new Set());
       setSelectMode(false);
       loadPhotosPage(currentFilter);
@@ -203,38 +273,44 @@ export function BrowsePage() {
     }
   };
 
-  const groupedPhotos = useMemo(() => {
-    const groups: { key: string; label: string; photos: Photo[] }[] = [];
-    const groupMap = new Map<string, Photo[]>();
+  const getPhotoMonthKey = useCallback((photo: Photo) => {
+    if (!photo.taken_at) return 'unknown';
+    const date = new Date(photo.taken_at);
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    return `${date.getFullYear()}-${month}`;
+  }, []);
 
-    for (const photo of photos) {
-      let key: string;
-      let label: string;
+  const scrollToGroup = useCallback(async (key: string) => {
+    setActiveTimelineKey(key);
 
-      if (photo.taken_at) {
-        const date = new Date(photo.taken_at);
-        const year = date.getFullYear();
-        const month = date.getMonth();
-        key = `${year}-${month}`;
-        label = date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long' });
-      } else {
-        key = 'unknown';
-        label = '未知时间';
-      }
-
-      if (!groupMap.has(key)) {
-        groupMap.set(key, []);
-        groups.push({ key, label, photos: [] });
-      }
-      groupMap.get(key)!.push(photo);
+    // 先查目标月份在当前排序下的 offset，避免一页页盲加载
+    const offset = await window.api.photo.getOffsetByMonth(currentFilter, key);
+    if (offset === null) {
+      return;
     }
 
-    for (const group of groups) {
-      group.photos = groupMap.get(group.key) || [];
+    // 如果目标月份还没有加载，使用较大分页快速加载到目标位置
+    while (photos.length <= offset && photosHasMore) {
+      setLoadingMore(true);
+      try {
+        await loadPhotosPage(currentFilter, true, 500);
+      } finally {
+        setLoadingMore(false);
+      }
     }
 
-    return groups;
-  }, [photos]);
+    const index = photos.findIndex(p => getPhotoMonthKey(p) === key);
+    if (index !== -1 && virtuosoRef.current) {
+      virtuosoRef.current.scrollToIndex({ index, behavior: 'auto' });
+    }
+  }, [photos, photosHasMore, currentFilter, loadPhotosPage, getPhotoMonthKey]);
+
+  const handleRangeChanged = useCallback(({ startIndex }: { startIndex: number; endIndex: number }) => {
+    const photo = photos[startIndex];
+    if (photo) {
+      setActiveTimelineKey(getPhotoMonthKey(photo));
+    }
+  }, [photos, getPhotoMonthKey]);
 
   return (
     <div className="h-full flex">
@@ -319,21 +395,14 @@ export function BrowsePage() {
             </div>
           ) : (
             <VirtuosoGrid
+              ref={virtuosoRef}
               data={photos}
               endReached={loadMore}
               overscan={200}
+              rangeChanged={handleRangeChanged}
               components={{
-                List: React.forwardRef(({ style, children, ...props }: any, ref) => (
-                  <div
-                    ref={ref}
-                    style={style}
-                    {...props}
-                    className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-1 p-1"
-                  >
-                    {children}
-                  </div>
-                )),
-                Item: ({ children }) => <div>{children}</div>,
+                List: GridList,
+                Item: GridItem,
                 Footer: () => loadingMore ? (
                   <div className="col-span-full flex justify-center py-4">
                     <Loader2 className="w-6 h-6 text-amber-500 animate-spin" />
@@ -341,55 +410,16 @@ export function BrowsePage() {
                 ) : null,
               }}
               itemContent={(index, photo) => {
-                const isSelected = selectedIds.has(photo.id);
                 return (
-                  <div
-                    onClick={() => {
-                      if (selectMode) {
-                        toggleSelect(photo.id);
-                      } else {
-                        handleSelectPhoto(photo);
-                      }
-                    }}
-                    className={cn(
-                      'aspect-square cursor-pointer group relative overflow-hidden rounded-lg bg-zinc-800',
-                      selectMode && isSelected && 'ring-2 ring-amber-500 ring-offset-1 ring-offset-zinc-950'
-                    )}
-                  >
-                    {thumbnails[photo.id] ? (
-                      <img
-                        src={thumbnails[photo.id]}
-                        alt={photo.filename}
-                        className={cn(
-                          'w-full h-full object-cover transition-transform duration-200',
-                          !selectMode && 'group-hover:scale-105',
-                          selectMode && isSelected && 'opacity-80'
-                        )}
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-zinc-800 animate-pulse flex items-center justify-center">
-                        <div className="w-8 h-8 rounded bg-zinc-700/50" />
-                      </div>
-                    )}
-                    {selectMode && (
-                      <div className="absolute top-2 right-2 z-10">
-                        {isSelected ? (
-                          <CheckCircle2 size={24} className="text-amber-500 drop-shadow-lg" />
-                        ) : (
-                          <Circle size={24} className="text-white/60 drop-shadow-lg" />
-                        )}
-                      </div>
-                    )}
-                    {!selectMode && (
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                        <div className="absolute bottom-0 left-0 right-0 p-2">
-                          <p className="text-xs text-white truncate">{photo.filename}</p>
-                          <p className="text-xs text-zinc-400">{formatDate(photo.taken_at)}</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <PhotoGridItem
+                    photo={photo}
+                    thumbnail={thumbnails[photo.id]}
+                    isSelected={selectedIds.has(photo.id)}
+                    selectMode={selectMode}
+                    onSelect={handleSelectPhoto}
+                    onToggleSelect={toggleSelect}
+                    formatDate={formatDate}
+                  />
                 );
               }}
             />
@@ -447,19 +477,20 @@ export function BrowsePage() {
         <div className="sticky top-0 h-screen p-4 overflow-auto">
           <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">时间线</h3>
           <div className="space-y-1">
-          {groupedPhotos.map((group, index) => (
+          {timeline.map((group) => (
             <button
               key={group.key}
+              onClick={() => scrollToGroup(group.key)}
               className={cn(
                 'w-full text-left px-3 py-2 rounded-lg text-sm transition-colors',
-                index === 0
+                activeTimelineKey === group.key
                   ? 'bg-amber-500/10 text-amber-500'
                   : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
               )}
             >
               <div className="flex items-center justify-between">
                 <span className="truncate">{group.label}</span>
-                <span className="text-xs text-zinc-600">{group.photos.length}</span>
+                <span className="text-xs text-zinc-600">{group.count}</span>
               </div>
             </button>
           ))}

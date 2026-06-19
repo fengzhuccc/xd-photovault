@@ -18,8 +18,6 @@ export function LibraryPage() {
     removeFolder,
     setScanProgress,
     setIsScanning,
-    setThumbnails,
-    setOriginalImages,
   } = useAppStore();
 
   const [isAddingFolder, setIsAddingFolder] = useState(false);
@@ -37,16 +35,14 @@ export function LibraryPage() {
       if (progress.status === 'complete') {
         setIsScanning(false);
         setScanResult(progress);
-        // 扫描完成后清空缩略图缓存，强制重新加载
-        setThumbnails({});
-        setOriginalImages({});
+        // 扫描完成后刷新照片列表，缩略图保留已有缓存按需补充
         loadPhotosPage({});
         loadFolders();
         loadStats();
       }
     });
     return () => { unsubscribe(); };
-  }, [setScanProgress, setIsScanning, setThumbnails, setOriginalImages, loadPhotosPage, loadFolders, loadStats]);
+  }, [setScanProgress, setIsScanning, loadPhotosPage, loadFolders, loadStats]);
 
   const handleAddFolder = async () => {
     setIsAddingFolder(true);

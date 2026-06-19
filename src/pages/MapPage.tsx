@@ -96,19 +96,6 @@ export function MapPage() {
     loadStats();
   }, [loadStats]);
 
-  const loadThumbnail = useCallback(async (photo: { id: string; path: string }, signal?: AbortSignal): Promise<string | null> => {
-    const cached = thumbnailCacheRef.current[photo.id];
-    if (cached) return cached;
-    try {
-      const thumb = await window.api.thumbnail.get(photo.id, photo.path, 'small');
-      if (signal?.aborted) return null;
-      thumbnailCacheRef.current[photo.id] = thumb;
-      return thumb;
-    } catch {
-      return null;
-    }
-  }, []);
-
   const handlePhotoClick = useCallback((photoId: string) => {
     window.api.photo.getById(photoId).then(detail => {
       setSelectedPhoto(detail);
@@ -145,18 +132,26 @@ export function MapPage() {
       const photos = await window.api.photo.getInBounds(south, west, north, east);
       if (abortController.signal.aborted) return;
       setDrawerPhotos(photos);
-      // 异步加载缩略图
-      photos.forEach(async (photo) => {
-        const thumb = await loadThumbnail(photo, abortController.signal);
-        if (thumb && !abortController.signal.aborted) {
-          setDrawerThumbnails(prev => ({ ...prev, [photo.id]: thumb }));
+      // 批量加载抽屉缩略图
+      const missing = photos.filter(p => !thumbnailCacheRef.current[p.id]);
+      if (missing.length > 0 && !abortController.signal.aborted) {
+        const items = missing.map(p => ({ photoId: p.id, photoPath: p.path, size: 'small' as const }));
+        try {
+          const batch = await window.api.thumbnail.getBatch(items) as Record<string, string>;
+          if (abortController.signal.aborted) return;
+          for (const [id, url] of Object.entries(batch)) {
+            thumbnailCacheRef.current[id] = url;
+          }
+          setDrawerThumbnails(prev => ({ ...prev, ...batch }));
+        } catch (e) {
+          console.error('Failed to load drawer thumbnails:', e);
         }
-      });
+      }
     } catch (e) {
       console.error('Failed to load cluster photos:', e);
       setDrawerOpen(false);
     }
-  }, [handlePhotoClick, loadThumbnail]);
+  }, [handlePhotoClick]);
 
   // 坐标转换（高德地图使用 GCJ02）
   const transformCoord = useCallback((lat: number, lng: number): [number, number] => {

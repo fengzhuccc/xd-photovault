@@ -92,6 +92,7 @@ async function initializeServices() {
   configService.setDatabase(db);
   
   hashService = new HashService();
+  await hashService.initialize();
   exifService = new ExifService();
   const dataPath = configService.getDataPath();
   log.info('Using data path:', dataPath);
@@ -180,6 +181,11 @@ function setupIpcHandlers() {
   });
 
   ipcMain.handle('folder:remove', async (_event, id: string) => {
+    // 如果该文件夹正在扫描，先安全停止扫描，避免删除过程中还在插入/更新数据
+    if (scanner.isScanning) {
+      await scanner.stopScan(id);
+    }
+
     // 先获取照片列表用于清理缩略图，再删除数据库记录
     const photos = db.getPhotosByFolder(id);
     db.removeFolder(id);
@@ -213,6 +219,14 @@ function setupIpcHandlers() {
     return db.getPhotosPaged(filter);
   });
 
+  ipcMain.handle('photo:getTimeline', async (_event, filter) => {
+    return db.getTimeline(filter);
+  });
+
+  ipcMain.handle('photo:getOffsetByMonth', async (_event, filter, monthKey: string) => {
+    return db.getPhotoOffsetByMonth(filter, monthKey);
+  });
+
   ipcMain.handle('photo:getById', async (_event, id: string) => {
     return await db.getPhotoById(id);
   });
@@ -221,8 +235,8 @@ function setupIpcHandlers() {
     return await db.getPhotoStats();
   });
 
-  ipcMain.handle('duplicate:getAll', async () => {
-    return await db.getDuplicateGroups();
+  ipcMain.handle('duplicate:getAll', async (_event, limit?: number, offset?: number) => {
+    return await db.getDuplicateGroupsPaged(limit, offset);
   });
 
   ipcMain.handle('duplicate:detect', async (_event, fullRebuild: boolean = true) => {
@@ -287,6 +301,10 @@ function setupIpcHandlers() {
 
   ipcMain.handle('thumbnail:get', async (_event, photoId: string, photoPath: string, size?: 'small' | 'medium') => {
     return await thumbnailService.getThumbnail(photoId, photoPath, size);
+  });
+
+  ipcMain.handle('thumbnail:getBatch', async (_event, items: { photoId: string; photoPath: string; size?: 'small' | 'medium' }[]) => {
+    return await thumbnailService.getThumbnailsBatch(items);
   });
 
   ipcMain.handle('thumbnail:clear', async () => {

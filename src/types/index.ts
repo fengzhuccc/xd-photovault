@@ -19,6 +19,12 @@ export interface PhotoFilter {
   offset?: number;
 }
 
+export interface TimelineGroup {
+  key: string;
+  label: string;
+  count: number;
+}
+
 export interface Folder {
   id: string;
   path: string;
