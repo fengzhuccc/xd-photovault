@@ -35,6 +35,13 @@ export interface ScanProgress {
   deletedCount?: number;
 }
 
+export interface DuplicateProgress {
+  stage: 'hashing' | 'exact' | 'similar' | 'complete';
+  current: number;
+  total: number;
+  message: string;
+}
+
 // 让出事件循环，避免阻塞主进程
 function yieldToMain(): Promise<void> {
   return new Promise(resolve => setImmediate(resolve));
@@ -76,6 +83,7 @@ export class ScannerService {
   private cancelRequested = false;
   private thumbnailQueue: Array<{ id: string; path: string }> = [];
   private thumbnailWorkersActive = false;
+  onProgress?: (progress: DuplicateProgress) => void;
 
   constructor(
     db: DatabaseService,
@@ -87,6 +95,14 @@ export class ScannerService {
     this.hashService = hashService;
     this.exifService = exifService;
     this.thumbnailService = thumbnailService;
+  }
+
+  private emitDuplicateProgress(progress: DuplicateProgress): void {
+    try {
+      this.onProgress?.(progress);
+    } catch (e) {
+      log.warn('[Scanner] 上报去重进度失败', e);
+    }
   }
 
   get isScanning(): boolean {
@@ -567,11 +583,10 @@ export class ScannerService {
       log.info(`[Scanner] 扫描完成: 总计 ${totalPhotos} 张, 新增 ${newCount} 张, 跳过 ${skipped} 张, 删除 ${deletedCount} 张`);
       onProgress({ current: total, total, currentFile: '', status: 'complete', newCount, skipped, deletedCount });
 
-      // 扫描完成后异步触发增量重复检测
+      // 扫描完成后异步触发增量精确去重（相似去重需用户手动触发）
       if (newCount > 0 || deletedCount > 0) {
-        // 不 await，让去重检测在后台执行
-        this.detectDuplicates(false, newHashes).catch(err => {
-          log.error('[Scanner] 后台去重检测失败:', err);
+        this.detectExactDuplicates(false, newHashes).catch(err => {
+          log.error('[Scanner] 后台精确去重检测失败:', err);
         });
       }
 
@@ -648,25 +663,61 @@ export class ScannerService {
   }
 
   async detectDuplicates(fullRebuild: boolean = true, newHashes: string[] = []): Promise<number> {
-    log.info(`[Scanner] 开始检测重复照片 (fullRebuild=${fullRebuild}, newHashes=${newHashes.length})...`);
+    return this.detectDuplicatesWithMode(fullRebuild, 'all', newHashes);
+  }
+
+  async detectExactDuplicates(fullRebuild: boolean = true, newHashes: string[] = []): Promise<number> {
+    return this.detectDuplicatesWithMode(fullRebuild, 'exact', newHashes);
+  }
+
+  async detectSimilarDuplicates(fullRebuild: boolean = true): Promise<number> {
+    return this.detectDuplicatesWithMode(fullRebuild, 'similar', []);
+  }
+
+  private async detectDuplicatesWithMode(
+    fullRebuild: boolean,
+    mode: 'exact' | 'similar' | 'all',
+    newHashes: string[] = []
+  ): Promise<number> {
+    log.info(`[Scanner] 开始检测重复照片 (mode=${mode}, fullRebuild=${fullRebuild}, newHashes=${newHashes.length})...`);
 
     if (fullRebuild) {
-      // 全量重建：先把旧版 MD5 hash 迁移为 xxhash64，确保精确去重结果一致
       await this.migrateLegacyHashes();
-      // 清除所有旧重复组
       this.db.clearDuplicateGroups();
     }
 
-    // 第一步：确保所有照片都有 pHash（按需计算）
-    await this.ensurePerceptualHashes();
+    if (mode !== 'exact') {
+      await this.ensurePerceptualHashes();
+    }
 
-    // 第二步：检测精确重复（file_hash 相同）
+    let groupCount = 0;
+
+    if (mode === 'exact' || mode === 'all') {
+      groupCount += await this.runExactDuplicateDetection(fullRebuild, newHashes);
+    }
+
+    if (mode === 'similar' || mode === 'all') {
+      const similarCount = await this.runSimilarDuplicateDetection(fullRebuild);
+      groupCount += similarCount;
+    }
+
+    this.emitDuplicateProgress({ stage: 'complete', current: 1, total: 1, message: '去重检测完成' });
+    log.info(`[Scanner] 检测到 ${groupCount} 组重复/相似照片`);
+    return groupCount;
+  }
+
+  private async runExactDuplicateDetection(fullRebuild: boolean, newHashes: string[]): Promise<number> {
+    this.emitDuplicateProgress({ stage: 'exact', current: 0, total: 0, message: '正在检测精确重复...' });
+
     const exactDuplicates = fullRebuild
       ? this.db.findExactDuplicates()
       : this.db.findExactDuplicatesByHashes(newHashes);
 
     let groupCount = 0;
-    for (const dup of exactDuplicates) {
+    const total = exactDuplicates.length;
+
+    for (let i = 0; i < exactDuplicates.length; i++) {
+      const dup = exactDuplicates[i];
       const photoIds = dup.photo_ids.split(',');
       const photoMap = new Map(this.db.getPhotosByIds(photoIds).map(p => [p.id, p]));
 
@@ -725,47 +776,64 @@ export class ScannerService {
         }
       }
 
-      if (groupCount > 0 && groupCount % 100 === 0) {
+      if ((i + 1) % 100 === 0 || i === total - 1) {
+        this.emitDuplicateProgress({
+          stage: 'exact',
+          current: i + 1,
+          total,
+          message: `正在检测精确重复 ${i + 1}/${total}`
+        });
         await yieldToMain();
       }
     }
 
     log.info(`[Scanner] 精确重复检测完成: ${groupCount} 组`);
-
-    // 第三步：检测相似图片（pHash 汉明距离 < 阈值）
-    const similarGroupCount = await this.detectSimilarDuplicates(fullRebuild);
-    groupCount += similarGroupCount;
-
-    log.info(`[Scanner] 检测到 ${groupCount} 组重复/相似照片`);
     return groupCount;
   }
 
   /**
-   * 确保所有照片都有 perceptual_hash，缺失的按需计算
+   * 确保所有照片都有 perceptual_hash，缺失的按需并发计算。
+   * 使用 2 个并发 worker（适配机械硬盘），避免单线程顺序等待。
    */
   private async ensurePerceptualHashes(): Promise<void> {
     const photos = this.db.getPhotosWithoutPHash();
     if (photos.length === 0) return;
 
-    log.info(`[Scanner] 需要计算 ${photos.length} 张照片的感知哈希...`);
+    const CONCURRENCY = 2;
+    log.info(`[Scanner] 需要计算 ${photos.length} 张照片的感知哈希 (并发=${CONCURRENCY})...`);
     let computed = 0;
+    let failed = 0;
+    let index = 0;
 
-    for (const photo of photos) {
-      try {
-        const phash = await this.hashService.calculatePerceptualHash(photo.path);
-        this.db.updatePhotoPerceptualHash(photo.id, phash);
-        computed++;
+    const worker = async () => {
+      while (index < photos.length) {
+        const photo = photos[index++];
+        try {
+          const phash = await this.hashService.calculatePerceptualHash(photo.path);
+          this.db.updatePhotoPerceptualHash(photo.id, phash);
+          computed++;
+        } catch (error) {
+          failed++;
+          log.warn(`[Scanner] 计算感知哈希失败: ${photo.path}`, error);
+        }
 
-        if (computed % 50 === 0) {
+        if ((computed + failed) % 50 === 0) {
+          this.emitDuplicateProgress({
+            stage: 'hashing',
+            current: computed + failed,
+            total: photos.length,
+            message: `正在计算感知哈希 ${computed + failed}/${photos.length}`
+          });
           await yieldToMain();
           log.info(`[Scanner] 已计算 ${computed}/${photos.length} 张照片的感知哈希`);
         }
-      } catch (error) {
-        log.warn(`[Scanner] 计算感知哈希失败: ${photo.path}`, error);
       }
-    }
+    };
 
-    log.info(`[Scanner] 感知哈希计算完成: ${computed}/${photos.length}`);
+    const workers = Array.from({ length: Math.min(CONCURRENCY, photos.length) }, () => worker());
+    await Promise.all(workers);
+
+    log.info(`[Scanner] 感知哈希计算完成: 成功 ${computed}, 失败 ${failed}, 总计 ${photos.length}`);
   }
 
   /**
@@ -774,7 +842,9 @@ export class ScannerService {
    * 将 O(n²) 降为接近 O(n)。
    * 阈值 < 10 视为相似（64 位哈希中差异不超过 10 位）
    */
-  private async detectSimilarDuplicates(fullRebuild: boolean): Promise<number> {
+  private async runSimilarDuplicateDetection(fullRebuild: boolean): Promise<number> {
+    this.emitDuplicateProgress({ stage: 'similar', current: 0, total: 0, message: '正在检测相似图片...' });
+
     const PHASH_THRESHOLD = 10;
     const LSH_BANDS = 4;
     const LSH_BAND_SIZE = 16; // 64 / 4
@@ -838,6 +908,12 @@ export class ScannerService {
       loaded += batch.length;
       offset += BATCH_SIZE;
       if (loaded % 20000 === 0) {
+        this.emitDuplicateProgress({
+          stage: 'similar',
+          current: loaded,
+          total: totalCount,
+          message: `正在构建相似索引 ${loaded}/${totalCount}`
+        });
         await yieldToMain();
         log.info(`[Scanner] LSH 建桶进度: ${loaded}/${totalCount}`);
       }
@@ -891,19 +967,29 @@ export class ScannerService {
     }
 
     // 只保留多张照片的组
-    let similarGroupCount = 0;
+    // 先收集所有需要查库的 photoId，避免每组内部逐条查询
+    const candidateGroups: string[][] = [];
     for (const [, ids] of groups) {
       if (ids.length < 2) continue;
+      candidateGroups.push(ids);
+    }
 
-      // 检查是否已在 exact 重复组中（增量模式）
-      if (!fullRebuild) {
-        const hasGroup = ids.some(id => this.db.getPhotoDuplicateGroup(id));
-        if (hasGroup) continue;
-      }
+    const allNeededIds = fullRebuild
+      ? candidateGroups.flat()
+      : candidateGroups
+          .filter(ids => !ids.some(id => this.db.getPhotoDuplicateGroup(id)))
+          .flat();
+
+    const photoMap = new Map(this.db.getPhotosByIds(allNeededIds).map(p => [p.id, p]));
+
+    let similarGroupCount = 0;
+    for (const ids of candidateGroups) {
+      // 增量模式下，只要组内任一照片已在重复组中就跳过整组
+      if (!fullRebuild && ids.some(id => this.db.getPhotoDuplicateGroup(id))) continue;
 
       const photos = ids
-        .map(id => this.db.getPhotoById(id))
-        .filter((p): p is PhotoRow => p !== null);
+        .map(id => photoMap.get(id))
+        .filter((p): p is PhotoRow => p !== undefined);
 
       if (photos.length < 2) continue;
 
@@ -921,6 +1007,12 @@ export class ScannerService {
       similarGroupCount++;
 
       if (similarGroupCount % 100 === 0) {
+        this.emitDuplicateProgress({
+          stage: 'similar',
+          current: similarGroupCount,
+          total: candidateGroups.length,
+          message: `已生成 ${similarGroupCount} 组相似照片`
+        });
         await yieldToMain();
       }
     }

@@ -13,12 +13,25 @@ export function DuplicatesPage() {
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDetecting, setIsDetecting] = useState(false);
+  const [detectStage, setDetectStage] = useState<'exact' | 'similar' | null>(null);
+  const [detectProgress, setDetectProgress] = useState<{ current: number; total: number; message: string } | null>(null);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [currentGroup, setCurrentGroup] = useState<DuplicateGroup | null>(null);
 
   useEffect(() => {
     loadDuplicates();
   }, [loadDuplicates]);
+
+  useEffect(() => {
+    const unsubscribe = window.api.duplicate.onProgress((progress) => {
+      if (progress.stage === 'complete') {
+        setDetectProgress(null);
+      } else {
+        setDetectProgress({ current: progress.current, total: progress.total, message: progress.message });
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     const loadThumbnails = async () => {
@@ -58,19 +71,44 @@ export function DuplicatesPage() {
     }
   }, [loadingMore, duplicatesHasMore, loadDuplicatesPage]);
 
-  const handleRedetect = async () => {
-    if (!await confirm('将重新检测所有照片的重复情况，这可能需要一些时间。确定继续吗？', { variant: 'info', confirmText: '开始检测' })) {
+  const handleDetectExact = async () => {
+    if (!await confirm('将重新检测所有完全相同的照片（基于文件内容哈希）。确定继续吗？', { variant: 'info', confirmText: '开始检测' })) {
       return;
     }
+    setDetectStage('exact');
     setIsDetecting(true);
     try {
-      await window.api.duplicate.detect(true);
+      await window.api.duplicate.detectExact(true);
       await loadDuplicates();
-      toast('success', '重复检测完成');
+      toast('success', '精确去重检测完成');
     } catch (error) {
       toast('error', '检测失败：' + error);
     } finally {
       setIsDetecting(false);
+      setDetectStage(null);
+      setDetectProgress(null);
+    }
+  };
+
+  const handleDetectSimilar = async () => {
+    if (!await confirm(
+      '相似去重会计算每张照片的感知哈希并比较视觉相似度，照片数量较多时可能需要数小时。\n\n建议在不需要使用应用时进行。确定继续吗？',
+      { variant: 'warning', confirmText: '开始相似去重' }
+    )) {
+      return;
+    }
+    setDetectStage('similar');
+    setIsDetecting(true);
+    try {
+      await window.api.duplicate.detectSimilar(true);
+      await loadDuplicates();
+      toast('success', '相似去重检测完成');
+    } catch (error) {
+      toast('error', '检测失败：' + error);
+    } finally {
+      setIsDetecting(false);
+      setDetectStage(null);
+      setDetectProgress(null);
     }
   };
 
@@ -158,7 +196,7 @@ export function DuplicatesPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={handleRedetect}
+            onClick={handleDetectExact}
             disabled={isDetecting}
             className={cn(
               'flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors',
@@ -166,8 +204,20 @@ export function DuplicatesPage() {
               'disabled:opacity-50 disabled:cursor-not-allowed'
             )}
           >
-            <RefreshCw size={16} className={isDetecting ? 'animate-spin' : ''} />
-            {isDetecting ? '检测中...' : '重新检测'}
+            <RefreshCw size={16} className={isDetecting && detectStage === 'exact' ? 'animate-spin' : ''} />
+            {isDetecting && detectStage === 'exact' ? '检测中...' : '精确去重'}
+          </button>
+          <button
+            onClick={handleDetectSimilar}
+            disabled={isDetecting}
+            className={cn(
+              'flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors',
+              'bg-amber-500/10 hover:bg-amber-500/20 text-amber-500',
+              'disabled:opacity-50 disabled:cursor-not-allowed'
+            )}
+          >
+            <RefreshCw size={16} className={isDetecting && detectStage === 'similar' ? 'animate-spin' : ''} />
+            {isDetecting && detectStage === 'similar' ? '检测中...' : '相似去重'}
           </button>
           <button
             onClick={selectAll}
@@ -195,6 +245,28 @@ export function DuplicatesPage() {
           </button>
         </div>
       </div>
+
+      {isDetecting && detectProgress && (
+        <div className="mb-4 p-4 bg-zinc-900 rounded-xl border border-zinc-800">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-zinc-300">{detectProgress.message}</span>
+            <span className="text-xs text-zinc-500">
+              {detectProgress.total > 0 ? `${Math.round((detectProgress.current / detectProgress.total) * 100)}%` : ''}
+            </span>
+          </div>
+          <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+            <div
+              className={cn(
+                'h-full transition-all duration-300',
+                detectStage === 'similar' ? 'bg-amber-500' : 'bg-blue-500'
+              )}
+              style={{
+                width: detectProgress.total > 0 ? `${(detectProgress.current / detectProgress.total) * 100}%` : '0%'
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 overflow-auto">
         {duplicates.length === 0 ? (

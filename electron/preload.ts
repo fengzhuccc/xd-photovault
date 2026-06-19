@@ -59,7 +59,14 @@ export const api = {
   duplicate: {
     getAll: (limit?: number, offset?: number) => ipcRenderer.invoke('duplicate:getAll', limit, offset),
     detect: (fullRebuild?: boolean) => ipcRenderer.invoke('duplicate:detect', fullRebuild),
+    detectExact: (fullRebuild?: boolean) => ipcRenderer.invoke('duplicate:detectExact', fullRebuild),
+    detectSimilar: (fullRebuild?: boolean) => ipcRenderer.invoke('duplicate:detectSimilar', fullRebuild),
     delete: (photoIds: string[]) => ipcRenderer.invoke('duplicate:delete', photoIds),
+    onProgress: (callback: (progress: { stage: 'hashing' | 'exact' | 'similar' | 'complete'; current: number; total: number; message: string }) => void) => {
+      const listener = (_event: unknown, progress: { stage: 'hashing' | 'exact' | 'similar' | 'complete'; current: number; total: number; message: string }) => callback(progress);
+      ipcRenderer.on('duplicate:progress', listener);
+      return () => { ipcRenderer.removeListener('duplicate:progress', listener); };
+    },
   },
   
   thumbnail: {

@@ -99,6 +99,9 @@ async function initializeServices() {
   thumbnailService = new ThumbnailService(dataPath);
   
   scanner = new ScannerService(db, hashService, exifService, thumbnailService);
+  scanner.onProgress = (progress) => {
+    mainWindow?.webContents.send('duplicate:progress', progress);
+  };
   
   // S8: 检查并恢复中断的扫描
   const recovery = scanner.recoverInterruptedScans();
@@ -241,6 +244,14 @@ function setupIpcHandlers() {
 
   ipcMain.handle('duplicate:detect', async (_event, fullRebuild: boolean = true) => {
     return await scanner.detectDuplicates(fullRebuild);
+  });
+
+  ipcMain.handle('duplicate:detectExact', async (_event, fullRebuild: boolean = true) => {
+    return await scanner.detectExactDuplicates(fullRebuild);
+  });
+
+  ipcMain.handle('duplicate:detectSimilar', async (_event, fullRebuild: boolean = true) => {
+    return await scanner.detectSimilarDuplicates(fullRebuild);
   });
 
   ipcMain.handle('duplicate:delete', async (_event, photoIds: string[]) => {
