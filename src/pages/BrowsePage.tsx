@@ -317,7 +317,15 @@ export function BrowsePage() {
         setSelectedPhoto(null);
       }
 
-      loadPhotosPage(currentFilter);
+      // 从当前列表移除被删除项，避免重新加载导致滚动位置和时间轴重置
+      const nextPhotos = photos.filter(p => p.id !== photo.id);
+      useAppStore.setState({
+        photos: nextPhotos,
+        photosTotal: Math.max(0, photosTotal - 1),
+      });
+      if (nextPhotos.length === 0) {
+        loadPhotosPage(currentFilter);
+      }
       loadStats();
     } catch (error) {
       toast('error', '删除失败：' + error);
@@ -366,7 +374,15 @@ export function BrowsePage() {
       setThumbnails(newThumbnails);
       setSelectedIds(new Set());
       setSelectMode(false);
-      loadPhotosPage(currentFilter);
+      // 从当前列表移除被删除项，避免重新加载导致滚动位置和时间轴重置
+      const nextPhotos = photos.filter(p => !selectedIds.has(p.id));
+      useAppStore.setState({
+        photos: nextPhotos,
+        photosTotal: Math.max(0, photosTotal - count),
+      });
+      if (nextPhotos.length === 0) {
+        loadPhotosPage(currentFilter);
+      }
       loadStats();
     } catch (error) {
       toast('error', '删除失败：' + error);
