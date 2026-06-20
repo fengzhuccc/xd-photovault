@@ -264,7 +264,180 @@ FOREIGN KEY (recommended_photo_id) REFERENCES photos(id)
 
 ---
 
-## 五、开发约定
+## 五、关键算法参数与设计决策
+
+以下参数都是根据当前场景（大图库、机械硬盘、照片文件）调优的结果，修改前请理解其取舍。
+
+### 6.1 缩略图尺寸
+
+```typescript
+small:  { size: 128, quality: 85 }
+medium: { size: 512, quality: 90 }
+```
+
+| 参数 | 取值 | 考量 |
+|------|------|------|
+| `small = 128px` | 浏览网格、去重组、地图抽屉 | 网格单元实际显示尺寸通常 <= 128px，过大浪费磁盘和带宽。 |
+| `medium = 512px` | 照片详情弹窗 | 弹窗大图区域最大约 1200px，512px 在 Retina/高分屏上仍清晰，同时避免生成 1MB+ 的缓存。 |
+| `quality = 85/90` | WebP 质量 | 照片网格对质量不敏感用 85；详情视图用 90 减少肉眼可见压缩瑕疵。 |
+| 格式 WebP | — | 比 JPEG 同质量体积小 20%~30%，sharp 原生支持。 |
+
+**调整建议**：
+- 如果屏幕 DPI 很高或详情弹窗变大，可提高 `medium.size` 到 768/1024。
+- 如果磁盘紧张，可降低 `small.quality` 到 75。
+
+---
+
+### 6.2 扫描并发与批大小
+
+```typescript
+FILE_WORKER_CONCURRENCY = 2
+THUMBNAIL_WORKER_CONCURRENCY = 1
+PATH_BATCH_SIZE = 500
+DELETE_BATCH_SIZE = 1000
+DEFER_THUMBNAILS_DURING_SCAN = true
+```
+
+| 参数 | 取值 | 考量 |
+|------|------|------|
+| `FILE_WORKER_CONCURRENCY = 2` | 文件处理并发 | 针对机械硬盘调优。并发过高会导致磁头来回寻道，反而降低吞吐量；SSD 用户可适当提高到 4。 |
+| `THUMBNAIL_WORKER_CONCURRENCY = 1` | 缩略图生成并发 | 缩略图生成是 CPU+IO 混合任务，机械硬盘下单线程更稳。 |
+| `PATH_BATCH_SIZE = 500` | 每批查询已有记录的文件数 | 平衡内存和 DB 往返。太小则查询次数多，太大则单次 `IN (...)` 占位符过多。 |
+| `DELETE_BATCH_SIZE = 1000` | 每批删除照片数 | SQLite 单次 `IN` 建议不超过 1000 个占位符，再大可能触发参数限制。 |
+| `DEFER_THUMBNAILS_DURING_SCAN = true` | 扫描期间不生成缩略图 | 避免扫描和缩略图生成抢 IO，扫描结束后统一后台生成。 |
+
+---
+
+### 6.3 去重算法参数
+
+```typescript
+PHASH_THRESHOLD = 10
+LSH_BANDS = 4
+LSH_BAND_SIZE = 16   // 64 / 4
+BATCH_SIZE = 5000    // LSH 建桶每批读取照片数
+```
+
+| 参数 | 取值 | 考量 |
+|------|------|------|
+| `PHASH_THRESHOLD = 10` | 汉明距离阈值 | 64 位 pHash 下，距离 < 10 通常对应肉眼可见的相似；阈值越大误报越多。 |
+| `LSH_BANDS = 4` | LSH 分桶段数 | 64 位分成 4 段，每段 16 位。桶数量 2^16=65536，平均分散性好。 |
+| `LSH_BAND_SIZE = 16` | 每段位数 | 与 `BANDS` 配合覆盖全部 64 位；单段太短会导致桶内照片过多。 |
+| `BATCH_SIZE = 5000` | 建桶时每次读取照片数 | 一次性加载全部 pHash 内存压力大，5000 条一批平衡内存和速度。 |
+
+**极端情况**：
+- 如果大量照片内容非常相似（如连拍），pHash 前 16 位可能大量重复，导致某个 LSH 桶内照片数暴增，退化为 O(n²)。此时可考虑增加 LSH 桶维度或分段数。
+
+---
+
+### 6.4 pHash 计算并发
+
+```typescript
+CONCURRENCY = 2
+```
+
+- 为没有 pHash 的照片计算真正的感知哈希需要 `sharp` 读取、缩放、DCT 变换。
+- 2 并发是机械硬盘的甜点：过低则 CPU 空闲，过高则磁盘 IO 成为瓶颈。
+
+---
+
+### 6.5 浏览页网格
+
+```typescript
+grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8
+overscan={200}
+```
+
+| 参数 | 取值 | 考量 |
+|------|------|------|
+| 响应式列数 3~8 | 根据视口宽度 | 小屏显示 3 列保证可点击；大屏 8 列充分利用空间。 |
+| `overscan = 200` | 虚拟滚动预渲染像素 | 在用户快速滚动时提前渲染 200px 外的项目，减少白屏，同时不会一次加载过多。 |
+
+---
+
+### 6.6 去重结果分页
+
+```typescript
+getDuplicateGroupsPaged(limit = 50, offset = 0)
+```
+
+- 去重组可能很多，单次加载 50 组避免前端内存和渲染压力。
+- 用户滚动到底部时继续加载下一页。
+
+---
+
+### 6.7 地图聚合精度
+
+```typescript
+clusterPrecision(zoom: number): number {
+  return Math.max(90 / Math.pow(2, zoom), 0.0001);
+}
+MIN_CLUSTER_ZOOM = 16
+```
+
+| 参数 | 取值 | 考量 |
+|------|------|------|
+| `90 / 2^zoom` | 网格边长（度） | 地球经度跨度约 360°，按 2 的 zoom 次幂划分，zoom 越大网格越细。 |
+| `min = 0.0001` | 最小网格约 11 米 | 避免 zoom 极大时网格过小导致每个照片都成一簇。 |
+| `MIN_CLUSTER_ZOOM = 16` | 最大展开 zoom | zoom >= 16 时不再聚合，直接显示单张照片标记。 |
+
+**脆弱点**：该公式在前后端必须完全一致，否则前端点击簇请求的范围和后端聚合范围错位。
+
+---
+
+### 6.8 地图抽屉缩略图分块
+
+```typescript
+VISIBLE_CHUNK = 10
+BACKGROUND_CHUNK = 20
+```
+
+| 参数 | 取值 | 考量 |
+|------|------|------|
+| `VISIBLE_CHUNK = 10` | 抽屉一屏可见数量 | 抽屉横向排列，一屏大约显示 8~12 张，先加载这 10 张让用户立刻看到。 |
+| `BACKGROUND_CHUNK = 20` | 后台每批加载数量 | 可见区域加载完后，每批 20 张后台逐步加载，避免 IPC 消息过大。 |
+
+---
+
+### 6.9 数据库性能调优
+
+```sql
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+PRAGMA cache_size = -64000;    -- 64MB page cache
+PRAGMA temp_store = MEMORY;
+PRAGMA busy_timeout = 5000;
+```
+
+| 参数 | 取值 | 考量 |
+|------|------|------|
+| `WAL` | 写前日志 | 扫描、去重都是写多读少，WAL 提升并发写性能。 |
+| `synchronous = NORMAL` | 同步模式 | WAL 下 NORMAL 已足够安全，FULL 会显著降低写入速度。 |
+| `cache_size = 64MB` | 页缓存 | 大图库查询索引时命中缓存，减少磁盘读取。 |
+| `busy_timeout = 5000ms` | 锁等待 | 后台去重和前台查询冲突时等待，而不是立刻报错。 |
+
+---
+
+### 6.10 去重触发策略
+
+| 类型 | 触发时机 | 原因 |
+|------|---------|------|
+| 精确去重 | 扫描完成后自动后台执行 | 基于文件哈希，速度快，适合自动化。 |
+| 相似去重 | 用户手动点击 | 需要计算 pHash，大图库可能耗时数小时，不适合自动跑。 |
+
+---
+
+### 6.11 进度与状态上报间隔
+
+```typescript
+PROGRESS_INTERVAL = 200
+SCAN_STATUS_INTERVAL = 200
+```
+
+- 每处理 200 张照片上报一次进度给前端。
+- 频率过高会占用主进程事件循环和 IPC 带宽；频率过低则进度条卡顿。
+- 200 张在机械硬盘上大约 1~3 秒，UI 既流畅又不浪费资源。
+
+## 六、开发约定
 
 - 类型检查：`npm run check`
 - 完整构建：`npm run build`
