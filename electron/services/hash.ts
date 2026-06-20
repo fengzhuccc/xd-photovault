@@ -102,7 +102,7 @@ export class HashService {
   }
 
   /**
-   * 二维 DCT 变换优化版：只计算前 8x8 低频系数（不含 DC）。
+   * 二维 DCT 变换优化版：只计算前 8x8 低频系数。
    * 预计算余弦表，避免在热循环中重复调用 Math.cos。
    */
   private dct2dLowFreq(data: Buffer, size: number): number[] {
@@ -124,7 +124,6 @@ export class HashService {
     const result: number[] = [];
     for (let v = 0; v < 8; v++) {
       for (let u = 0; u < 8; u++) {
-        if (u === 0 && v === 0) continue; // 跳过 DC
         let sum = 0;
         for (let y = 0; y < N; y++) {
           const vy = cosV[v * N + y];
