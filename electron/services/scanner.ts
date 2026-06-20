@@ -478,6 +478,14 @@ export class ScannerService {
       this.db.updateFolderScanStatus(folderId, 'scanning', total, 0, '');
 
       if (total === 0) {
+        // 文件夹被清空时，需要删除数据库中残留的照片记录及其关联数据
+        const existingPhotos = this.db.getPhotosByFolder(folderId);
+        if (existingPhotos.length > 0) {
+          log.info(`[Scanner] 文件夹已清空，删除 ${existingPhotos.length} 条旧照片记录`);
+          const deletedIds = existingPhotos.map(p => p.id);
+          this.thumbnailService.deleteThumbnailsByPhotoIds(deletedIds);
+          this.db.deletePhotosBatch(deletedIds);
+        }
         this.db.updateFolderScanTime(folderId, 0);
         onProgress({ current: 0, total: 0, currentFile: '', status: 'complete' });
         return { totalPhotos: 0, skipped: 0 };
@@ -516,6 +524,7 @@ export class ScannerService {
             });
           }
         }
+        log.info(`[Scanner] 批次 ${batchStart}-${batchEnd}/${total}，已有记录 ${existingPathMap.size}/${batchFiles.length}`);
 
         // 使用 worker pool 并发处理本批次文件
         const batchResult = await this.processFilesConcurrently(
@@ -532,6 +541,7 @@ export class ScannerService {
         newPhotoIds.push(...batchResult.photoIds);
         newCount += batchResult.newCount;
         skipped += batchResult.skipped;
+        log.info(`[Scanner] 批次完成：新增 ${batchResult.newCount}，跳过 ${batchResult.skipped}`);
 
         await yieldToMain();
       }
@@ -545,10 +555,10 @@ export class ScannerService {
       }
 
       // 删除不再存在的照片（分页查询，避免加载整个文件夹）
+      // 注意：每次删除后行会前移，因此不使用 OFFSET，只反复取前一批
       let deletedCount = 0;
-      let offset = 0;
       while (true) {
-        const batch = this.db.getPhotoPathsByFolder(folderId, DELETE_BATCH_SIZE, offset);
+        const batch = this.db.getPhotoPathsByFolder(folderId, DELETE_BATCH_SIZE, 0);
         if (batch.length === 0) break;
 
         const toDelete = batch.filter(p => !seenPaths.has(p.path));
@@ -557,14 +567,15 @@ export class ScannerService {
           this.thumbnailService.deleteThumbnailsByPhotoIds(deletedIds);
           this.db.deletePhotosBatch(deletedIds);
           deletedCount += toDelete.length;
+          log.info(`[Scanner] 批次删除 ${toDelete.length} 个不存在的照片记录`);
         }
 
-        offset += batch.length;
-        if (batch.length < DELETE_BATCH_SIZE) break;
+        // 如果这一批还有未删除的，说明剩下的都是存在的，可以提前结束
+        if (toDelete.length < batch.length) break;
         await yieldToMain();
       }
       if (deletedCount > 0) {
-        log.info(`[Scanner] 删除 ${deletedCount} 个不存在的照片记录`);
+        log.info(`[Scanner] 共删除 ${deletedCount} 个不存在的照片记录`);
       }
 
       // 如果文件夹已被删除，不再更新状态或触发去重

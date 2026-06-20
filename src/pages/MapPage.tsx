@@ -131,13 +131,34 @@ export function MapPage() {
     try {
       const photos = await window.api.photo.getInBounds(south, west, north, east);
       if (abortController.signal.aborted) return;
-      setDrawerPhotos(photos);
-      // 批量加载抽屉缩略图
-      const missing = photos.filter(p => !thumbnailCacheRef.current[p.id]);
-      if (missing.length > 0 && !abortController.signal.aborted) {
-        const items = missing.map(p => ({ photoId: p.id, photoPath: p.path, size: 'small' as const }));
+
+      // 把代表照片放到最前面，优先加载和显示
+      const sortedPhotos = [...photos].sort((a, b) => {
+        if (a.id === cluster.representative_id) return -1;
+        if (b.id === cluster.representative_id) return 1;
+        return 0;
+      });
+      setDrawerPhotos(sortedPhotos);
+
+      // 先显示缓存中已有的缩略图
+      const cachedThumbnails: Record<string, string> = {};
+      for (const photo of sortedPhotos) {
+        if (thumbnailCacheRef.current[photo.id]) {
+          cachedThumbnails[photo.id] = thumbnailCacheRef.current[photo.id];
+        }
+      }
+      setDrawerThumbnails(cachedThumbnails);
+
+      // 分批加载缺失缩略图：先加载可见区域，再后台加载剩余
+      const missing = sortedPhotos.filter(p => !thumbnailCacheRef.current[p.id]);
+      const VISIBLE_CHUNK = 10;
+      const BACKGROUND_CHUNK = 20;
+
+      const loadChunk = async (items: typeof missing) => {
+        if (items.length === 0 || abortController.signal.aborted) return;
+        const batchItems = items.map(p => ({ photoId: p.id, photoPath: p.path, size: 'small' as const }));
         try {
-          const batch = await window.api.thumbnail.getBatch(items) as Record<string, string>;
+          const batch = await window.api.thumbnail.getBatch(batchItems) as Record<string, string>;
           if (abortController.signal.aborted) return;
           for (const [id, url] of Object.entries(batch)) {
             thumbnailCacheRef.current[id] = url;
@@ -146,6 +167,15 @@ export function MapPage() {
         } catch (e) {
           console.error('Failed to load drawer thumbnails:', e);
         }
+      };
+
+      // 第一批：抽屉一屏可见的照片，让用户立刻看到
+      await loadChunk(missing.slice(0, VISIBLE_CHUNK));
+
+      // 第二批及以后：后台陆续加载，每批返回后更新
+      for (let i = VISIBLE_CHUNK; i < missing.length; i += BACKGROUND_CHUNK) {
+        if (abortController.signal.aborted) return;
+        await loadChunk(missing.slice(i, i + BACKGROUND_CHUNK));
       }
     } catch (e) {
       console.error('Failed to load cluster photos:', e);
