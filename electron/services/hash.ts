@@ -27,6 +27,20 @@ export class HashService {
   }
 
   /**
+   * 计算 Buffer 内容 hash，使用 xxhash64。
+   */
+  async calculateHash(data: Buffer): Promise<string> {
+    const hasher = await this.acquireHasher();
+    try {
+      hasher.init();
+      hasher.update(data);
+      return hasher.digest();
+    } finally {
+      this.releaseHasher(hasher);
+    }
+  }
+
+  /**
    * 计算文件内容 hash，使用 xxhash64（比 MD5 快数倍，碰撞率对照片去重足够低）。
    * 每次从池中取独立 hasher，避免并发 digest/init 竞态。
    */

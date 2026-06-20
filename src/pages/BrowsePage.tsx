@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
-import { Filter, Grid3X3, MapPin, Camera, Trash2, CheckCircle2, Circle, Loader2, Play } from 'lucide-react';
+import { Filter, Grid3X3, MapPin, Camera, Trash2, CheckCircle2, Circle, Loader2, Play, Image, Film } from 'lucide-react';
 import { VirtuosoGrid, type VirtuosoGridHandle } from 'react-virtuoso';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
@@ -40,10 +40,6 @@ const PhotoGridItem = React.memo(function PhotoGridItem({
   const handleClick = () => {
     if (selectMode) {
       onToggleSelect(photo.id);
-    } else if (isVideo) {
-      window.api.app.openPath(photo.path).catch(() => {
-        // 打开失败时静默处理，避免弹窗打断浏览
-      });
     } else {
       onSelect(photo);
     }
@@ -496,6 +492,22 @@ export function BrowsePage() {
                   </select>
                 </div>
               )}
+              <div className="flex items-center gap-2">
+                {currentFilter.mediaType === 'video' ? (
+                  <Film size={14} className="text-zinc-500" />
+                ) : (
+                  <Image size={14} className="text-zinc-500" />
+                )}
+                <select
+                  value={currentFilter.mediaType || 'all'}
+                  onChange={(e) => handleFilterChange('mediaType', e.target.value === 'all' ? undefined : e.target.value)}
+                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-300"
+                >
+                  <option value="all">全部</option>
+                  <option value="image">图片</option>
+                  <option value="video">视频</option>
+                </select>
+              </div>
             </div>
           </div>
         )}

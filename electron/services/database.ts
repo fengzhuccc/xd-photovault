@@ -93,6 +93,7 @@ interface PhotoFilter {
   dateEnd?: string;
   hasLocation?: boolean;
   camera?: string;
+  mediaType?: 'all' | 'image' | 'video';
   limit?: number;
   offset?: number;
 }
@@ -495,6 +496,10 @@ export class DatabaseService {
       sql += ' AND camera = ?';
       params.push(filter.camera);
     }
+    if (filter.mediaType === 'image' || filter.mediaType === 'video') {
+      sql += ' AND media_type = ?';
+      params.push(filter.mediaType);
+    }
 
     sql += ' ORDER BY taken_at DESC NULLS LAST';
 
@@ -544,6 +549,10 @@ export class DatabaseService {
       sql += ' AND camera = ?';
       params.push(filter.camera);
     }
+    if (filter.mediaType === 'image' || filter.mediaType === 'video') {
+      sql += ' AND media_type = ?';
+      params.push(filter.mediaType);
+    }
 
     sql += ' GROUP BY key ORDER BY first_date DESC NULLS LAST';
 
@@ -588,6 +597,10 @@ export class DatabaseService {
     if (filter.camera) {
       baseWhere.push('camera = ?');
       baseParams.push(filter.camera);
+    }
+    if (filter.mediaType === 'image' || filter.mediaType === 'video') {
+      baseWhere.push('media_type = ?');
+      baseParams.push(filter.mediaType);
     }
 
     const whereSql = baseWhere.join(' AND ');
@@ -650,6 +663,10 @@ export class DatabaseService {
     if (filter.camera) {
       countSql += ' AND camera = ?';
       countParams.push(filter.camera);
+    }
+    if (filter.mediaType === 'image' || filter.mediaType === 'video') {
+      countSql += ' AND media_type = ?';
+      countParams.push(filter.mediaType);
     }
     const total = (this.db.prepare(countSql).get(...countParams) as { total: number }).total;
 

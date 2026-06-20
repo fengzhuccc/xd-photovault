@@ -267,8 +267,8 @@ export class ScannerService {
     ]);
 
     // 抽取第一帧并计算其 hash，作为视频去重依据
-    const framePath = await this.videoService.extractFirstFrame(filePath);
-    const frameHash = await this.hashService.calculateFileHash(framePath);
+    const frameBuffer = await this.videoService.extractFirstFrame(filePath);
+    const frameHash = await this.hashService.calculateHash(frameBuffer);
 
     const photo: PhotoInsert = {
       id: photoId,

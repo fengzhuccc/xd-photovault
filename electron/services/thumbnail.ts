@@ -1,6 +1,5 @@
 import { join, extname } from 'path';
 import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, rmdirSync } from 'fs';
-import { tmpdir } from 'os';
 import sharp from 'sharp';
 import { VideoService } from './video';
 import log from 'electron-log';
@@ -70,34 +69,22 @@ export class ThumbnailService {
   }
 
   private async generateThumbnail(photoPath: string, thumbnailPath: string, config: ThumbnailConfig): Promise<void> {
-    let sourcePath = photoPath;
-    let tempFramePath: string | undefined;
+    let input: string | Buffer = photoPath;
 
     if (isVideoFile(photoPath)) {
       if (!this.videoService) {
         throw new Error('未提供 VideoService，无法生成视频缩略图');
       }
-      tempFramePath = join(tmpdir(), `pv-thumb-${Date.now()}.jpg`);
-      sourcePath = await this.videoService.extractFirstFrame(photoPath, tempFramePath);
+      input = await this.videoService.extractFirstFrame(photoPath);
     }
 
-    try {
-      await sharp(sourcePath)
-        .resize(config.size, config.size, {
-          fit: 'inside',
-          withoutEnlargement: true,
-        })
-        .webp({ quality: config.quality })
-        .toFile(thumbnailPath);
-    } finally {
-      if (tempFramePath && existsSync(tempFramePath)) {
-        try {
-          unlinkSync(tempFramePath);
-        } catch (e) {
-          log.warn(`[Thumbnail] 删除临时视频帧失败: ${tempFramePath}`, e);
-        }
-      }
-    }
+    await sharp(input)
+      .resize(config.size, config.size, {
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .webp({ quality: config.quality })
+      .toFile(thumbnailPath);
   }
 
   async getThumbnail(photoId: string, photoPath: string, thumbSize: ThumbnailSize = 'medium'): Promise<string> {

@@ -33,8 +33,11 @@ export function PhotoDetailModal({
   const [editLngValue, setEditLngValue] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [videoError, setVideoError] = useState(false);
 
   const showNavigation = !!onNavigate && photos.length > 0;
+  const isVideo = photo?.media_type === 'video';
+  const mediaUrl = photo ? `file:///${photo.path.replace(/\\/g, '/')}` : '';
 
   // 加载照片详情
   useEffect(() => {
@@ -44,6 +47,7 @@ export function PhotoDetailModal({
     }
     setLoadingDetail(true);
     setImageError(false);
+    setVideoError(false);
     window.api.photo.getById(photo.id).then(detail => {
       setPhotoDetail(detail);
     }).catch(e => {
@@ -121,6 +125,13 @@ export function PhotoDetailModal({
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
+  const formatDuration = (seconds: number | null) => {
+    if (seconds === null || seconds <= 0) return '-';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   const handleSaveDate = async () => {
     if (!photo || !editDateValue) return;
     setIsSaving(true);
@@ -174,8 +185,6 @@ export function PhotoDetailModal({
 
   if (!photo) return null;
 
-  const originalImageUrl = `file:///${photo.path.replace(/\\/g, '/')}`;
-
   return (
     <div className="fixed inset-0 z-[10000] bg-black/90 flex items-center justify-center">
       <button
@@ -213,14 +222,29 @@ export function PhotoDetailModal({
 
       <div className="flex h-full w-full">
         <div className="flex-1 flex items-center justify-center p-4">
-          {imageError ? (
+          {isVideo ? (
+            videoError ? (
+              <div className="flex flex-col items-center justify-center text-zinc-500">
+                <Loader2 size={48} className="mb-3 opacity-50" />
+                <p>无法加载视频</p>
+              </div>
+            ) : (
+              <video
+                src={mediaUrl}
+                controls
+                autoPlay
+                className="max-w-full max-h-full"
+                onError={() => setVideoError(true)}
+              />
+            )
+          ) : imageError ? (
             <div className="flex flex-col items-center justify-center text-zinc-500">
               <Loader2 size={48} className="mb-3 opacity-50" />
               <p>无法加载图片</p>
             </div>
           ) : (
             <img
-              src={originalImageUrl}
+              src={mediaUrl}
               alt={photo.filename}
               className="max-w-full max-h-full object-contain"
               onError={() => setImageError(true)}
@@ -243,6 +267,16 @@ export function PhotoDetailModal({
                   <span className="text-zinc-400">分辨率</span>
                   <span className="text-zinc-200">{photo.width && photo.height ? `${photo.width} × ${photo.height}` : '-'}</span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">类型</span>
+                  <span className="text-zinc-200">{isVideo ? '视频' : '图片'}</span>
+                </div>
+                {isVideo && (
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400">时长</span>
+                    <span className="text-zinc-200">{formatDuration(photo.duration)}</span>
+                  </div>
+                )}
               </div>
             </div>
 

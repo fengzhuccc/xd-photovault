@@ -111,6 +111,7 @@ export interface PhotoFilter {
   dateEnd?: string;
   hasLocation?: boolean;
   camera?: string;
+  mediaType?: 'all' | 'image' | 'video';
   limit?: number;
   offset?: number;
 }

@@ -1,12 +1,14 @@
 import { path as ffmpegPath } from '@ffmpeg-installer/ffmpeg';
 import ffmpeg from 'fluent-ffmpeg';
-import { mkdtempSync, existsSync } from 'fs';
-import { tmpdir } from 'os';
-import { join, dirname } from 'path';
+import { app } from 'electron';
 import log from 'electron-log';
 
 // 设置 ffmpeg 二进制路径（@ffmpeg-installer 会按平台自动选择）
-ffmpeg.setFfmpegPath(ffmpegPath);
+// 打包后二进制文件位于 app.asar.unpacked，需要修正路径
+const resolvedFfmpegPath = app.isPackaged
+  ? ffmpegPath.replace(/app\.asar(?=\\|\/|$)/, 'app.asar.unpacked')
+  : ffmpegPath;
+ffmpeg.setFfmpegPath(resolvedFfmpegPath);
 
 export interface VideoMetadata {
   duration: number;
@@ -15,30 +17,28 @@ export interface VideoMetadata {
 }
 
 export class VideoService {
-  private tempDir: string;
-
-  constructor() {
-    this.tempDir = mkdtempSync(join(tmpdir(), 'photovault-video-'));
-  }
-
   /**
-   * 抽取视频第一帧为临时图片，返回临时文件路径。
-   * 调用方负责删除临时文件。
+   * 抽取视频第一帧，直接返回 JPEG Buffer，避免生成临时文件。
    */
-  async extractFirstFrame(videoPath: string, outputPath?: string): Promise<string> {
-    const targetPath = outputPath || join(this.tempDir, `frame-${Date.now()}.jpg`);
-
+  async extractFirstFrame(videoPath: string): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      ffmpeg(videoPath)
+      const chunks: Buffer[] = [];
+      const command = ffmpeg(videoPath)
         .seekInput(0)
         .frames(1)
-        .output(targetPath)
-        .on('end', () => resolve(targetPath))
+        .outputFormat('image2')
         .on('error', (err) => {
           log.warn(`[VideoService] 抽取视频第一帧失败: ${videoPath}`, err.message);
           reject(err);
-        })
-        .run();
+        });
+
+      const stream = command.pipe();
+      stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+      stream.on('end', () => resolve(Buffer.concat(chunks)));
+      stream.on('error', (err: Error) => {
+        log.warn(`[VideoService] 读取视频第一帧流失败: ${videoPath}`, err.message);
+        reject(err);
+      });
     });
   }
 
