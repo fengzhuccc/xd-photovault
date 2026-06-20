@@ -9,6 +9,12 @@ import { cn } from '@/lib/utils';
 import { PhotoDetailModal } from '@/components/PhotoDetailModal';
 import type { Photo } from '@/types';
 
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+}
+
 interface PhotoGridItemProps {
   photo: Photo;
   thumbnail?: string;
@@ -388,6 +394,50 @@ export function BrowsePage() {
       toast('error', '删除失败：' + error);
     }
   };
+
+  // 浏览页快捷键
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (selectedPhoto) return; // 详情弹窗打开时由其自身处理快捷键
+      if (isTypingTarget(e.target)) return;
+
+      const isMod = e.ctrlKey || e.metaKey;
+
+      if (e.key === 'Escape') {
+        if (selectMode) {
+          e.preventDefault();
+          exitSelectMode();
+        } else if (showFilters) {
+          e.preventDefault();
+          setShowFilters(false);
+        }
+        return;
+      }
+
+      if (isMod && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setShowFilters(prev => !prev);
+        return;
+      }
+
+      if (isMod && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        if (!selectMode) {
+          setSelectMode(true);
+        }
+        selectAll();
+        return;
+      }
+
+      if (e.key === 'Delete' && selectMode && selectedIds.size > 0) {
+        e.preventDefault();
+        handleBatchDelete();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedPhoto, selectMode, showFilters, selectedIds.size, handleBatchDelete]);
 
   const getPhotoMonthKey = useCallback((photo: Photo) => {
     if (!photo.taken_at) return 'unknown';

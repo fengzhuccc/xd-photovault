@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useConfirmStore } from '@/stores/confirmStore';
 
 const variantColors = {
@@ -10,6 +10,25 @@ const variantColors = {
 export function ConfirmDialog() {
   const state = useConfirmStore();
   const { open, title, message, confirmText, cancelText, variant, resolve } = state;
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === 'NumpadEnter') {
+        e.preventDefault();
+        e.stopPropagation();
+        resolve(true);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        resolve(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [open, resolve]);
 
   if (!open) return null;
 
