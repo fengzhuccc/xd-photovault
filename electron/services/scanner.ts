@@ -57,11 +57,14 @@ async function* walkImageFiles(dirPath: string): AsyncGenerator<string> {
     return;
   }
 
+  // 跳过 Windows / macOS / NAS 系统目录和回收站，避免权限错误和无效遍历
+  const SKIP_DIRS = new Set(['$RECYCLE.BIN', 'System Volume Information', '.Trashes', '.Spotlight-V100', '.fseventsd', '@eaDir']);
+
   for (const entry of entries) {
     const fullPath = join(dirPath, entry.name);
 
     if (entry.isDirectory()) {
-      if (!entry.name.startsWith('.') && entry.name !== '@eaDir') {
+      if (!entry.name.startsWith('.') && !SKIP_DIRS.has(entry.name)) {
         yield* walkImageFiles(fullPath);
       }
     } else if (entry.isFile()) {
@@ -264,6 +267,9 @@ export class ScannerService {
           photoIds.push(result.photo.id);
           newCount++;
           localBatch.push(result.photo);
+          log.info(`[Scanner] 新文件/变化文件: ${filePath}`);
+        } else {
+          log.warn(`[Scanner] 文件处理失败: ${filePath}`);
         }
 
         // 进度上报（全 worker 共享计数）
@@ -554,25 +560,28 @@ export class ScannerService {
         return this.completeScanEarly(folderId, onProgress, 'folder_deleted');
       }
 
-      // 删除不再存在的照片（分页查询，避免加载整个文件夹）
-      // 注意：每次删除后行会前移，因此不使用 OFFSET，只反复取前一批
+      // 删除不再存在的照片：一次性查询该文件夹所有照片路径，统一对比后批量删除。
+      // 对于 10 万级照片，路径列表仅几 MB 内存，换取正确性。
       let deletedCount = 0;
-      while (true) {
-        const batch = this.db.getPhotoPathsByFolder(folderId, DELETE_BATCH_SIZE, 0);
-        if (batch.length === 0) break;
-
-        const toDelete = batch.filter(p => !seenPaths.has(p.path));
-        if (toDelete.length > 0) {
-          const deletedIds = toDelete.map(p => p.id);
-          this.thumbnailService.deleteThumbnailsByPhotoIds(deletedIds);
-          this.db.deletePhotosBatch(deletedIds);
-          deletedCount += toDelete.length;
-          log.info(`[Scanner] 批次删除 ${toDelete.length} 个不存在的照片记录`);
+      const dbPaths = this.db.getAllPhotoPathsByFolder(folderId);
+      const toDelete = dbPaths.filter(p => !seenPaths.has(p.path));
+      if (toDelete.length > 0) {
+        log.info(`[Scanner] 发现 ${toDelete.length} 个不存在的照片记录，开始清理`);
+        for (let i = 0; i < toDelete.length; i += DELETE_BATCH_SIZE) {
+          if (this.checkCancelled(folderId)) {
+            return this.completeScanEarly(folderId, onProgress, 'cancelled');
+          }
+          const batch = toDelete.slice(i, i + DELETE_BATCH_SIZE);
+          const deletedIds = batch.map(p => p.id);
+          try {
+            this.thumbnailService.deleteThumbnailsByPhotoIds(deletedIds);
+            this.db.deletePhotosBatch(deletedIds);
+            deletedCount += batch.length;
+          } catch (err) {
+            log.error(`[Scanner] 删除批次失败 (${batch.length} 条):`, err);
+          }
+          await yieldToMain();
         }
-
-        // 如果这一批还有未删除的，说明剩下的都是存在的，可以提前结束
-        if (toDelete.length < batch.length) break;
-        await yieldToMain();
       }
       if (deletedCount > 0) {
         log.info(`[Scanner] 共删除 ${deletedCount} 个不存在的照片记录`);

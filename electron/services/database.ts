@@ -874,8 +874,16 @@ export class DatabaseService {
   deletePhotosBatch(ids: string[]): void {
     if (ids.length === 0) return;
     const transaction = this.db.transaction(() => {
-      // 找到这些照片所在的所有重复组
       const placeholders = ids.map(() => '?').join(',');
+
+      // 这些照片被设为某些重复组的推荐照片，先解除外键约束避免删除失败
+      this.db.prepare(`
+        UPDATE duplicate_groups
+        SET recommended_photo_id = NULL
+        WHERE recommended_photo_id IN (${placeholders})
+      `).run(...ids);
+
+      // 找到这些照片所在的所有重复组
       const affectedGroupIds = this.db.prepare(`
         SELECT DISTINCT group_id FROM photo_duplicates WHERE photo_id IN (${placeholders})
       `).all(...ids) as { group_id: string }[];
@@ -933,6 +941,12 @@ export class DatabaseService {
     return this.db.prepare(
       'SELECT id, path FROM photos WHERE folder_id = ? LIMIT ? OFFSET ?'
     ).all(folderId, limit, offset) as { id: string; path: string }[];
+  }
+
+  getAllPhotoPathsByFolder(folderId: string): { id: string; path: string }[] {
+    return this.db.prepare(
+      'SELECT id, path FROM photos WHERE folder_id = ?'
+    ).all(folderId) as { id: string; path: string }[];
   }
 
   getAllPhotoIds(): string[] {
