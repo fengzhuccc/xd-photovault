@@ -5,15 +5,9 @@ import { VirtuosoGrid, type VirtuosoGridHandle } from 'react-virtuoso';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
-import { cn } from '@/lib/utils';
+import { cn, isTypingTarget } from '@/lib/utils';
 import { PhotoDetailModal } from '@/components/PhotoDetailModal';
 import type { Photo } from '@/types';
-
-function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const tag = target.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
-}
 
 interface PhotoGridItemProps {
   photo: Photo;

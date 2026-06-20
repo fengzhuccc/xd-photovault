@@ -2,13 +2,7 @@ import { useEffect } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { useAppStore } from '@/stores/appStore';
-import { cn } from '@/lib/utils';
-
-function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const tag = target.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
-}
+import { cn, isTypingTarget } from '@/lib/utils';
 
 export function Layout() {
   const { sidebarCollapsed, setSidebarCollapsed } = useAppStore();
