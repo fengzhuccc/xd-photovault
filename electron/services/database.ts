@@ -3,6 +3,13 @@ import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import log from 'electron-log';
 
+function compareDateDesc(a: string | null | undefined, b: string | null | undefined): number {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return b.localeCompare(a);
+}
+
 export interface PhotoRow {
   id: string;
   folder_id: string;
@@ -709,7 +716,7 @@ export class DatabaseService {
 
   findExactDuplicates(): ExactDuplicateRow[] {
     const stmt = this.db.prepare(`
-      SELECT file_hash, GROUP_CONCAT(id) as photo_ids, COUNT(*) as count
+      SELECT file_hash, GROUP_CONCAT(id ORDER BY taken_at DESC) as photo_ids, COUNT(*) as count
       FROM photos
       WHERE file_hash IS NOT NULL
       GROUP BY file_hash
@@ -755,7 +762,7 @@ export class DatabaseService {
   getDuplicateGroups(): DuplicateGroupDetail[] {
     // D7: 两步查询替代 json_group_array，避免 JSON 序列化开销
     const groups = this.db.prepare(`
-      SELECT * FROM duplicate_groups ORDER BY created_at DESC
+      SELECT * FROM duplicate_groups
     `).all() as DuplicateGroupRow[];
 
     if (groups.length === 0) return [];
@@ -771,25 +778,36 @@ export class DatabaseService {
       WHERE pd.group_id IN (${placeholders})
     `).all(...groupIds) as (PhotoRow & { group_id: string })[];
 
-    // 按组 ID 分组
+    // 按组 ID 分组，并按拍摄时间倒序排列组内照片
     const photosByGroup = new Map<string, PhotoRow[]>();
     for (const row of photoRows) {
       const gid = row.group_id;
       if (!photosByGroup.has(gid)) photosByGroup.set(gid, []);
       photosByGroup.get(gid)!.push(row);
     }
+    for (const photos of photosByGroup.values()) {
+      photos.sort((a, b) => compareDateDesc(a.taken_at, b.taken_at));
+    }
 
-    return groups.map(g => ({
-      ...g,
-      photos: photosByGroup.get(g.id) || [],
-    }));
+    return groups
+      .map(g => ({
+        ...g,
+        photos: photosByGroup.get(g.id) || [],
+      }))
+      .sort((a, b) => {
+        // 稳定排序：照片数量多的排在前面，数量相同按最近拍摄时间倒序
+        if (a.photos.length !== b.photos.length) return b.photos.length - a.photos.length;
+        const aLatest = a.photos[0]?.taken_at;
+        const bLatest = b.photos[0]?.taken_at;
+        return compareDateDesc(aLatest, bLatest);
+      });
   }
 
   getDuplicateGroupsPaged(limit: number = 50, offset: number = 0): { groups: DuplicateGroupDetail[]; total: number } {
     const total = (this.db.prepare('SELECT COUNT(*) as total FROM duplicate_groups').get() as { total: number }).total;
 
     const groups = this.db.prepare(`
-      SELECT * FROM duplicate_groups ORDER BY created_at DESC LIMIT ? OFFSET ?
+      SELECT * FROM duplicate_groups LIMIT ? OFFSET ?
     `).all(limit, offset) as DuplicateGroupRow[];
 
     if (groups.length === 0) return { groups: [], total };
@@ -811,12 +829,22 @@ export class DatabaseService {
       if (!photosByGroup.has(gid)) photosByGroup.set(gid, []);
       photosByGroup.get(gid)!.push(row);
     }
+    for (const photos of photosByGroup.values()) {
+      photos.sort((a, b) => compareDateDesc(a.taken_at, b.taken_at));
+    }
 
     return {
-      groups: groups.map(g => ({
-        ...g,
-        photos: photosByGroup.get(g.id) || [],
-      })),
+      groups: groups
+        .map(g => ({
+          ...g,
+          photos: photosByGroup.get(g.id) || [],
+        }))
+        .sort((a, b) => {
+          if (a.photos.length !== b.photos.length) return b.photos.length - a.photos.length;
+          const aLatest = a.photos[0]?.taken_at;
+          const bLatest = b.photos[0]?.taken_at;
+          return compareDateDesc(aLatest, bLatest);
+        }),
       total,
     };
   }
@@ -966,6 +994,38 @@ export class DatabaseService {
     transaction();
   }
 
+  clearDuplicateGroupsByReason(reason: 'exact' | 'similar'): void {
+    const transaction = this.db.transaction(() => {
+      this.db.prepare(`
+        DELETE FROM photo_duplicates WHERE group_id IN (
+          SELECT id FROM duplicate_groups WHERE reason = ?
+        )
+      `).run(reason);
+      this.db.prepare('DELETE FROM duplicate_groups WHERE reason = ?').run(reason);
+    });
+    transaction();
+  }
+
+  /**
+   * 原子性地重建某一类重复组：先清空旧组，再批量写入新组。
+   * 整个操作在一个事务中完成，避免中断后留下半完成状态。
+   */
+  rebuildDuplicateGroups(
+    reason: 'exact' | 'similar',
+    groups: { id: string; recommendedPhotoId: string; photoIds: string[] }[]
+  ): void {
+    const transaction = this.db.transaction(() => {
+      this.clearDuplicateGroupsByReason(reason);
+      for (const g of groups) {
+        this.insertDuplicateGroup({ id: g.id, reason, recommendedPhotoId: g.recommendedPhotoId });
+        for (const photoId of g.photoIds) {
+          this.insertPhotoDuplicate(photoId, g.id);
+        }
+      }
+    });
+    transaction();
+  }
+
   updatePhotoThumbnail(id: string, thumbnailPath: string): void {
     const stmt = this.db.prepare('UPDATE photos SET thumbnail_path = ? WHERE id = ?');
     stmt.run(thumbnailPath, id);
@@ -992,5 +1052,13 @@ export class DatabaseService {
 
   removeSetting(key: string): void {
     this.db.prepare('DELETE FROM app_settings WHERE key = ?').run(key);
+  }
+
+  setDuplicateDetectionDirty(reason: 'exact' | 'similar', dirty: boolean): void {
+    this.setSetting(`duplicate_${reason}_dirty`, dirty ? '1' : '0');
+  }
+
+  isDuplicateDetectionDirty(reason: 'exact' | 'similar'): boolean {
+    return this.getSetting(`duplicate_${reason}_dirty`) === '1';
   }
 }

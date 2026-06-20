@@ -108,7 +108,14 @@ async function initializeServices() {
   if (recovery.recoveredCount > 0) {
     log.info(`[Main] 恢复了 ${recovery.recoveredCount} 个中断的扫描: ${recovery.folderPaths.join(', ')}`);
   }
-  
+
+  // 检查并清理中断的去重检测（方案 A：相似去重设脏标记，启动时清理）
+  if (db.isDuplicateDetectionDirty('similar')) {
+    log.warn('[Main] 检测到上次相似去重中断，清理相似组...');
+    db.clearDuplicateGroupsByReason('similar');
+    db.setDuplicateDetectionDirty('similar', false);
+  }
+
   setupIpcHandlers();
   log.info('All services initialized');
 }

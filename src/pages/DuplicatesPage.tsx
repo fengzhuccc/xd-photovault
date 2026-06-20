@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AlertTriangle, Check, Trash2, Star, MapPin, Calendar, HardDrive, X, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Check, Trash2, Star, MapPin, Calendar, HardDrive, X, ChevronLeft, ChevronRight, RefreshCw, Loader2 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
@@ -7,31 +7,35 @@ import { cn } from '@/lib/utils';
 import type { DuplicateGroup, Photo } from '@/types';
 
 export function DuplicatesPage() {
-  const { duplicates, duplicatesTotal, duplicatesHasMore, loadDuplicates, loadDuplicatesPage, stats } = useAppStore();
+  const {
+    duplicates,
+    duplicatesTotal,
+    duplicatesHasMore,
+    duplicateProgress,
+    loadDuplicates,
+    loadDuplicatesPage,
+    stats,
+  } = useAppStore();
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const [loadingMore, setLoadingMore] = useState(false);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isDetecting, setIsDetecting] = useState(false);
-  const [detectStage, setDetectStage] = useState<'exact' | 'similar' | null>(null);
-  const [detectProgress, setDetectProgress] = useState<{ current: number; total: number; message: string } | null>(null);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [currentGroup, setCurrentGroup] = useState<DuplicateGroup | null>(null);
+
+  const isDetecting = duplicateProgress !== null;
+  const detectStage: 'exact' | 'similar' | null = duplicateProgress
+    ? duplicateProgress.stage === 'exact'
+      ? 'exact'
+      : 'similar'
+    : null;
+  const detectProgress = duplicateProgress
+    ? { current: duplicateProgress.current, total: duplicateProgress.total, message: duplicateProgress.message }
+    : null;
 
   useEffect(() => {
     loadDuplicates();
   }, [loadDuplicates]);
-
-  useEffect(() => {
-    const unsubscribe = window.api.duplicate.onProgress((progress) => {
-      if (progress.stage === 'complete') {
-        setDetectProgress(null);
-      } else {
-        setDetectProgress({ current: progress.current, total: progress.total, message: progress.message });
-      }
-    });
-    return () => unsubscribe();
-  }, []);
 
   useEffect(() => {
     const loadThumbnails = async () => {
@@ -48,11 +52,7 @@ export function DuplicatesPage() {
           const batch = await window.api.thumbnail.getBatch(items);
           setThumbnails(prev => ({ ...prev, ...batch }));
         } catch {
-          const fallback: Record<string, string> = {};
-          for (const photo of chunk) {
-            fallback[photo.id] = `https://picsum.photos/seed/${photo.id}/256/256`;
-          }
-          setThumbnails(prev => ({ ...prev, ...fallback }));
+          // 加载失败时不显示随机占位图，保持默认占位等待下次重试
         }
       }
     };
@@ -75,18 +75,12 @@ export function DuplicatesPage() {
     if (!await confirm('将重新检测所有完全相同的照片（基于文件内容哈希）。确定继续吗？', { variant: 'info', confirmText: '开始检测' })) {
       return;
     }
-    setDetectStage('exact');
-    setIsDetecting(true);
     try {
       await window.api.duplicate.detectExact(true);
       await loadDuplicates();
       toast('success', '精确去重检测完成');
     } catch (error) {
       toast('error', '检测失败：' + error);
-    } finally {
-      setIsDetecting(false);
-      setDetectStage(null);
-      setDetectProgress(null);
     }
   };
 
@@ -97,18 +91,12 @@ export function DuplicatesPage() {
     )) {
       return;
     }
-    setDetectStage('similar');
-    setIsDetecting(true);
     try {
       await window.api.duplicate.detectSimilar(true);
       await loadDuplicates();
       toast('success', '相似去重检测完成');
     } catch (error) {
       toast('error', '检测失败：' + error);
-    } finally {
-      setIsDetecting(false);
-      setDetectStage(null);
-      setDetectProgress(null);
     }
   };
 
@@ -479,11 +467,17 @@ function DuplicateCard({ group, isSelected, onToggle, thumbnails, formatDate, fo
                 className="aspect-square relative cursor-pointer hover:opacity-80 transition-opacity group"
                 onClick={(e) => onPhotoClick(photo, group, e)}
               >
-                <img
-                  src={thumbnails[photo.id] || `https://picsum.photos/seed/${photo.image_seed || photo.id}/256/256`}
-                  alt={photo.filename}
-                  className="w-full h-full object-cover"
-                />
+                {thumbnails[photo.id] ? (
+                  <img
+                    src={thumbnails[photo.id]}
+                    alt={photo.filename}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-zinc-800">
+                    <Loader2 size={20} className="text-zinc-500 animate-spin" />
+                  </div>
+                )}
                 {isRecommended && (
                   <div className="absolute top-2 left-2 p-1 bg-amber-500 rounded-full">
                     <Star size={12} className="text-zinc-900" />

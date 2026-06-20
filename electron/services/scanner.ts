@@ -683,7 +683,13 @@ export class ScannerService {
 
     if (fullRebuild) {
       await this.migrateLegacyHashes();
-      this.db.clearDuplicateGroups();
+      if (mode === 'all') {
+        this.db.clearDuplicateGroups();
+      } else if (mode === 'exact') {
+        this.db.clearDuplicateGroupsByReason('exact');
+      } else if (mode === 'similar') {
+        this.db.clearDuplicateGroupsByReason('similar');
+      }
     }
 
     if (mode !== 'exact') {
@@ -713,8 +719,8 @@ export class ScannerService {
       ? this.db.findExactDuplicates()
       : this.db.findExactDuplicatesByHashes(newHashes);
 
-    let groupCount = 0;
     const total = exactDuplicates.length;
+    const newGroups: { id: string; recommendedPhotoId: string; photoIds: string[] }[] = [];
 
     for (let i = 0; i < exactDuplicates.length; i++) {
       const dup = exactDuplicates[i];
@@ -727,18 +733,12 @@ export class ScannerService {
           .filter((p): p is PhotoRow => p !== null);
 
         if (photos.length > 1) {
-          const groupId = uuidv4();
           const recommended = this.selectBestPhoto(photos);
-          this.db.insertDuplicateGroup({
-            id: groupId,
-            reason: 'exact',
+          newGroups.push({
+            id: uuidv4(),
             recommendedPhotoId: recommended.id,
+            photoIds: photos.map(p => p.id),
           });
-
-          for (const photo of photos) {
-            this.db.insertPhotoDuplicate(photo.id, groupId);
-          }
-          groupCount++;
         }
       } else {
         const ungroupedPhotos = photoIds.filter((id: string) => {
@@ -766,7 +766,6 @@ export class ScannerService {
                 reason: 'exact',
                 recommendedPhotoId: recommended.id,
               });
-              groupCount++;
             }
 
             for (const photoId of ungroupedPhotos) {
@@ -787,8 +786,13 @@ export class ScannerService {
       }
     }
 
-    log.info(`[Scanner] 精确重复检测完成: ${groupCount} 组`);
-    return groupCount;
+    // 全量模式下，原子性批量写入：先清空旧 exact 组，再写入所有新组
+    if (fullRebuild && newGroups.length > 0) {
+      this.db.rebuildDuplicateGroups('exact', newGroups);
+    }
+
+    log.info(`[Scanner] 精确重复检测完成: ${newGroups.length} 组`);
+    return newGroups.length;
   }
 
   /**
@@ -844,6 +848,9 @@ export class ScannerService {
    */
   private async runSimilarDuplicateDetection(fullRebuild: boolean): Promise<number> {
     this.emitDuplicateProgress({ stage: 'similar', current: 0, total: 0, message: '正在检测相似图片...' });
+
+    // 标记相似去重正在执行；如果中断，启动时会清理可能不完整的相似组
+    this.db.setDuplicateDetectionDirty('similar', true);
 
     const PHASH_THRESHOLD = 10;
     const LSH_BANDS = 4;
@@ -982,7 +989,7 @@ export class ScannerService {
 
     const photoMap = new Map(this.db.getPhotosByIds(allNeededIds).map(p => [p.id, p]));
 
-    let similarGroupCount = 0;
+    const newGroups: { id: string; recommendedPhotoId: string; photoIds: string[] }[] = [];
     for (const ids of candidateGroups) {
       // 增量模式下，只要组内任一照片已在重复组中就跳过整组
       if (!fullRebuild && ids.some(id => this.db.getPhotoDuplicateGroup(id))) continue;
@@ -993,32 +1000,42 @@ export class ScannerService {
 
       if (photos.length < 2) continue;
 
-      const groupId = uuidv4();
       const recommended = this.selectBestPhoto(photos);
-      this.db.insertDuplicateGroup({
-        id: groupId,
-        reason: 'similar',
+      newGroups.push({
+        id: uuidv4(),
         recommendedPhotoId: recommended.id,
+        photoIds: photos.map(p => p.id),
       });
 
-      for (const photo of photos) {
-        this.db.insertPhotoDuplicate(photo.id, groupId);
-      }
-      similarGroupCount++;
-
-      if (similarGroupCount % 100 === 0) {
+      if (newGroups.length % 100 === 0) {
         this.emitDuplicateProgress({
           stage: 'similar',
-          current: similarGroupCount,
+          current: newGroups.length,
           total: candidateGroups.length,
-          message: `已生成 ${similarGroupCount} 组相似照片`
+          message: `已生成 ${newGroups.length} 组相似照片`
         });
         await yieldToMain();
       }
     }
 
-    log.info(`[Scanner] 相似图片检测完成: ${similarGroupCount} 组 (比较 ${comparisons} 对，桶数 ${lshBuckets.size})`);
-    return similarGroupCount;
+    if (fullRebuild) {
+      // 全量模式：原子性替换所有相似组（包括清空旧组）
+      this.db.rebuildDuplicateGroups('similar', newGroups);
+    } else {
+      // 增量模式：只追加新组
+      for (const g of newGroups) {
+        this.db.insertDuplicateGroup({ id: g.id, reason: 'similar', recommendedPhotoId: g.recommendedPhotoId });
+        for (const photoId of g.photoIds) {
+          this.db.insertPhotoDuplicate(photoId, g.id);
+        }
+      }
+    }
+
+    // 成功完成后清除脏标记
+    this.db.setDuplicateDetectionDirty('similar', false);
+
+    log.info(`[Scanner] 相似图片检测完成: ${newGroups.length} 组 (比较 ${comparisons} 对，桶数 ${lshBuckets.size})`);
+    return newGroups.length;
   }
 
   private selectBestPhoto(photos: PhotoRow[]): PhotoRow {

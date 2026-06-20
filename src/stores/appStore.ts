@@ -14,6 +14,7 @@ interface AppState {
   duplicatesHasMore: boolean;
   scanProgress: ScanProgress | null;
   isScanning: boolean;
+  duplicateProgress: { stage: 'hashing' | 'exact' | 'similar' | 'complete'; current: number; total: number; message: string } | null;
   selectedPhoto: Photo | null;
   currentFilter: PhotoFilter;
   sidebarCollapsed: boolean;
@@ -32,6 +33,7 @@ interface AppState {
   
   setScanProgress: (progress: ScanProgress | null) => void;
   setIsScanning: (isScanning: boolean) => void;
+  setDuplicateProgress: (progress: { stage: 'hashing' | 'exact' | 'similar' | 'complete'; current: number; total: number; message: string } | null) => void;
   
   setCurrentFilter: (filter: PhotoFilter) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -63,6 +65,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   duplicatesHasMore: true,
   scanProgress: null,
   isScanning: false,
+  duplicateProgress: null,
   selectedPhoto: null,
   currentFilter: {},
   sidebarCollapsed: false,
@@ -95,6 +98,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setScanProgress: (progress) => set({ scanProgress: progress }),
   setIsScanning: (isScanning) => set({ isScanning }),
+  setDuplicateProgress: (progress) => set({ duplicateProgress: progress }),
 
   setCurrentFilter: (filter) => set({ currentFilter: filter }),
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
