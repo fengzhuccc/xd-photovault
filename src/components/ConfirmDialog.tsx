@@ -14,7 +14,7 @@ export function ConfirmDialog() {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[9998] flex items-center justify-center">
+    <div className="fixed inset-0 z-[10001] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={() => resolve(false)} />
       <div className="relative bg-zinc-800 rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
         <h3 className="text-white text-lg font-semibold mb-3">{title}</h3>
