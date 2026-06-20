@@ -13,5 +13,6 @@
     "sourceMap": true,
     "resolveJsonModule": true
   },
-  "include": ["electron/**/*"]
+  "include": ["electron/**/*"],
+  "exclude": ["electron/services/__tests__"]
 }
