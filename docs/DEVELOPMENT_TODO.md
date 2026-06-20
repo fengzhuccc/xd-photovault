@@ -1157,11 +1157,12 @@ const databaseService = new DatabaseService(dataPath);
 
 ---
 
-## 十三、应用打包（P1）
+## 十三、应用打包（P1-P2）
 
 | 编号 | 优先级 | 前后端 | 事项 | 涉及文件 |
 |------|--------|--------|------|----------|
 | P1 | 低 | 全栈 | 应用图标：设计原图 + 生成多格式 + 配置打包 | `main.ts`, `package.json`, `build/` |
+| P2 | 低 | 后端 | Portable 模式数据目录：应用处于 portable 运行时，将 dataPath 指向 EXE 所在目录 | `config.ts`, `main.ts` |
 
 ### P1 详细说明
 
@@ -1223,6 +1224,33 @@ const windowOptions = {
       "target": ["AppImage"]
     }
   }
+}
+```
+
+### P2 详细说明
+
+当前 `PhotoVault-Portable-x.x.x.exe` 本质是自解压程序：运行时把资源解压到 `%TEMP%`，数据库和缩略图仍使用系统 `%APPDATA%/photovault/`。用户把 EXE 复制到 U 盘或另一台电脑时，数据留在原机器上，不是真正的绿色版。
+
+目标：让 portable 版本实现真正的「随身带走」。
+
+1. **检测 portable 运行模式**
+   - Electron 运行时 `process.execPath` 指向的是临时解压目录的 EXE，不能直接判断原 EXE 位置。
+   - 简单方案：打包时生成一个 `.portable` 标记文件，放在 portable EXE 旁边；`ConfigService` 检测到该文件后，将 EXE 所在目录作为 `dataPath`。
+
+2. **数据目录指向 EXE 旁边**
+   - 检测到标记文件后，`dataPath` 设为 portable EXE 所在目录（或 `photovault-data/` 子目录）。
+
+3. **效果**
+   - 用户可以把整个文件夹（EXE + 数据目录）复制到 U 盘或另一台电脑运行，无需重新扫描。
+
+```typescript
+// config.ts 伪代码
+getDataPath(): string {
+  const portableDir = findPortableMarker();
+  if (portableDir) {
+    return join(portableDir, 'photovault-data');
+  }
+  return this.userDataPath;
 }
 ```
 
@@ -1432,6 +1460,7 @@ if (!window.api) {
 10. **C1** mockApi 清理
 11. **G3** DatabaseService 改用 ConfigService.getDataPath()
 12. **P1** 应用图标（设计 + 生成多格式 + 配置打包）
-13. **A1** CLIP 模型集成（ONNX Runtime + MobileCLIP）
-14. **A2** sqlite-vec 向量索引
-15. **A3** 中文 CLIP 搜索支持
+13. **P2** Portable 模式数据目录指向 EXE 旁边
+14. **A1** CLIP 模型集成（ONNX Runtime + MobileCLIP）
+15. **A2** sqlite-vec 向量索引
+16. **A3** 中文 CLIP 搜索支持
