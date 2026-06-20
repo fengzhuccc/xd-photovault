@@ -96,6 +96,9 @@
         "to": "node_modules/sharp"
       }
     ],
+    "asarUnpack": [
+      "node_modules/@ffmpeg-installer/**/*"
+    ],
     "win": {
       "target": [
         {
