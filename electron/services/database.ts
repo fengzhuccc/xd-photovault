@@ -30,6 +30,9 @@ export interface PhotoRow {
   width: number | null;
   height: number | null;
   thumbnail_path: string | null;
+  media_type: 'image' | 'video';
+  duration: number | null;
+  frame_hash: string | null;
   image_seed: string | null;
   created_at: string;
   updated_at: string;
@@ -79,6 +82,9 @@ export interface PhotoInsert {
   height: number | null;
   thumbnailPath: string | null;
   modifiedTime: string;
+  mediaType: 'image' | 'video';
+  duration: number | null;
+  frameHash: string | null;
 }
 
 interface PhotoFilter {
@@ -106,7 +112,7 @@ interface DuplicateGroupDetail {
 }
 
 interface ExactDuplicateRow {
-  file_hash: string;
+  key: string;
   photo_ids: string;
   count: number;
 }
@@ -215,6 +221,9 @@ export class DatabaseService {
         width INTEGER,
         height INTEGER,
         thumbnail_path TEXT,
+        media_type TEXT DEFAULT 'image' CHECK(media_type IN ('image', 'video')),
+        duration REAL,
+        frame_hash TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE
@@ -305,6 +314,25 @@ export class DatabaseService {
             CREATE INDEX IF NOT EXISTS idx_photos_location_bounds ON photos(latitude, longitude);
             CREATE INDEX IF NOT EXISTS idx_photos_phash_prefix ON photos(SUBSTR(perceptual_hash, 1, 4));
             CREATE INDEX IF NOT EXISTS idx_photo_duplicates_group ON photo_duplicates(group_id);
+          `);
+        },
+      },
+      {
+        version: 5,
+        up: () => {
+          // 视频支持：媒体类型、时长、第一帧哈希
+          const columns = (this.db.prepare('PRAGMA table_info(photos)').all() as ColumnInfoRow[]).map(c => c.name);
+          if (!columns.includes('media_type')) {
+            this.db.exec("ALTER TABLE photos ADD COLUMN media_type TEXT DEFAULT 'image' CHECK(media_type IN ('image', 'video'))");
+          }
+          if (!columns.includes('duration')) {
+            this.db.exec('ALTER TABLE photos ADD COLUMN duration REAL');
+          }
+          if (!columns.includes('frame_hash')) {
+            this.db.exec('ALTER TABLE photos ADD COLUMN frame_hash TEXT');
+          }
+          this.db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_photos_frame_hash ON photos(frame_hash);
           `);
         },
       },
@@ -419,15 +447,16 @@ export class DatabaseService {
       INSERT OR IGNORE INTO photos (
         id, folder_id, path, filename, file_size, file_hash, perceptual_hash,
         taken_at, latitude, longitude, camera, aperture, shutter_speed,
-        iso, focal_length, width, height, thumbnail_path, modified_time
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        iso, focal_length, width, height, thumbnail_path, modified_time,
+        media_type, duration, frame_hash
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       photo.id, photo.folderId, photo.path, photo.filename, photo.fileSize,
       photo.fileHash, photo.perceptualHash, photo.takenAt, photo.latitude,
       photo.longitude, photo.camera, photo.aperture, photo.shutterSpeed,
       photo.iso, photo.focalLength, photo.width, photo.height, photo.thumbnailPath,
-      photo.modifiedTime
+      photo.modifiedTime, photo.mediaType, photo.duration, photo.frameHash
     );
   }
 
@@ -715,11 +744,19 @@ export class DatabaseService {
   }
 
   findExactDuplicates(): ExactDuplicateRow[] {
+    // 图片按文件 hash 分组；视频按 file_size + frame_hash 分组
     const stmt = this.db.prepare(`
-      SELECT file_hash, GROUP_CONCAT(id ORDER BY taken_at DESC) as photo_ids, COUNT(*) as count
-      FROM photos
-      WHERE file_hash IS NOT NULL
-      GROUP BY file_hash
+      SELECT key, GROUP_CONCAT(id ORDER BY taken_at DESC) as photo_ids, COUNT(*) as count
+      FROM (
+        SELECT id, taken_at, file_hash as key
+        FROM photos
+        WHERE media_type = 'image' AND file_hash IS NOT NULL
+        UNION ALL
+        SELECT id, taken_at, frame_hash || '_' || file_size as key
+        FROM photos
+        WHERE media_type = 'video' AND frame_hash IS NOT NULL
+      )
+      GROUP BY key
       HAVING COUNT(*) > 1
     `);
     return stmt.all() as ExactDuplicateRow[];
@@ -729,13 +766,26 @@ export class DatabaseService {
     if (hashes.length === 0) return [];
     const placeholders = hashes.map(() => '?').join(',');
     const stmt = this.db.prepare(`
-      SELECT file_hash, GROUP_CONCAT(id) as photo_ids, COUNT(*) as count
+      SELECT file_hash as key, GROUP_CONCAT(id) as photo_ids, COUNT(*) as count
       FROM photos
-      WHERE file_hash IN (${placeholders})
+      WHERE media_type = 'image' AND file_hash IN (${placeholders})
       GROUP BY file_hash
       HAVING COUNT(*) > 1
     `);
     return stmt.all(...hashes) as ExactDuplicateRow[];
+  }
+
+  findExactDuplicatesByFrameHashes(frameHashes: string[]): ExactDuplicateRow[] {
+    if (frameHashes.length === 0) return [];
+    const placeholders = frameHashes.map(() => '?').join(',');
+    const stmt = this.db.prepare(`
+      SELECT frame_hash || '_' || file_size as key, GROUP_CONCAT(id) as photo_ids, COUNT(*) as count
+      FROM photos
+      WHERE media_type = 'video' AND frame_hash IN (${placeholders})
+      GROUP BY frame_hash, file_size
+      HAVING COUNT(*) > 1
+    `);
+    return stmt.all(...frameHashes) as ExactDuplicateRow[];
   }
 
   getPhotoDuplicateGroup(photoId: string): string | null {

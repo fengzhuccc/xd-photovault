@@ -6,9 +6,16 @@ import { DatabaseService, PhotoRow, PhotoInsert } from './database';
 import { HashService } from './hash';
 import { ExifService } from './exif';
 import { ThumbnailService } from './thumbnail';
+import { VideoService } from './video';
 import log from 'electron-log';
 
-const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.raw', '.cr2', '.nef', '.arw'];
+const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.raw', '.cr2', '.nef', '.arw'];
+const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.m4v'];
+const SUPPORTED_EXTENSIONS = [...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS];
+
+function isVideoFile(path: string): boolean {
+  return VIDEO_EXTENSIONS.includes(extname(path).toLowerCase());
+}
 
 // 进度上报间隔（每N张上报一次）
 const PROGRESS_INTERVAL = 200;
@@ -81,6 +88,7 @@ export class ScannerService {
   private hashService: HashService;
   private exifService: ExifService;
   private thumbnailService: ThumbnailService;
+  private videoService: VideoService;
   private scanning = false;
   private activeScanFolderId: string | null = null;
   private cancelRequested = false;
@@ -92,12 +100,14 @@ export class ScannerService {
     db: DatabaseService,
     hashService: HashService,
     exifService: ExifService,
-    thumbnailService: ThumbnailService
+    thumbnailService: ThumbnailService,
+    videoService?: VideoService
   ) {
     this.db = db;
     this.hashService = hashService;
     this.exifService = exifService;
     this.thumbnailService = thumbnailService;
+    this.videoService = videoService || new VideoService();
   }
 
   private emitDuplicateProgress(progress: DuplicateProgress): void {
@@ -164,19 +174,20 @@ export class ScannerService {
   }
 
   /**
-   * 处理单张照片：stat → 检查是否变化 → EXIF + hash → 入队缩略图。
-   * 返回 'skipped' 表示未变化跳过；null 表示处理失败；否则返回 photo 和 hash。
+   * 处理单个媒体文件：stat → 检查是否变化 → EXIF/hash 或视频元数据 → 入队缩略图。
+   * 返回 'skipped' 表示未变化跳过；null 表示处理失败；否则返回 photo、hash 和 frameHash。
    */
   private async processSingleFile(
     filePath: string,
     folderId: string,
     existingPathMap: Map<string, { id: string; fileHash: string | null; fileSize: number; modifiedTime: string }>,
     forceRescan: boolean
-  ): Promise<{ photo: PhotoInsert; hash: string } | 'skipped' | null> {
+  ): Promise<{ photo: PhotoInsert; hash: string; frameHash: string | null } | 'skipped' | null> {
     if (this.checkCancelled(folderId)) return null;
 
     try {
       const stats = await stat(filePath);
+      const isVideo = isVideoFile(filePath);
 
       const existing = existingPathMap.get(filePath);
       if (!forceRescan && existing
@@ -189,45 +200,105 @@ export class ScannerService {
         this.db.deletePhoto(existing.id);
       }
 
-      const [exifData, fileHash] = await Promise.all([
-        this.exifService.extractExif(filePath),
-        this.hashService.calculateFileHash(filePath),
-      ]);
-
       const photoId = existing?.id || uuidv4();
-      const takenAt = exifData.takenAt || stats.mtime;
 
-      const photo: PhotoInsert = {
-        id: photoId,
-        folderId,
-        path: filePath,
-        filename: filePath.split(/[/\\]/).pop() || '',
-        fileSize: stats.size,
-        fileHash,
-        perceptualHash: null,
-        takenAt: takenAt.toISOString(),
-        latitude: exifData.latitude,
-        longitude: exifData.longitude,
-        width: exifData.width,
-        height: exifData.height,
-        camera: exifData.camera,
-        aperture: exifData.aperture,
-        shutterSpeed: exifData.shutterSpeed,
-        iso: exifData.iso,
-        focalLength: exifData.focalLength,
-        thumbnailPath: null,
-        modifiedTime: stats.mtime.toISOString(),
-      };
-
-      // 机械硬盘场景：扫描期间不入队实时缩略图，扫描结束后统一生成
-      if (!DEFER_THUMBNAILS_DURING_SCAN) {
-        this.enqueueThumbnail(photoId, filePath);
+      if (isVideo) {
+        return await this.processVideoFile(filePath, folderId, photoId, stats);
       }
-      return { photo, hash: fileHash };
+
+      return await this.processImageFile(filePath, folderId, photoId, stats);
     } catch (error) {
       log.warn(`[Scanner] 处理文件失败: ${filePath}`, error);
       return null;
     }
+  }
+
+  private async processImageFile(
+    filePath: string,
+    folderId: string,
+    photoId: string,
+    stats: { size: number; mtime: Date }
+  ): Promise<{ photo: PhotoInsert; hash: string; frameHash: null }> {
+    const [exifData, fileHash] = await Promise.all([
+      this.exifService.extractExif(filePath),
+      this.hashService.calculateFileHash(filePath),
+    ]);
+
+    const photo: PhotoInsert = {
+      id: photoId,
+      folderId,
+      path: filePath,
+      filename: filePath.split(/[/\\]/).pop() || '',
+      fileSize: stats.size,
+      fileHash,
+      perceptualHash: null,
+      takenAt: exifData.takenAt ? exifData.takenAt.toISOString() : stats.mtime.toISOString(),
+      latitude: exifData.latitude,
+      longitude: exifData.longitude,
+      width: exifData.width,
+      height: exifData.height,
+      camera: exifData.camera,
+      aperture: exifData.aperture,
+      shutterSpeed: exifData.shutterSpeed,
+      iso: exifData.iso,
+      focalLength: exifData.focalLength,
+      thumbnailPath: null,
+      modifiedTime: stats.mtime.toISOString(),
+      mediaType: 'image',
+      duration: null,
+      frameHash: null,
+    };
+
+    if (!DEFER_THUMBNAILS_DURING_SCAN) {
+      this.enqueueThumbnail(photoId, filePath);
+    }
+    return { photo, hash: fileHash, frameHash: null };
+  }
+
+  private async processVideoFile(
+    filePath: string,
+    folderId: string,
+    photoId: string,
+    stats: { size: number; mtime: Date }
+  ): Promise<{ photo: PhotoInsert; hash: string; frameHash: string }> {
+    const [fileHash, metadata] = await Promise.all([
+      this.hashService.calculateFileHash(filePath),
+      this.videoService.getMetadata(filePath),
+    ]);
+
+    // 抽取第一帧并计算其 hash，作为视频去重依据
+    const framePath = await this.videoService.extractFirstFrame(filePath);
+    const frameHash = await this.hashService.calculateFileHash(framePath);
+
+    const photo: PhotoInsert = {
+      id: photoId,
+      folderId,
+      path: filePath,
+      filename: filePath.split(/[/\\]/).pop() || '',
+      fileSize: stats.size,
+      fileHash,
+      perceptualHash: null,
+      takenAt: stats.mtime.toISOString(),
+      latitude: null,
+      longitude: null,
+      width: metadata.width,
+      height: metadata.height,
+      camera: null,
+      aperture: null,
+      shutterSpeed: null,
+      iso: null,
+      focalLength: null,
+      thumbnailPath: null,
+      modifiedTime: stats.mtime.toISOString(),
+      mediaType: 'video',
+      duration: metadata.duration,
+      frameHash,
+    };
+
+    if (!DEFER_THUMBNAILS_DURING_SCAN) {
+      this.enqueueThumbnail(photoId, filePath);
+    }
+    return { photo, hash: fileHash, frameHash };
   }
 
   /**
@@ -242,9 +313,10 @@ export class ScannerService {
     total: number,
     processedCountRef: { count: number },
     onProgress: (progress: ScanProgress) => void
-  ): Promise<{ hashes: string[]; photoIds: string[]; newCount: number; skipped: number }> {
+  ): Promise<{ hashes: string[]; frameHashes: string[]; photoIds: string[]; newCount: number; skipped: number }> {
     const queue = [...files];
     const hashes: string[] = [];
+    const frameHashes: string[] = [];
     const photoIds: string[] = [];
     let newCount = 0;
     let skipped = 0;
@@ -264,6 +336,9 @@ export class ScannerService {
           skipped++;
         } else if (result) {
           hashes.push(result.hash);
+          if (result.frameHash) {
+            frameHashes.push(result.frameHash);
+          }
           photoIds.push(result.photo.id);
           newCount++;
           localBatch.push(result.photo);
@@ -307,7 +382,7 @@ export class ScannerService {
     const workers = Array.from({ length: FILE_WORKER_CONCURRENCY }, () => worker());
     await Promise.all(workers);
 
-    return { hashes, photoIds, newCount, skipped };
+    return { hashes, frameHashes, photoIds, newCount, skipped };
   }
 
   /**
@@ -499,6 +574,7 @@ export class ScannerService {
 
       // 第二步：分批处理文件，同时按批次查询已有记录，避免一次性加载整个文件夹
       const newHashes: string[] = [];
+      const newFrameHashes: string[] = [];
       const newPhotoIds: string[] = [];
       const seenPaths = new Set(files);
       let skipped = 0;
@@ -544,6 +620,7 @@ export class ScannerService {
         );
 
         newHashes.push(...batchResult.hashes);
+        newFrameHashes.push(...batchResult.frameHashes);
         newPhotoIds.push(...batchResult.photoIds);
         newCount += batchResult.newCount;
         skipped += batchResult.skipped;
@@ -605,7 +682,7 @@ export class ScannerService {
 
       // 扫描完成后异步触发增量精确去重（相似去重需用户手动触发）
       if (newCount > 0 || deletedCount > 0) {
-        this.detectExactDuplicates(false, newHashes).catch(err => {
+        this.detectExactDuplicates(false, newHashes, newFrameHashes).catch(err => {
           log.error('[Scanner] 后台精确去重检测失败:', err);
         });
       }
@@ -682,24 +759,25 @@ export class ScannerService {
     return migrated;
   }
 
-  async detectDuplicates(fullRebuild: boolean = true, newHashes: string[] = []): Promise<number> {
-    return this.detectDuplicatesWithMode(fullRebuild, 'all', newHashes);
+  async detectDuplicates(fullRebuild: boolean = true, newHashes: string[] = [], newFrameHashes: string[] = []): Promise<number> {
+    return this.detectDuplicatesWithMode(fullRebuild, 'all', newHashes, newFrameHashes);
   }
 
-  async detectExactDuplicates(fullRebuild: boolean = true, newHashes: string[] = []): Promise<number> {
-    return this.detectDuplicatesWithMode(fullRebuild, 'exact', newHashes);
+  async detectExactDuplicates(fullRebuild: boolean = true, newHashes: string[] = [], newFrameHashes: string[] = []): Promise<number> {
+    return this.detectDuplicatesWithMode(fullRebuild, 'exact', newHashes, newFrameHashes);
   }
 
   async detectSimilarDuplicates(fullRebuild: boolean = true): Promise<number> {
-    return this.detectDuplicatesWithMode(fullRebuild, 'similar', []);
+    return this.detectDuplicatesWithMode(fullRebuild, 'similar', [], []);
   }
 
   private async detectDuplicatesWithMode(
     fullRebuild: boolean,
     mode: 'exact' | 'similar' | 'all',
-    newHashes: string[] = []
+    newHashes: string[] = [],
+    newFrameHashes: string[] = []
   ): Promise<number> {
-    log.info(`[Scanner] 开始检测重复照片 (mode=${mode}, fullRebuild=${fullRebuild}, newHashes=${newHashes.length})...`);
+    log.info(`[Scanner] 开始检测重复照片 (mode=${mode}, fullRebuild=${fullRebuild}, newHashes=${newHashes.length}, newFrameHashes=${newFrameHashes.length})...`);
 
     if (fullRebuild) {
       await this.migrateLegacyHashes();
@@ -719,7 +797,7 @@ export class ScannerService {
     let groupCount = 0;
 
     if (mode === 'exact' || mode === 'all') {
-      groupCount += await this.runExactDuplicateDetection(fullRebuild, newHashes);
+      groupCount += await this.runExactDuplicateDetection(fullRebuild, newHashes, newFrameHashes);
     }
 
     if (mode === 'similar' || mode === 'all') {
@@ -732,12 +810,26 @@ export class ScannerService {
     return groupCount;
   }
 
-  private async runExactDuplicateDetection(fullRebuild: boolean, newHashes: string[]): Promise<number> {
+  private async runExactDuplicateDetection(fullRebuild: boolean, newHashes: string[], newFrameHashes: string[]): Promise<number> {
     this.emitDuplicateProgress({ stage: 'exact', current: 0, total: 0, message: '正在检测精确重复...' });
 
-    const exactDuplicates = fullRebuild
+    let exactDuplicates = fullRebuild
       ? this.db.findExactDuplicates()
-      : this.db.findExactDuplicatesByHashes(newHashes);
+      : [
+          ...this.db.findExactDuplicatesByHashes(newHashes),
+          ...this.db.findExactDuplicatesByFrameHashes(newFrameHashes),
+        ];
+
+    // 增量模式下图片/视频两种查询可能返回重叠组，按 photo_id 集合去重
+    if (!fullRebuild) {
+      const seen = new Set<string>();
+      exactDuplicates = exactDuplicates.filter(dup => {
+        const key = dup.photo_ids.split(',').sort().join(',');
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
 
     const total = exactDuplicates.length;
     const newGroups: { id: string; recommendedPhotoId: string; photoIds: string[] }[] = [];

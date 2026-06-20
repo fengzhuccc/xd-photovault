@@ -88,6 +88,10 @@ export const api = {
     clear: () => ipcRenderer.invoke('log:clear'),
     openFolder: () => ipcRenderer.invoke('log:openFolder'),
   },
+
+  app: {
+    openPath: (path: string) => ipcRenderer.invoke('app:openPath', path),
+  },
 };
 
 export interface ScanProgress {

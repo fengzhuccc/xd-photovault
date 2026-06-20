@@ -8,6 +8,9 @@ function createPhoto(id: string, folderId: string, path: string, overrides: Part
   takenAt: string;
   latitude: number;
   longitude: number;
+  mediaType: 'image' | 'video';
+  duration: number | null;
+  frameHash: string | null;
 }> = {}) {
   return {
     id,
@@ -29,6 +32,9 @@ function createPhoto(id: string, folderId: string, path: string, overrides: Part
     height: null,
     thumbnailPath: null,
     modifiedTime: '2024-01-01T00:00:00.000Z',
+    mediaType: overrides.mediaType ?? 'image',
+    duration: overrides.duration ?? null,
+    frameHash: overrides.frameHash ?? null,
   };
 }
 
@@ -120,7 +126,7 @@ describe('DatabaseService', () => {
   });
 
   describe('findExactDuplicates', () => {
-    it('应按 file_hash 分组', () => {
+    it('图片应按 file_hash 分组', () => {
       db.addFolder('f1', '/photos');
       db.insertPhoto(createPhoto('p1', 'f1', '/photos/a.jpg', { fileHash: 'same' }));
       db.insertPhoto(createPhoto('p2', 'f1', '/photos/b.jpg', { fileHash: 'same' }));
@@ -128,8 +134,31 @@ describe('DatabaseService', () => {
 
       const duplicates = db.findExactDuplicates();
       expect(duplicates).toHaveLength(1);
-      expect(duplicates[0].file_hash).toBe('same');
+      expect(duplicates[0].key).toBe('same');
       expect(duplicates[0].count).toBe(2);
+    });
+
+    it('视频应按 frame_hash + file_size 分组', () => {
+      db.addFolder('f1', '/photos');
+      db.insertPhoto(createPhoto('v1', 'f1', '/photos/a.mp4', { mediaType: 'video', fileSize: 1000, frameHash: 'frame-same' }));
+      db.insertPhoto(createPhoto('v2', 'f1', '/photos/b.mp4', { mediaType: 'video', fileSize: 1000, frameHash: 'frame-same' }));
+      db.insertPhoto(createPhoto('v3', 'f1', '/photos/c.mp4', { mediaType: 'video', fileSize: 2000, frameHash: 'frame-same' }));
+
+      const duplicates = db.findExactDuplicates();
+      expect(duplicates).toHaveLength(1);
+      expect(duplicates[0].key).toBe('frame-same_1000');
+      expect(duplicates[0].count).toBe(2);
+    });
+
+    it('图片和视频不应互相干扰', () => {
+      db.addFolder('f1', '/photos');
+      db.insertPhoto(createPhoto('p1', 'f1', '/photos/a.jpg', { fileHash: 'same' }));
+      db.insertPhoto(createPhoto('p2', 'f1', '/photos/b.jpg', { fileHash: 'same' }));
+      db.insertPhoto(createPhoto('v1', 'f1', '/photos/a.mp4', { mediaType: 'video', fileSize: 1000, frameHash: 'same' }));
+      db.insertPhoto(createPhoto('v2', 'f1', '/photos/b.mp4', { mediaType: 'video', fileSize: 1000, frameHash: 'same' }));
+
+      const duplicates = db.findExactDuplicates();
+      expect(duplicates).toHaveLength(2);
     });
   });
 

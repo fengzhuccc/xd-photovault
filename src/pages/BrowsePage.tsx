@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
-import { Filter, Grid3X3, MapPin, Camera, Trash2, CheckCircle2, Circle, Loader2 } from 'lucide-react';
+import { Filter, Grid3X3, MapPin, Camera, Trash2, CheckCircle2, Circle, Loader2, Play } from 'lucide-react';
 import { VirtuosoGrid, type VirtuosoGridHandle } from 'react-virtuoso';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
@@ -19,6 +19,13 @@ interface PhotoGridItemProps {
   formatDate: (date: string | null) => string;
 }
 
+function formatDuration(seconds: number | null): string {
+  if (seconds === null || seconds <= 0) return '';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
 const PhotoGridItem = React.memo(function PhotoGridItem({
   photo,
   thumbnail,
@@ -28,15 +35,23 @@ const PhotoGridItem = React.memo(function PhotoGridItem({
   onToggleSelect,
   formatDate,
 }: PhotoGridItemProps) {
+  const isVideo = photo.media_type === 'video';
+
+  const handleClick = () => {
+    if (selectMode) {
+      onToggleSelect(photo.id);
+    } else if (isVideo) {
+      window.api.app.openPath(photo.path).catch(() => {
+        // 打开失败时静默处理，避免弹窗打断浏览
+      });
+    } else {
+      onSelect(photo);
+    }
+  };
+
   return (
     <div
-      onClick={() => {
-        if (selectMode) {
-          onToggleSelect(photo.id);
-        } else {
-          onSelect(photo);
-        }
-      }}
+      onClick={handleClick}
       className={cn(
         'aspect-square cursor-pointer group relative overflow-hidden rounded-lg bg-zinc-800',
         selectMode && isSelected && 'ring-2 ring-amber-500 ring-offset-1 ring-offset-zinc-950'
@@ -57,6 +72,20 @@ const PhotoGridItem = React.memo(function PhotoGridItem({
         <div className="w-full h-full bg-zinc-800 animate-pulse flex items-center justify-center">
           <div className="w-8 h-8 rounded bg-zinc-700/50" />
         </div>
+      )}
+      {isVideo && !selectMode && (
+        <>
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="bg-black/40 rounded-full p-3 backdrop-blur-sm">
+              <Play size={24} className="text-white fill-white" />
+            </div>
+          </div>
+          {photo.duration !== null && photo.duration > 0 && (
+            <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white font-medium pointer-events-none">
+              {formatDuration(photo.duration)}
+            </div>
+          )}
+        </>
       )}
       {selectMode && (
         <div className="absolute top-2 right-2 z-10">

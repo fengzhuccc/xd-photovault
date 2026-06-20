@@ -46,6 +46,9 @@ export interface Photo {
   height: number;
   camera: string | null;
   thumbnail: string | null;
+  media_type: 'image' | 'video';
+  duration: number | null;
+  frame_hash: string | null;
   image_seed?: string;
 }
 

@@ -1,6 +1,8 @@
-import { join } from 'path';
+import { join, extname } from 'path';
 import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, rmdirSync } from 'fs';
+import { tmpdir } from 'os';
 import sharp from 'sharp';
+import { VideoService } from './video';
 import log from 'electron-log';
 
 export type ThumbnailSize = 'small' | 'medium';
@@ -15,13 +17,21 @@ const THUMBNAIL_CONFIG: Record<ThumbnailSize, ThumbnailConfig> = {
   medium: { size: 512, quality: 90 },
 };
 
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v']);
+
+function isVideoFile(path: string): boolean {
+  return VIDEO_EXTENSIONS.has(extname(path).toLowerCase());
+}
+
 export class ThumbnailService {
   thumbnailDir: string;
   // 同一 photoId + size 的缩略图请求共享一次生成过程，避免扫描线程和浏览线程并发写同一文件
   private inFlight = new Map<string, Promise<string>>();
+  private videoService?: VideoService;
 
-  constructor(userDataPath: string) {
+  constructor(userDataPath: string, videoService?: VideoService) {
     this.thumbnailDir = join(userDataPath, 'thumbnails');
+    this.videoService = videoService;
     if (!existsSync(this.thumbnailDir)) {
       mkdirSync(this.thumbnailDir, { recursive: true });
     }
@@ -60,13 +70,34 @@ export class ThumbnailService {
   }
 
   private async generateThumbnail(photoPath: string, thumbnailPath: string, config: ThumbnailConfig): Promise<void> {
-    await sharp(photoPath)
-      .resize(config.size, config.size, {
-        fit: 'inside',
-        withoutEnlargement: true,
-      })
-      .webp({ quality: config.quality })
-      .toFile(thumbnailPath);
+    let sourcePath = photoPath;
+    let tempFramePath: string | undefined;
+
+    if (isVideoFile(photoPath)) {
+      if (!this.videoService) {
+        throw new Error('未提供 VideoService，无法生成视频缩略图');
+      }
+      tempFramePath = join(tmpdir(), `pv-thumb-${Date.now()}.jpg`);
+      sourcePath = await this.videoService.extractFirstFrame(photoPath, tempFramePath);
+    }
+
+    try {
+      await sharp(sourcePath)
+        .resize(config.size, config.size, {
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .webp({ quality: config.quality })
+        .toFile(thumbnailPath);
+    } finally {
+      if (tempFramePath && existsSync(tempFramePath)) {
+        try {
+          unlinkSync(tempFramePath);
+        } catch (e) {
+          log.warn(`[Thumbnail] 删除临时视频帧失败: ${tempFramePath}`, e);
+        }
+      }
+    }
   }
 
   async getThumbnail(photoId: string, photoPath: string, thumbSize: ThumbnailSize = 'medium'): Promise<string> {

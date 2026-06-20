@@ -7,6 +7,7 @@ import { ScannerService } from './services/scanner';
 import { HashService } from './services/hash';
 import { ExifService } from './services/exif';
 import { ThumbnailService } from './services/thumbnail';
+import { VideoService } from './services/video';
 import { ConfigService } from './services/config';
 
 // 配置 electron-log
@@ -22,6 +23,7 @@ let scanner: ScannerService;
 let hashService: HashService;
 let exifService: ExifService;
 let thumbnailService: ThumbnailService;
+let videoService: VideoService;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -96,9 +98,10 @@ async function initializeServices() {
   exifService = new ExifService();
   const dataPath = configService.getDataPath();
   log.info('Using data path:', dataPath);
-  thumbnailService = new ThumbnailService(dataPath);
+  videoService = new VideoService();
+  thumbnailService = new ThumbnailService(dataPath, videoService);
   
-  scanner = new ScannerService(db, hashService, exifService, thumbnailService);
+  scanner = new ScannerService(db, hashService, exifService, thumbnailService, videoService);
   scanner.onProgress = (progress) => {
     mainWindow?.webContents.send('duplicate:progress', progress);
   };
@@ -386,6 +389,11 @@ function setupIpcHandlers() {
       shell.openPath(logDir);
     }
     return { success: true };
+  });
+
+  ipcMain.handle('app:openPath', async (_event, filePath: string) => {
+    const result = await shell.openPath(filePath);
+    return { success: result === '', error: result || undefined };
   });
 }
 
