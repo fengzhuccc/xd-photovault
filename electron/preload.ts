@@ -57,7 +57,7 @@ export const api = {
   },
   
   duplicate: {
-    getAll: (limit?: number, offset?: number) => ipcRenderer.invoke('duplicate:getAll', limit, offset),
+    getAll: (limit?: number, offset?: number, reason?: 'exact' | 'similar') => ipcRenderer.invoke('duplicate:getAll', limit, offset, reason),
     detect: (fullRebuild?: boolean) => ipcRenderer.invoke('duplicate:detect', fullRebuild),
     detectExact: (fullRebuild?: boolean) => ipcRenderer.invoke('duplicate:detectExact', fullRebuild),
     detectSimilar: (fullRebuild?: boolean) => ipcRenderer.invoke('duplicate:detectSimilar', fullRebuild),

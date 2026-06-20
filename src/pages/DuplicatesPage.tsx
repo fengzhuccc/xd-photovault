@@ -12,8 +12,10 @@ export function DuplicatesPage() {
     duplicatesTotal,
     duplicatesHasMore,
     duplicateProgress,
+    duplicateReason,
     loadDuplicates,
     loadDuplicatesPage,
+    setDuplicateReason,
     stats,
   } = useAppStore();
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
@@ -35,7 +37,11 @@ export function DuplicatesPage() {
 
   useEffect(() => {
     loadDuplicates();
-  }, [loadDuplicates]);
+  }, [loadDuplicates, duplicateReason]);
+
+  const handleReasonChange = (reason: 'all' | 'exact' | 'similar') => {
+    setDuplicateReason(reason);
+  };
 
   useEffect(() => {
     const loadThumbnails = async () => {
@@ -175,7 +181,7 @@ export function DuplicatesPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-zinc-100 mb-1">重复照片</h1>
           <p className="text-sm text-zinc-400">
@@ -232,6 +238,27 @@ export function DuplicatesPage() {
             删除重复 ({selectedGroups.size})
           </button>
         </div>
+      </div>
+
+      <div className="flex items-center gap-2 mb-4">
+        {(['all', 'exact', 'similar'] as const).map((reason) => (
+          <button
+            key={reason}
+            onClick={() => handleReasonChange(reason)}
+            disabled={isDetecting}
+            className={cn(
+              'px-3 py-1.5 rounded-lg text-sm transition-colors',
+              duplicateReason === reason
+                ? 'bg-zinc-700 text-zinc-100'
+                : 'bg-zinc-800/50 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200',
+              'disabled:opacity-50 disabled:cursor-not-allowed'
+            )}
+          >
+            {reason === 'all' && '全部'}
+            {reason === 'exact' && '精确重复'}
+            {reason === 'similar' && '相似重复'}
+          </button>
+        ))}
       </div>
 
       {isDetecting && detectProgress && (

@@ -803,12 +803,19 @@ export class DatabaseService {
       });
   }
 
-  getDuplicateGroupsPaged(limit: number = 50, offset: number = 0): { groups: DuplicateGroupDetail[]; total: number } {
-    const total = (this.db.prepare('SELECT COUNT(*) as total FROM duplicate_groups').get() as { total: number }).total;
+  getDuplicateGroupsPaged(
+    limit: number = 50,
+    offset: number = 0,
+    reason?: 'exact' | 'similar'
+  ): { groups: DuplicateGroupDetail[]; total: number } {
+    const whereClause = reason ? 'WHERE reason = ?' : '';
+    const total = (this.db.prepare(`
+      SELECT COUNT(*) as total FROM duplicate_groups ${whereClause}
+    `).get(...(reason ? [reason] : [])) as { total: number }).total;
 
     const groups = this.db.prepare(`
-      SELECT * FROM duplicate_groups LIMIT ? OFFSET ?
-    `).all(limit, offset) as DuplicateGroupRow[];
+      SELECT * FROM duplicate_groups ${whereClause} LIMIT ? OFFSET ?
+    `).all(...(reason ? [reason] : []), limit, offset) as DuplicateGroupRow[];
 
     if (groups.length === 0) return { groups: [], total };
 

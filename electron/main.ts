@@ -245,8 +245,8 @@ function setupIpcHandlers() {
     return await db.getPhotoStats();
   });
 
-  ipcMain.handle('duplicate:getAll', async (_event, limit?: number, offset?: number) => {
-    return await db.getDuplicateGroupsPaged(limit, offset);
+  ipcMain.handle('duplicate:getAll', async (_event, limit?: number, offset?: number, reason?: 'exact' | 'similar') => {
+    return await db.getDuplicateGroupsPaged(limit, offset, reason);
   });
 
   ipcMain.handle('duplicate:detect', async (_event, fullRebuild: boolean = true) => {

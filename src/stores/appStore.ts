@@ -50,6 +50,8 @@ interface AppState {
   loadTimeline: (filter?: PhotoFilter) => Promise<void>;
   loadDuplicates: () => Promise<void>;
   loadDuplicatesPage: (append?: boolean) => Promise<{ hasMore: boolean; total: number } | undefined>;
+  duplicateReason: 'all' | 'exact' | 'similar';
+  setDuplicateReason: (reason: 'all' | 'exact' | 'similar') => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -63,6 +65,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   duplicates: [],
   duplicatesTotal: 0,
   duplicatesHasMore: true,
+  duplicateReason: 'all',
   scanProgress: null,
   isScanning: false,
   duplicateProgress: null,
@@ -199,7 +202,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadDuplicates: async () => {
-    const result = await window.api.duplicate.getAll(50, 0);
+    const reason = get().duplicateReason;
+    const result = await window.api.duplicate.getAll(50, 0, reason === 'all' ? undefined : reason);
     set({
       duplicates: result.groups,
       duplicatesTotal: result.total,
@@ -210,7 +214,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadDuplicatesPage: async (append = false) => {
     const limit = 50;
     const offset = append ? get().duplicates.length : 0;
-    const result = await window.api.duplicate.getAll(limit, offset);
+    const reason = get().duplicateReason;
+    const result = await window.api.duplicate.getAll(limit, offset, reason === 'all' ? undefined : reason);
     const existingIds = new Set(get().duplicates.map(g => g.id));
     const newDuplicates = append
       ? [...get().duplicates, ...result.groups.filter((g: DuplicateGroup) => !existingIds.has(g.id))]
@@ -221,5 +226,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       duplicatesHasMore: offset + result.groups.length < result.total,
     });
     return { hasMore: offset + result.groups.length < result.total, total: result.total };
+  },
+
+  setDuplicateReason: (reason) => {
+    set({ duplicateReason: reason });
   },
 }));
