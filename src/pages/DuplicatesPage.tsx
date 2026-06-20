@@ -37,11 +37,17 @@ export function DuplicatesPage() {
   const [currentGroup, setCurrentGroup] = useState<DuplicateGroup | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
 
+  // 用 ref 读取最新 thumbnails，避免缩略图加载 effect 依赖 thumbnails 导致每批更新都重算
+  const thumbnailsRef = useRef(thumbnails);
+  thumbnailsRef.current = thumbnails;
+
   const isDetecting = duplicateProgress !== null;
-  const detectStage: 'exact' | 'similar' | null = duplicateProgress
-    ? duplicateProgress.stage === 'exact'
-      ? 'exact'
-      : 'similar'
+  const detectStage: 'exact' | 'similar' | 'hashing' | null = duplicateProgress
+    ? (duplicateProgress.stage === 'exact'
+        ? 'exact'
+        : duplicateProgress.stage === 'hashing'
+          ? 'hashing'
+          : 'similar')
     : null;
   const detectProgress = duplicateProgress
     ? { current: duplicateProgress.current, total: duplicateProgress.total, message: duplicateProgress.message }
@@ -69,7 +75,7 @@ export function DuplicatesPage() {
   useEffect(() => {
     const loadThumbnails = async () => {
       const allPhotos = duplicates.flatMap(g => g.photos);
-      const missing = allPhotos.filter(p => !(p.id in thumbnails));
+      const missing = allPhotos.filter(p => !(p.id in thumbnailsRef.current));
       if (missing.length === 0) return;
 
       // 分批请求，避免单次 IPC 负载过大
@@ -88,7 +94,7 @@ export function DuplicatesPage() {
     if (duplicates.length > 0) {
       loadThumbnails();
     }
-  }, [duplicates, thumbnails]);
+  }, [duplicates]);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || !duplicatesHasMore) return;
@@ -238,7 +244,12 @@ export function DuplicatesPage() {
       }
       return next;
     });
-  }, [duplicates, setDuplicates]);
+
+    // 删除后若已加载列表变空但后端还有更多，自动加载下一页，避免误显示"没有重复照片"
+    if (updated.length === 0 && useAppStore.getState().duplicatesHasMore) {
+      loadDuplicatesPage(true).catch(() => { /* 忽略，用户可手动重试 */ });
+    }
+  }, [duplicates, setDuplicates, loadDuplicatesPage]);
 
   // ===== 组内保留逻辑 =====
 
@@ -533,8 +544,8 @@ export function DuplicatesPage() {
                 'disabled:opacity-50 disabled:cursor-not-allowed'
               )}
             >
-              <RefreshCw size={16} className={isDetecting && detectStage === 'similar' ? 'animate-spin' : ''} />
-              {isDetecting && detectStage === 'similar' ? '检测中...' : '相似去重'}
+              <RefreshCw size={16} className={isDetecting && (detectStage === 'similar' || detectStage === 'hashing') ? 'animate-spin' : ''} />
+              {isDetecting && (detectStage === 'similar' || detectStage === 'hashing') ? '检测中...' : '相似去重'}
             </button>
             <div className="w-px h-6 bg-zinc-800 mx-1" />
             <button

@@ -7,6 +7,7 @@ import { HashService } from './hash';
 import { ExifService } from './exif';
 import { ThumbnailService } from './thumbnail';
 import { VideoService } from './video';
+import { scorePhoto } from './scoring';
 import log from 'electron-log';
 
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.raw', '.cr2', '.nef', '.arw'];
@@ -759,10 +760,6 @@ export class ScannerService {
     return migrated;
   }
 
-  async detectDuplicates(fullRebuild: boolean = true, newHashes: string[] = [], newFrameHashes: string[] = []): Promise<number> {
-    return this.detectDuplicatesWithMode(fullRebuild, 'all', newHashes, newFrameHashes);
-  }
-
   async detectExactDuplicates(fullRebuild: boolean = true, newHashes: string[] = [], newFrameHashes: string[] = []): Promise<number> {
     return this.detectDuplicatesWithMode(fullRebuild, 'exact', newHashes, newFrameHashes);
   }
@@ -773,7 +770,7 @@ export class ScannerService {
 
   private async detectDuplicatesWithMode(
     fullRebuild: boolean,
-    mode: 'exact' | 'similar' | 'all',
+    mode: 'exact' | 'similar',
     newHashes: string[] = [],
     newFrameHashes: string[] = []
   ): Promise<number> {
@@ -781,26 +778,22 @@ export class ScannerService {
 
     if (fullRebuild) {
       await this.migrateLegacyHashes();
-      if (mode === 'all') {
-        this.db.clearDuplicateGroups();
-      } else if (mode === 'exact') {
+      if (mode === 'exact') {
         this.db.clearDuplicateGroupsByReason('exact');
-      } else if (mode === 'similar') {
+      } else {
         this.db.clearDuplicateGroupsByReason('similar');
       }
     }
 
-    if (mode !== 'exact') {
+    if (mode === 'similar') {
       await this.ensurePerceptualHashes();
     }
 
     let groupCount = 0;
 
-    if (mode === 'exact' || mode === 'all') {
+    if (mode === 'exact') {
       groupCount += await this.runExactDuplicateDetection(fullRebuild, newHashes, newFrameHashes);
-    }
-
-    if (mode === 'similar' || mode === 'all') {
+    } else {
       const similarCount = await this.runSimilarDuplicateDetection(fullRebuild);
       groupCount += similarCount;
     }
@@ -964,6 +957,7 @@ export class ScannerService {
     // 标记相似去重正在执行；如果中断，启动时会清理可能不完整的相似组
     this.db.setDuplicateDetectionDirty('similar', true);
 
+    try {
     const PHASH_THRESHOLD = 10;
     const LSH_BANDS = 4;
     const LSH_BAND_SIZE = 16; // 64 / 4
@@ -1143,26 +1137,31 @@ export class ScannerService {
       }
     }
 
-    // 成功完成后清除脏标记
-    this.db.setDuplicateDetectionDirty('similar', false);
-
     log.info(`[Scanner] 相似图片检测完成: ${newGroups.length} 组 (比较 ${comparisons} 对，桶数 ${lshBuckets.size})`);
     return newGroups.length;
+    } catch (err) {
+      // 异常时清理本次产生的半成品相似组，避免脏数据残留
+      this.db.clearDuplicateGroupsByReason('similar');
+      log.error('[Scanner] 相似图片检测失败，已清理半成品组', err);
+      throw err;
+    } finally {
+      // 无论成功或异常都清除脏标记
+      this.db.setDuplicateDetectionDirty('similar', false);
+    }
   }
 
+  /**
+   * 评分制选择最佳保留照片。
+   * 综合考虑 GPS、文件大小、分辨率、文件名规范性，避免单一条件直接胜出导致其他维度被忽略。
+   * - 有 GPS：+100（位置信息珍贵）
+   * - 文件大小：log2(size)*10（越大分越高，但避免大文件垄断）
+   * - 分辨率：像素数/1e6（百万像素）
+   * - 文件名规范：不含 copy/副本/edited 等关键词 +10
+   */
   private selectBestPhoto(photos: PhotoRow[]): PhotoRow {
-    return photos.reduce((best, current) => {
-      if (current.latitude && current.longitude && (!best.latitude || !best.longitude)) {
-        return current;
-      }
-      if (current.file_size > best.file_size) {
-        return current;
-      }
-      if ((current.width || 0) * (current.height || 0) > (best.width || 0) * (best.height || 0)) {
-        return current;
-      }
-      return best;
-    });
+    return photos.reduce((best, current) =>
+      scorePhoto(current) > scorePhoto(best) ? current : best
+    );
   }
 
   async deletePhotos(photoIds: string[]): Promise<void> {
@@ -1181,7 +1180,16 @@ export class ScannerService {
     // 批量删除缩略图文件（含新版多尺寸和旧版无分片）
     this.thumbnailService.deleteThumbnailsByPhotoIds(photos.map(p => p.id));
 
-    // 批量删除数据库记录
-    this.db.deletePhotosBatch(photos.map(p => p.id));
+    // 批量删除数据库记录，并获取受影响且仍存在的重复组
+    const affectedGroupIds = this.db.deletePhotosBatch(photos.map(p => p.id));
+
+    // 对每个受影响组重新选择推荐照片，避免 recommended_photo_id 为 NULL
+    for (const groupId of affectedGroupIds) {
+      const remaining = this.db.getPhotosInDuplicateGroup(groupId);
+      if (remaining.length > 0) {
+        const newRecommended = this.selectBestPhoto(remaining);
+        this.db.updateDuplicateGroupRecommended(groupId, newRecommended.id);
+      }
+    }
   }
 }

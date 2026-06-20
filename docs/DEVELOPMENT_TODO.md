@@ -132,7 +132,7 @@ ALTER TABLE folders ADD COLUMN scan_last_path TEXT DEFAULT '';
 | D2 | ~~中~~ ✅ | 后端 | 已删除文件清理改批量事务删除（DELETE WHERE id IN） | `database.ts`, `scanner.ts` |
 | D3 | ~~高~~ ✅ | 后端 | Schema Migration 机制：版本号管理 + ALTER TABLE 原地升级 | `database.ts` |
 | D4 | ~~中~~ ✅ | 后端 | 返回类型安全：全部 any 改为具体类型 | `database.ts`, `types/index.ts` |
-| D5 | ~~中~~ ✅ | 后端 | 事务修复：deletePhotosByFolder 和 clearDuplicateGroups 包裹事务 | `database.ts` |
+| D5 | ~~中~~ ✅ | 后端 | 事务修复：deletePhotosByFolder、clearDuplicateGroups、deletePhoto 均包裹事务 | `database.ts` |
 | D6 | ~~中~~ ✅ | 后端 | deletePhoto 后清理空重复组 | `database.ts` |
 | D7 | ~~低~~ ✅ | 后端 | getDuplicateGroups 优化：两步查询替代 json_group_array | `database.ts` |
 | D8 | ~~低~~ ✅ | 后端 | getPhotoStats 合并查询：5次 SELECT 合并为1条 | `database.ts` |
@@ -345,7 +345,7 @@ setOriginalImages({});
 | R2 | ~~高~~ ✅ | 后端 | 精确重复改 SQL 聚合查询（GROUP BY file_hash HAVING COUNT>1），支持跨文件夹 | `database.ts` |
 | R3 | ~~高~~ ✅ | 后端 | 重复组增量更新：新增只检查新照片，删除从组中移除，组内仅1张时删组 | `database.ts`, `scanner.ts` |
 | R4 | ~~中~~ ✅ | 前端 | 独立"重新检测重复"入口 | `LibraryPage.tsx` 或 `DuplicatesPage.tsx` |
-| R5 | ~~中~~ ⏭️ | 后端 | 推荐保留改评分制（GPS +100、文件大小对数、分辨率、文件名规范性） | `scanner.ts` |
+| R5 | ~~中~~ ✅ | 后端 | 推荐保留改评分制（GPS +100、文件大小对数、分辨率、文件名规范性） | `scanner.ts` |
 | R6 | ~~中~~ ⏭️ | 后端 | pHash 比较优化：哈希分段索引（4段16位），O(N²) → 接近 O(N) | `database.ts` 新增索引 |
 | R7 | ~~中~~ ⏭️ | 后端 | 相似检测后台运行：Worker 线程 + 渐进式输出 | 新建 `worker/duplicateDetector.ts` |
 
@@ -386,26 +386,26 @@ HAVING COUNT(*) > 1
 
 ### R5 详细说明
 
-当前 `selectBestPhoto()` 优先级链有缺陷——有 GPS 就不再比大小：
+当前 `selectBestPhoto()` 已改为评分制（✅ 已完成），综合考虑 GPS、文件大小、分辨率、文件名规范性：
 
 ```typescript
-// 当前：有GPS直接胜出，不看其他条件
-if (current.latitude && !best.latitude) return current;
-if (current.file_size > best.file_size) return current;  // 有GPS时永远不执行
-```
-
-改为评分制：
-
-```typescript
-function scorePhoto(photo): number {
-  let score = 0;
-  if (photo.latitude && photo.longitude) score += 100;  // 有GPS +100
-  score += Math.log2(photo.file_size) * 10;             // 文件越大分越高
-  score += (photo.width * photo.height) / 1000000;      // 分辨越高分越高
-  if (photo.filename && !photo.filename.includes('copy')) score += 10;  // 文件名规范 +10
-  return score;
+private selectBestPhoto(photos: PhotoRow[]): PhotoRow {
+  const scoreOf = (p: PhotoRow): number => {
+    let score = 0;
+    if (p.latitude && p.longitude) score += 100;        // 有GPS +100
+    score += Math.log2(Math.max(1, p.file_size)) * 10;  // 文件越大分越高（对数避免垄断）
+    score += ((p.width || 0) * (p.height || 0)) / 1e6;  // 百万像素
+    const name = (p.filename || '').toLowerCase();
+    if (!/copy|副本|edited|修改|截图/.test(name)) score += 10;  // 文件名规范 +10
+    return score;
+  };
+  return photos.reduce((best, current) =>
+    scoreOf(current) > scoreOf(best) ? current : best
+  );
 }
 ```
+
+删除照片后，`scanner.ts deletePhotos` 会对受影响且仍存在的重复组重新调用此方法选择新推荐，保证 `recommended_photo_id` 始终有效。
 
 ### R6 详细说明
 
@@ -1593,12 +1593,12 @@ HAVING COUNT(*) > 1
 1. ~~**S4** 真正的 pHash 计算~~ ✅
 2. ~~**S8** 崩溃恢复（folders 表加扫描状态字段）~~ ✅
 3. ~~**R4** 独立重新检测入口~~ ✅
-4. **R5** 评分制推荐保留
+4. ~~**R5** 评分制推荐保留~~ ✅
 5. **R6** pHash 分段索引
 6. **R7** Worker 后台运行
 7. ~~**D2** 批量事务删除~~ ✅
 8. ~~**D4** 返回类型安全（any → 具体类型）~~ ✅
-9. ~~**D5** 事务修复（deletePhotosByFolder/clearDuplicateGroups）~~ ✅
+9. ~~**D5** 事务修复（deletePhotosByFolder/clearDuplicateGroups/deletePhoto）~~ ✅
 10. ~~**D6** deletePhoto 后清理空重复组~~ ✅
 11. **M4** 地图视口按需加载
 12. **M5** 时间轴筛选

@@ -75,7 +75,7 @@ FOREIGN KEY (recommended_photo_id) REFERENCES photos(id)
 
 **没有 `ON DELETE CASCADE`**。批量删除照片时，如果其中某张是某个重复组的 `recommended_photo_id`，删除会触发外键约束失败，整个批次回滚。
 
-**正确做法**：删除前先把这些 `recommended_photo_id` 置为 NULL（见 `database.ts deletePhotosBatch`）。
+**正确做法**：删除前先把这些 `recommended_photo_id` 置为 NULL（见 `database.ts deletePhotosBatch`），删除完成后由 `scanner.ts deletePhotos` 对受影响且仍存在的组重新选择推荐照片（复用 `selectBestPhoto` 评分制），避免 `recommended_photo_id` 长期为 NULL 导致前端推荐标记丢失。
 
 ---
 
@@ -166,11 +166,23 @@ FOREIGN KEY (recommended_photo_id) REFERENCES photos(id)
 - 汉明距离计算使用 `BigInt XOR + popcount`，避免字符串逐字符比较。
 - 手动触发，界面显示进度。
 
+#### 推荐照片选择（selectBestPhoto 评分制）
+
+每个重复组会选一张"推荐保留"照片，采用综合评分（避免单一条件直接胜出导致其他维度被忽略）：
+
+- 有 GPS 坐标：+100（位置信息珍贵）
+- 文件大小：`log2(file_size) * 10`（越大分越高，但用对数避免大文件垄断）
+- 分辨率：像素数 / 1e6（百万像素）
+- 文件名规范：不含 `copy/副本/edited/修改/截图` 等关键词 +10
+
+删除照片后，受影响组会重新调用此评分逻辑选择新推荐，保证 `recommended_photo_id` 始终有效。
+
 #### 崩溃恢复（方案 A）
 
 - 相似去重开始前：`duplicate_detection_dirty.similar = 1`，清空旧相似组。
 - 成功完成后：`duplicate_detection_dirty.similar = 0`。
-- 中断后下次启动：`initializeServices` 检测到 dirty，清理所有相似组并复位。
+- 异常时（非进程崩溃）：`runSimilarDuplicateDetection` 的 try/catch 会清理本次产生的半成品相似组，finally 块重置 dirty 为 0。
+- 进程崩溃后下次启动：`initializeServices` 检测到 dirty，清理所有相似组并复位。
 - 精确去重采用**原子替换**：不清空-逐插，而是收集完所有新组后，一个事务内「清空旧 exact 组 + 写入新 exact 组」。
 
 #### 脆弱点
@@ -240,7 +252,7 @@ FOREIGN KEY (recommended_photo_id) REFERENCES photos(id)
 | `scan` | `start/isScanning/onProgress` | 扫描控制与进度 |
 | `photo` | `getAll/getPage/getTimeline/getOffsetByMonth/getById/getStats/updateLocation/updateDate/delete/getWithLocation/getInBounds/getClustersInBounds` | 照片查询与编辑 |
 | `mapSetting` | `get/set` | 地图瓦片源配置 |
-| `duplicate` | `getAll/detect/detectExact/detectSimilar/delete/onProgress` | 去重查询与触发 |
+| `duplicate` | `getAll/detectExact/detectSimilar/delete/onProgress` | 去重查询与触发 |
 | `thumbnail` | `get/getBatch/stats/clear` | 缩略图服务 |
 | `database` | `clear` | 清空数据库 |
 | `log` | `getPath/read/clear/openFolder` | 日志管理 |

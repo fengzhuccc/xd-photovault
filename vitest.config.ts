@@ -6,7 +6,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
-    include: ['electron/**/*.test.ts'],
+    include: ['electron/**/*.test.ts', 'src/**/*.test.{ts,tsx}'],
     // better-sqlite3 等原生模块在多线程 worker 中可能初始化异常，使用 forks 隔离进程
     pool: 'forks',
     singleFork: true,

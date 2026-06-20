@@ -252,10 +252,6 @@ function setupIpcHandlers() {
     return await db.getDuplicateGroupsPaged(limit, offset, reason);
   });
 
-  ipcMain.handle('duplicate:detect', async (_event, fullRebuild: boolean = true) => {
-    return await scanner.detectDuplicates(fullRebuild);
-  });
-
   ipcMain.handle('duplicate:detectExact', async (_event, fullRebuild: boolean = true) => {
     return await scanner.detectExactDuplicates(fullRebuild);
   });

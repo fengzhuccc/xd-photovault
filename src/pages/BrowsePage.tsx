@@ -143,12 +143,13 @@ export function BrowsePage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [activeTimelineKey, setActiveTimelineKey] = useState<string | null>(null);
   const [visibleRange, setVisibleRange] = useState({ startIndex: 0, endIndex: 0 });
-  const loadVersionRef = useRef(0);
   const prevPhotoIdsRef = useRef<string>('');
   const virtuosoRef = useRef<VirtuosoGridHandle>(null);
   const mediumUpgradeVersionRef = useRef(0);
   const upgradedIdsRef = useRef<Set<string>>(new Set());
   const scrollRestoreIndexRef = useRef<number | null>(null);
+  // 标记正在加载缩略图的 photoId，防止多个 effect 实例重复请求同一批
+  const thumbnailInFlightRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     loadPhotosPage({});
@@ -162,28 +163,41 @@ export function BrowsePage() {
     if (photoIds === prevPhotoIdsRef.current) return;
     prevPhotoIdsRef.current = photoIds;
 
-    const currentVersion = ++loadVersionRef.current;
+    // 照片列表更换后，清理 upgradedIdsRef 中已不在当前列表的 ID，
+    // 避免新列表中同 ID 照片（缩略图缓存已清除）不会重新触发 medium 升级
+    const currentIdSet = new Set(photos.map(p => p.id));
+    for (const id of upgradedIdsRef.current) {
+      if (!currentIdSet.has(id)) upgradedIdsRef.current.delete(id);
+    }
 
+    // 缩略图加载：分批加载缺失的缩略图。
+    // 不使用 version 中断机制——即使 photos 在加载过程中变化，已发出的请求返回后
+    // 仍应把缩略图写入 store（photoId 对应的缩略图不会因为列表变化而失效）。
+    // 用 inFlightRef 防止多个 effect 实例重复请求同一批 photoId。
     const loadThumbnails = async () => {
-      // 分批加载当前照片列表中所有缺失的缩略图，避免时间线跳转后只加载前 100 张
       while (true) {
-        // 从 store 获取最新 thumbnails，而非闭包中的旧值
         const currentThumbnails = get().thumbnails;
-        const photosToLoad = photos.filter(p => !(p.id in currentThumbnails)).slice(0, 100);
+        const photosToLoad = photos
+          .filter(p => !(p.id in currentThumbnails) && !thumbnailInFlightRef.current.has(p.id))
+          .slice(0, 100);
         if (photosToLoad.length === 0) return;
+
+        // 标记这批为 in-flight，防止其他 effect 实例重复请求
+        photosToLoad.forEach(p => thumbnailInFlightRef.current.add(p.id));
 
         const items = photosToLoad.map(p => ({ photoId: p.id, photoPath: p.path, size: 'small' as const }));
         try {
           const batch = await window.api.thumbnail.getBatch(items);
-          if (loadVersionRef.current !== currentVersion) return;
+          // 无论 photos 是否变化，都写入 store（缩略图按 photoId 索引，始终有效）
           setThumbnails({ ...get().thumbnails, ...batch });
         } catch {
-          if (loadVersionRef.current !== currentVersion) return;
           const fallback: Record<string, string> = {};
           for (const photo of photosToLoad) {
             fallback[photo.id] = `file:///${photo.path.replace(/\\/g, '/')}`;
           }
           setThumbnails({ ...get().thumbnails, ...fallback });
+        } finally {
+          photosToLoad.forEach(p => thumbnailInFlightRef.current.delete(p.id));
         }
       }
     };

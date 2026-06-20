@@ -826,6 +826,22 @@ export class DatabaseService {
     stmt.run(photoId, groupId);
   }
 
+  /** 获取重复组内所有照片（用于删除后重选推荐照片） */
+  getPhotosInDuplicateGroup(groupId: string): PhotoRow[] {
+    return this.db.prepare(`
+      SELECT p.* FROM photos p
+      JOIN photo_duplicates pd ON p.id = pd.photo_id
+      WHERE pd.group_id = ?
+    `).all(groupId) as PhotoRow[];
+  }
+
+  /** 更新重复组的推荐照片 */
+  updateDuplicateGroupRecommended(groupId: string, photoId: string): void {
+    this.db.prepare(`
+      UPDATE duplicate_groups SET recommended_photo_id = ? WHERE id = ?
+    `).run(photoId, groupId);
+  }
+
   getDuplicateGroups(): DuplicateGroupDetail[] {
     // D7: 两步查询替代 json_group_array，避免 JSON 序列化开销
     const groups = this.db.prepare(`
@@ -929,24 +945,33 @@ export class DatabaseService {
       SELECT group_id FROM photo_duplicates WHERE photo_id = ?
     `).all(id) as { group_id: string }[];
 
-    // 删除照片（CASCADE 会清理 photo_duplicates）
-    const stmt = this.db.prepare('DELETE FROM photos WHERE id = ?');
-    stmt.run(id);
+    // 整个删除+清理空组包裹在事务中，避免中途崩溃导致数据不一致
+    const transaction = this.db.transaction(() => {
+      // 删除照片（CASCADE 会清理 photo_duplicates）
+      this.db.prepare('DELETE FROM photos WHERE id = ?').run(id);
 
-    // 清理空重复组（组内仅剩1张或0张时删组）
-    for (const g of groups) {
-      const remaining = this.db.prepare(
-        'SELECT COUNT(*) as count FROM photo_duplicates WHERE group_id = ?'
-      ).get(g.group_id) as { count: number };
-      if (remaining.count <= 1) {
-        this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.group_id);
-        this.db.prepare('DELETE FROM photo_duplicates WHERE group_id = ?').run(g.group_id);
+      // 清理空重复组（组内仅剩1张或0张时删组）
+      for (const g of groups) {
+        const remaining = this.db.prepare(
+          'SELECT COUNT(*) as count FROM photo_duplicates WHERE group_id = ?'
+        ).get(g.group_id) as { count: number };
+        if (remaining.count <= 1) {
+          this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.group_id);
+          this.db.prepare('DELETE FROM photo_duplicates WHERE group_id = ?').run(g.group_id);
+        }
       }
-    }
+    });
+    transaction();
   }
 
-  deletePhotosBatch(ids: string[]): void {
-    if (ids.length === 0) return;
+  /**
+   * 批量删除照片。
+   * @returns 受影响且仍然存在（剩余照片数 > 1）的重复组 ID 列表，
+   *          调用方需对这些组重新选择推荐照片（避免 recommended_photo_id 为 NULL）。
+   */
+  deletePhotosBatch(ids: string[]): string[] {
+    if (ids.length === 0) return [];
+    const affectedGroupIds: string[] = [];
     const transaction = this.db.transaction(() => {
       const placeholders = ids.map(() => '?').join(',');
 
@@ -958,25 +983,28 @@ export class DatabaseService {
       `).run(...ids);
 
       // 找到这些照片所在的所有重复组
-      const affectedGroupIds = this.db.prepare(`
+      const affected = this.db.prepare(`
         SELECT DISTINCT group_id FROM photo_duplicates WHERE photo_id IN (${placeholders})
       `).all(...ids) as { group_id: string }[];
 
       // 批量删除照片（CASCADE 会清理 photo_duplicates）
       this.db.prepare(`DELETE FROM photos WHERE id IN (${placeholders})`).run(...ids);
 
-      // 清理空重复组
-      for (const g of affectedGroupIds) {
+      // 清理空重复组，收集仍存在的组供调用方修复推荐照片
+      for (const g of affected) {
         const remaining = this.db.prepare(
           'SELECT COUNT(*) as count FROM photo_duplicates WHERE group_id = ?'
         ).get(g.group_id) as { count: number };
         if (remaining.count <= 1) {
           this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.group_id);
           this.db.prepare('DELETE FROM photo_duplicates WHERE group_id = ?').run(g.group_id);
+        } else {
+          affectedGroupIds.push(g.group_id);
         }
       }
     });
     transaction();
+    return affectedGroupIds;
   }
 
   updatePhotoLocation(id: string, lat: number, lng: number): void {
