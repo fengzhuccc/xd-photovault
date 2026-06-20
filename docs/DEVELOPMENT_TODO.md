@@ -1401,6 +1401,164 @@ if (!window.api) {
 
 ---
 
+## 十四、视频模块（V1-V6）
+
+| 编号 | 优先级 | 前后端 | 事项 | 涉及文件 |
+|------|--------|--------|------|----------|
+| V1 | 高 | 后端 | 扫描识别视频格式：`.mp4`、`.mov`、`.m4v` | `scanner.ts` |
+| V2 | 高 | 后端 | 数据库 Schema 扩展：`media_type`、`duration`、`frame_hash` | `database.ts` |
+| V3 | 高 | 后端 | 视频缩略图：ffmpeg 抽取第一帧，复用现有缩略图流程生成 WebP | `thumbnail.ts` |
+| V4 | 高 | 后端 | 视频元数据读取：时长 `duration`，不读完整文件 | `exif.ts` 或新建 `video.ts` |
+| V5 | 高 | 前端 | 浏览页视频显示：播放图标 + 时长 + 点击调用系统播放器 | `BrowsePage.tsx` |
+| V6 | 高 | 后端 | 视频精确去重：按 `file_size + frame_hash` 分组 | `database.ts`、`scanner.ts` |
+
+### V1 详细说明
+
+当前扫描只识别图片扩展名，需扩展为图片 + 视频：
+
+```typescript
+const IMAGE_EXTENSIONS = new Set([
+  '.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif',
+  '.raw', '.cr2', '.nef', '.arw'
+]);
+
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v']);
+
+const isMediaFile = (ext: string) =>
+  IMAGE_EXTENSIONS.has(ext) || VIDEO_EXTENSIONS.has(ext);
+```
+
+扫描时根据扩展名判断 `media_type`：
+- 图片：`media_type = 'image'`
+- 视频：`media_type = 'video'`
+
+### V2 详细说明
+
+通过 Schema Migration 给 `photos` 表增加字段：
+
+```sql
+ALTER TABLE photos ADD COLUMN media_type TEXT DEFAULT 'image';
+ALTER TABLE photos ADD COLUMN duration REAL;        -- 视频时长（秒），图片为 null
+ALTER TABLE photos ADD COLUMN frame_hash TEXT;      -- 视频第一帧哈希
+```
+
+`PhotoInsert` 类型同步扩展：
+
+```typescript
+interface PhotoInsert {
+  // ... 原有字段
+  mediaType: 'image' | 'video';
+  duration: number | null;
+  frameHash: string | null;
+}
+```
+
+### V3 详细说明
+
+视频缩略图不直接用 sharp 生成，而是先用 ffmpeg 抽取第一帧为临时图片，再走现有缩略图服务生成 WebP：
+
+```typescript
+// thumbnail.ts 伪代码
+async function generateVideoThumbnail(photoId: string, videoPath: string, size: 'small' | 'medium') {
+  const tempFrame = join(tmpDir, `${photoId}.jpg`);
+  await extractFirstFrame(videoPath, tempFrame);
+  const result = await generateImageThumbnail(photoId, tempFrame, size);
+  unlinkSync(tempFrame);
+  return result;
+}
+```
+
+ffmpeg 命令示例：
+
+```bash
+ffmpeg -i input.mp4 -ss 00:00:00 -vframes 1 output.jpg
+```
+
+依赖：
+
+```bash
+npm install fluent-ffmpeg @ffmpeg-installer/ffmpeg
+```
+
+`@ffmpeg-installer/ffmpeg` 会自动下载对应平台的 ffmpeg 二进制，开发环境和打包都能用。
+
+### V4 详细说明
+
+视频不读 EXIF，用 ffprobe 读容器元数据：
+
+```typescript
+import ffmpeg from 'fluent-ffmpeg';
+
+function getVideoDuration(path: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(path, (err, metadata) => {
+      if (err) return reject(err);
+      resolve(metadata.format.duration || 0);
+    });
+  });
+}
+```
+
+扫描流程：
+1. 文件收集（图片 + 视频）
+2. 图片：sharp + exifr
+3. 视频：ffmpeg 抽帧 + ffprobe 读时长
+
+### V5 详细说明
+
+浏览页视频卡片需要与图片区分：
+
+```tsx
+<div className="relative">
+  <img src={thumbnailUrl} />
+  {photo.media_type === 'video' && (
+    <>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <PlayIcon />
+      </div>
+      <div className="absolute bottom-1 right-1 text-xs bg-black/60 px-1 rounded">
+        {formatDuration(photo.duration)}
+      </div>
+    </>
+  )}
+</div>
+```
+
+点击视频调用系统默认播放器：
+
+```typescript
+await shell.openPath(photo.path);
+```
+
+### V6 详细说明
+
+视频不参与 pHash 相似去重，只参与精确去重。精确去重条件：
+
+```typescript
+// 图片：按 file_hash 分组（原有逻辑）
+// 视频：按 file_size + frame_hash 分组
+```
+
+数据库查询：
+
+```sql
+SELECT file_hash, frame_hash, file_size, GROUP_CONCAT(id) as photo_ids
+FROM photos
+WHERE media_type = 'image' AND file_hash IS NOT NULL
+   OR media_type = 'video' AND frame_hash IS NOT NULL
+GROUP BY
+  CASE WHEN media_type = 'image' THEN file_hash ELSE frame_hash || '_' || file_size END
+HAVING COUNT(*) > 1
+```
+
+实际实现可拆为两条 SQL：
+1. 图片精确重复：按 `file_hash` 分组
+2. 视频精确重复：按 `file_size + frame_hash` 分组
+
+最后合并结果统一写入 `duplicate_groups`（`reason='exact'`）。
+
+---
+
 ## 建议实施顺序
 
 ### 第一批（高优先级，核心功能修复）
@@ -1423,6 +1581,12 @@ if (!window.api) {
 16. ~~**B1** 照片列表分批加载接口~~ ✅
 17. ~~**B2** 无限滚动~~ ✅
 18. ~~**B3** 虚拟滚动~~ ✅
+19. **V1** 扫描识别视频格式
+20. **V2** 数据库扩展视频字段
+21. **V3** 视频缩略图（ffmpeg 抽第一帧）
+22. **V4** 视频时长元数据读取
+23. **V5** 浏览页视频显示与系统播放器
+24. **V6** 视频精确去重（file_size + frame_hash）
 
 ### 第二批（中优先级，体验增强）
 
