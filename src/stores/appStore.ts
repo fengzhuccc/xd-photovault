@@ -14,6 +14,7 @@ interface AppState {
   duplicatesHasMore: boolean;
   scanProgress: ScanProgress | null;
   isScanning: boolean;
+  scanningFolderId: string | null;
   duplicateProgress: { stage: 'hashing' | 'exact' | 'similar' | 'complete'; current: number; total: number; message: string } | null;
   selectedPhoto: Photo | null;
   currentFilter: PhotoFilter;
@@ -33,6 +34,7 @@ interface AppState {
   
   setScanProgress: (progress: ScanProgress | null) => void;
   setIsScanning: (isScanning: boolean) => void;
+  setScanningFolderId: (folderId: string | null) => void;
   setDuplicateProgress: (progress: { stage: 'hashing' | 'exact' | 'similar' | 'complete'; current: number; total: number; message: string } | null) => void;
   
   setCurrentFilter: (filter: PhotoFilter) => void;
@@ -68,6 +70,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   duplicateReason: 'all',
   scanProgress: null,
   isScanning: false,
+  scanningFolderId: null,
   duplicateProgress: null,
   selectedPhoto: null,
   currentFilter: {},
@@ -101,6 +104,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setScanProgress: (progress) => set({ scanProgress: progress }),
   setIsScanning: (isScanning) => set({ isScanning }),
+  setScanningFolderId: (folderId) => set({
+    scanningFolderId: folderId,
+    isScanning: folderId !== null,
+  }),
   setDuplicateProgress: (progress) => set({ duplicateProgress: progress }),
 
   setCurrentFilter: (filter) => set({ currentFilter: filter }),

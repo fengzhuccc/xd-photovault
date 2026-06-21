@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FolderOpen, Plus, Trash2, RefreshCw, HardDrive, Calendar, ChevronDown, RotateCcw } from 'lucide-react';
+import { FolderOpen, Plus, Trash2, RefreshCw, HardDrive, Calendar, ChevronDown, RotateCcw, Loader2 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
@@ -10,6 +10,7 @@ export function LibraryPage() {
   const {
     folders,
     scanProgress,
+    scanningFolderId,
     isScanning,
     loadFolders,
     loadStats,
@@ -18,12 +19,13 @@ export function LibraryPage() {
     addFolder,
     removeFolder,
     setScanProgress,
-    setIsScanning,
+    setScanningFolderId,
   } = useAppStore();
 
   const [isAddingFolder, setIsAddingFolder] = useState(false);
   const [scanResult, setScanResult] = useState<ScanProgress | null>(null);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [removingFolderId, setRemovingFolderId] = useState<string | null>(null);
 
   useEffect(() => {
     loadFolders();
@@ -34,7 +36,7 @@ export function LibraryPage() {
     const unsubscribe = window.api.scan.onProgress((progress: ScanProgress) => {
       setScanProgress(progress);
       if (progress.status === 'complete') {
-        setIsScanning(false);
+        setScanningFolderId(null);
         setScanResult(progress);
         // 扫描完成后刷新照片列表、时间线和统计，缩略图保留已有缓存按需补充
         loadPhotosPage({});
@@ -44,7 +46,17 @@ export function LibraryPage() {
       }
     });
     return () => { unsubscribe(); };
-  }, [setScanProgress, setIsScanning, loadPhotosPage, loadTimeline, loadFolders, loadStats]);
+  }, [setScanProgress, setScanningFolderId, loadPhotosPage, loadTimeline, loadFolders, loadStats]);
+
+  // ESC 关闭下拉菜单
+  useEffect(() => {
+    if (!openDropdown) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenDropdown(null);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [openDropdown]);
 
   const handleAddFolder = async () => {
     setIsAddingFolder(true);
@@ -86,41 +98,64 @@ export function LibraryPage() {
           });
         }
       }
+    } catch (error) {
+      console.error('Add folder failed:', error);
+      toast('error', `添加文件夹失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsAddingFolder(false);
     }
   };
 
   const handleScan = async (folderId: string, forceRescan: boolean = false) => {
+    // 前端拦截：已有文件夹在扫描时，禁止再发起扫描
+    if (scanningFolderId && scanningFolderId !== folderId) {
+      toast('info', '已有文件夹正在扫描，请等待当前扫描完成。');
+      return;
+    }
     if (forceRescan && !await confirm('强制重新扫描将清除当前目录所有索引并重新扫描，确定继续吗？', { variant: 'warning' })) {
       return;
     }
     setOpenDropdown(null);
-    setIsScanning(true);
+    setScanningFolderId(folderId);
     setScanResult(null);
     setScanProgress({ current: 0, total: 0, currentFile: '', status: 'scanning' });
     try {
       await window.api.scan.start(folderId, forceRescan);
     } catch (error) {
       console.error('Scan failed:', error);
-      setIsScanning(false);
+      setScanningFolderId(null);
       setScanProgress({ current: 0, total: 0, currentFile: '', status: 'idle' });
+      toast('error', `扫描失败：${error instanceof Error ? error.message : String(error)}`);
     }
-    // 不在 finally 中 setIsScanning(false)，由 onProgress 的 complete 事件控制
+    // 不在 finally 中 setScanningFolderId(null)，由 onProgress 的 complete 事件控制
     // 也不在这里 loadFolders/loadStats，由 onProgress 的 complete 事件处理
   };
 
   const handleRemoveFolder = async (id: string) => {
+    if (removingFolderId) return;
     if (await confirm('确定要移除此文件夹吗？照片索引将被删除，但原始文件不会被删除。', { variant: 'danger', confirmText: '删除' })) {
-      await window.api.folder.remove(id);
-      removeFolder(id);
+      setRemovingFolderId(id);
+      try {
+        await window.api.folder.remove(id);
+        removeFolder(id);
+      } catch (error) {
+        console.error('Remove folder failed:', error);
+        toast('error', `移除文件夹失败：${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        setRemovingFolderId(null);
+      }
     }
   };
 
   const formatPath = (path: string) => {
-    const parts = path.split(/[/\\]/);
+    // 统一分隔符
+    const normalized = path.replace(/\\/g, '/');
+    const parts = normalized.split('/').filter(Boolean);
+    // Windows 盘符（如 C:）始终保留
+    const drive = parts[0] && /^[a-zA-Z]:$/.test(parts[0]) ? parts[0] : null;
     if (parts.length > 3) {
-      return '.../' + parts.slice(-3).join('/');
+      const tail = parts.slice(-2).join('/');
+      return drive ? `${drive}/.../${tail}` : `.../${tail}`;
     }
     return path;
   };
@@ -156,13 +191,11 @@ export function LibraryPage() {
         </button>
       </div>
 
-      {isScanning && scanProgress && (
+      {scanningFolderId && scanProgress && (
         <div className="mb-6 p-4 bg-zinc-900 rounded-xl border border-zinc-800">
           <div className="flex items-center gap-3 mb-3">
             <RefreshCw size={18} className="text-amber-500 animate-spin" />
-            <span className="text-sm text-zinc-300">
-              {scanProgress.status === 'hashing' ? '正在检测重复照片...' : '正在扫描...'}
-            </span>
+            <span className="text-sm text-zinc-300">正在扫描...</span>
           </div>
           <div className="w-full bg-zinc-800 rounded-full h-2 mb-2">
             <div
@@ -171,7 +204,7 @@ export function LibraryPage() {
             />
           </div>
           <div className="flex justify-between text-xs text-zinc-500">
-            <span>{scanProgress.currentFile}</span>
+            <span className="truncate mr-2">{scanProgress.currentFile}</span>
             <span>{scanProgress.current} / {scanProgress.total}</span>
           </div>
         </div>
@@ -216,80 +249,89 @@ export function LibraryPage() {
             <p className="text-sm mt-1">点击上方按钮添加照片文件夹</p>
           </div>
         ) : (
-          folders.map((folder) => (
-            <div
-              key={folder.id}
-              className="relative p-4 bg-zinc-900 rounded-xl border border-zinc-800 hover:border-zinc-700 transition-colors"
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <HardDrive size={16} className="text-zinc-500" />
-                    <span className="text-sm text-zinc-300 truncate">
-                      {formatPath(folder.path)}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-4 text-xs text-zinc-500">
-                    <span>{folder.photo_count.toLocaleString()} 张照片</span>
-                    <span className="flex items-center gap-1">
-                      <Calendar size={12} />
-                      {formatDate(folder.last_scanned)}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="relative">
-                    <div className="flex">
-                      <button
-                        onClick={() => handleScan(folder.id, false)}
-                        disabled={isScanning}
-                        className={cn(
-                          'flex items-center gap-1.5 px-3 py-1.5 rounded-l-lg text-sm transition-colors',
-                          'bg-zinc-800 hover:bg-zinc-700 text-zinc-300',
-                          'disabled:opacity-50 disabled:cursor-not-allowed',
-                          'border-r border-zinc-700'
-                        )}
-                      >
-                        <RefreshCw size={14} className={isScanning ? 'animate-spin' : ''} />
-                        扫描新增
-                      </button>
-                      <button
-                        onClick={() => setOpenDropdown(openDropdown === folder.id ? null : folder.id)}
-                        disabled={isScanning}
-                        className={cn(
-                          'px-1.5 py-1.5 rounded-r-lg text-sm transition-colors',
-                          'bg-zinc-800 hover:bg-zinc-700 text-zinc-300',
-                          'disabled:opacity-50 disabled:cursor-not-allowed'
-                        )}
-                      >
-                        <ChevronDown size={14} />
-                      </button>
+          folders.map((folder) => {
+            const isThisScanning = scanningFolderId === folder.id;
+            const isThisRemoving = removingFolderId === folder.id;
+            return (
+              <div
+                key={folder.id}
+                className="relative p-4 bg-zinc-900 rounded-xl border border-zinc-800 hover:border-zinc-700 transition-colors"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <HardDrive size={16} className="text-zinc-500" />
+                      <span className="text-sm text-zinc-300 truncate">
+                        {formatPath(folder.path)}
+                      </span>
                     </div>
-                    {openDropdown === folder.id && (
-                      <>
-                        <div className="fixed inset-0 z-10" onClick={() => setOpenDropdown(null)} />
-                        <div className="absolute right-0 top-full mt-1 w-48 bg-zinc-800 rounded-lg border border-zinc-700 shadow-xl z-20 py-1">
-                          <button
-                            onClick={() => handleScan(folder.id, true)}
-                            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 transition-colors"
-                          >
-                            <RotateCcw size={14} />
-                            强制重新扫描
-                          </button>
-                        </div>
-                      </>
-                    )}
+                    <div className="flex items-center gap-4 text-xs text-zinc-500">
+                      <span>{folder.photo_count.toLocaleString()} 张照片</span>
+                      <span className="flex items-center gap-1">
+                        <Calendar size={12} />
+                        {formatDate(folder.last_scanned)}
+                      </span>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => handleRemoveFolder(folder.id)}
-                    className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-red-400 transition-colors"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <div className="flex">
+                        <button
+                          onClick={() => handleScan(folder.id, false)}
+                          disabled={isScanning || isThisRemoving}
+                          className={cn(
+                            'flex items-center gap-1.5 px-3 py-1.5 rounded-l-lg text-sm transition-colors',
+                            'bg-zinc-800 hover:bg-zinc-700 text-zinc-300',
+                            'disabled:opacity-50 disabled:cursor-not-allowed',
+                            'border-r border-zinc-700'
+                          )}
+                        >
+                          <RefreshCw size={14} className={isThisScanning ? 'animate-spin' : ''} />
+                          {isThisScanning ? '扫描中' : '扫描新增'}
+                        </button>
+                        <button
+                          onClick={() => setOpenDropdown(openDropdown === folder.id ? null : folder.id)}
+                          disabled={isScanning || isThisRemoving}
+                          className={cn(
+                            'px-1.5 py-1.5 rounded-r-lg text-sm transition-colors',
+                            'bg-zinc-800 hover:bg-zinc-700 text-zinc-300',
+                            'disabled:opacity-50 disabled:cursor-not-allowed'
+                          )}
+                        >
+                          <ChevronDown size={14} />
+                        </button>
+                      </div>
+                      {openDropdown === folder.id && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setOpenDropdown(null)} />
+                          <div className="absolute right-0 top-full mt-1 w-48 bg-zinc-800 rounded-lg border border-zinc-700 shadow-xl z-20 py-1">
+                            <button
+                              onClick={() => handleScan(folder.id, true)}
+                              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 transition-colors"
+                            >
+                              <RotateCcw size={14} />
+                              强制重新扫描
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleRemoveFolder(folder.id)}
+                      disabled={isThisRemoving || isScanning}
+                      className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isThisRemoving ? (
+                        <Loader2 size={16} className="animate-spin" />
+                      ) : (
+                        <Trash2 size={16} />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>
