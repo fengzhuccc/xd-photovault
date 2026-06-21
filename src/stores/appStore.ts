@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Folder, Photo, PhotoStats, DuplicateGroup, ScanProgress, PhotoFilter, TimelineGroup } from '@/types';
+import type { Folder, Photo, PhotoStats, DuplicateGroup, ScanProgress, PhotoFilter, TimelineGroup, AiIndexProgress } from '@/types';
 
 interface AppState {
   folders: Folder[];
@@ -21,7 +21,13 @@ interface AppState {
   sidebarCollapsed: boolean;
   activeTab: 'library' | 'browse' | 'duplicates' | 'map';
   thumbnails: Record<string, string>;
-  
+  aiIndexProgress: AiIndexProgress | null;
+  aiSearchQuery: string;
+  aiSearchResults: Photo[];
+  aiSearching: boolean;
+  aiGpuEnabled: boolean;
+  aiGpuActualProvider: string;
+
   setFolders: (folders: Folder[]) => void;
   addFolder: (folder: Folder) => void;
   removeFolder: (id: string) => void;
@@ -40,8 +46,22 @@ interface AppState {
   setCurrentFilter: (filter: PhotoFilter) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setActiveTab: (tab: 'library' | 'browse' | 'duplicates' | 'map') => void;
-  
+
   setThumbnails: (thumbnails: Record<string, string>) => void;
+
+  setAiIndexProgress: (progress: AiIndexProgress | null) => void;
+  setAiSearchQuery: (query: string) => void;
+  setAiSearchResults: (results: Photo[]) => void;
+  setAiSearching: (searching: boolean) => void;
+  setAiGpuStatus: (status: { enabled: boolean; actualProvider: string }) => void;
+  setAiGpuEnabled: (enabled: boolean) => void;
+  loadAiGpuStatus: () => Promise<void>;
+  toggleAiGpu: () => Promise<void>;
+  startAiIndex: () => Promise<void>;
+  pauseAiIndex: () => Promise<void>;
+  resumeAiIndex: () => Promise<void>;
+  cancelAiIndex: () => Promise<void>;
+  aiSearch: (query: string) => Promise<void>;
   
   loadFolders: () => Promise<void>;
   loadStats: () => Promise<void>;
@@ -77,6 +97,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   sidebarCollapsed: false,
   activeTab: 'library',
   thumbnails: {},
+  aiIndexProgress: null,
+  aiSearchQuery: '',
+  aiSearchResults: [],
+  aiSearching: false,
+  aiGpuEnabled: false,
+  aiGpuActualProvider: 'cpu',
 
   setFolders: (folders) => set({ folders }),
   addFolder: (folder) => set((state) => ({ folders: [folder, ...state.folders] })),
@@ -115,6 +141,69 @@ export const useAppStore = create<AppState>((set, get) => ({
   setActiveTab: (tab) => set({ activeTab: tab }),
 
   setThumbnails: (thumbnails) => set({ thumbnails }),
+
+  setAiIndexProgress: (progress) => set({ aiIndexProgress: progress }),
+  setAiSearchQuery: (query) => set({ aiSearchQuery: query }),
+  setAiSearchResults: (results) => set({ aiSearchResults: results }),
+  setAiSearching: (searching) => set({ aiSearching: searching }),
+  setAiGpuStatus: (status) => set({
+    aiGpuEnabled: status.enabled,
+    aiGpuActualProvider: status.actualProvider,
+  }),
+  setAiGpuEnabled: (enabled) => set({ aiGpuEnabled: enabled }),
+  loadAiGpuStatus: async () => {
+    try {
+      const status = await window.api.aiIndex.getGpuStatus();
+      get().setAiGpuStatus(status);
+    } catch (e) {
+      console.error('[AI] 加载 GPU 状态失败:', e);
+    }
+  },
+  toggleAiGpu: async () => {
+    const next = !get().aiGpuEnabled;
+    try {
+      const result = await window.api.aiIndex.setUseGpu(next);
+      if (result.success) {
+        set({ aiGpuEnabled: next, aiGpuActualProvider: 'cpu' });
+      } else {
+        console.error('[AI] 切换 GPU 加速失败:', result.error);
+      }
+    } catch (e) {
+      console.error('[AI] 切换 GPU 加速失败:', e);
+    }
+  },
+
+  startAiIndex: async () => {
+    await window.api.aiIndex.start();
+  },
+  pauseAiIndex: async () => {
+    await window.api.aiIndex.pause();
+  },
+  resumeAiIndex: async () => {
+    await window.api.aiIndex.resume();
+  },
+  cancelAiIndex: async () => {
+    await window.api.aiIndex.cancel();
+  },
+
+  aiSearch: async (query) => {
+    if (!query.trim()) {
+      set({ aiSearchResults: [], aiSearchQuery: '', aiSearching: false });
+      return;
+    }
+    set({ aiSearching: true, aiSearchQuery: query });
+    try {
+      const response = await window.api.aiSearch.search(query.trim(), 100);
+      if (response.success && response.results) {
+        const photos = response.results.map((r: { photo: Photo; similarity: number }) => r.photo);
+        set({ aiSearchResults: photos, aiSearching: false });
+      } else {
+        set({ aiSearchResults: [], aiSearching: false });
+      }
+    } catch {
+      set({ aiSearchResults: [], aiSearching: false });
+    }
+  },
 
   loadFolders: async () => {
     const folders = await window.api.folder.getAll();
@@ -239,3 +328,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ duplicateReason: reason });
   },
 }));
+
+// 监听 AI 索引进度
+if (typeof window !== 'undefined' && window.api?.aiIndex?.onProgress) {
+  window.api.aiIndex.onProgress((progress) => {
+    useAppStore.setState({ aiIndexProgress: progress });
+  });
+}

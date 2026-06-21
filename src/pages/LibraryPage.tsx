@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FolderOpen, Plus, Trash2, RefreshCw, HardDrive, Calendar, ChevronDown, RotateCcw, Loader2 } from 'lucide-react';
+import { FolderOpen, Plus, Trash2, RefreshCw, HardDrive, Calendar, ChevronDown, RotateCcw, Loader2, Brain, Pause, Play, Square, Zap } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
@@ -12,6 +12,9 @@ export function LibraryPage() {
     scanProgress,
     scanningFolderId,
     isScanning,
+    aiIndexProgress,
+    aiGpuEnabled,
+    aiGpuActualProvider,
     loadFolders,
     loadStats,
     loadPhotosPage,
@@ -20,6 +23,12 @@ export function LibraryPage() {
     removeFolder,
     setScanProgress,
     setScanningFolderId,
+    startAiIndex,
+    pauseAiIndex,
+    resumeAiIndex,
+    cancelAiIndex,
+    loadAiGpuStatus,
+    toggleAiGpu,
   } = useAppStore();
 
   const [isAddingFolder, setIsAddingFolder] = useState(false);
@@ -30,7 +39,8 @@ export function LibraryPage() {
   useEffect(() => {
     loadFolders();
     loadStats();
-  }, [loadFolders, loadStats]);
+    loadAiGpuStatus();
+  }, [loadFolders, loadStats, loadAiGpuStatus]);
 
   useEffect(() => {
     const unsubscribe = window.api.scan.onProgress((progress: ScanProgress) => {
@@ -240,6 +250,132 @@ export function LibraryPage() {
           </div>
         </div>
       )}
+
+      {/* AI 语义索引 */}
+      <div className="mb-6 p-4 bg-zinc-900 rounded-xl border border-zinc-800">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <Brain size={18} className="text-purple-400" />
+            <span className="text-sm text-zinc-300">AI 语义索引</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {(!aiIndexProgress || aiIndexProgress.status === 'idle' || aiIndexProgress.status === 'complete' || aiIndexProgress.status === 'error') && (
+              <button
+                onClick={startAiIndex}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors',
+                  'bg-purple-500/20 hover:bg-purple-500/30 text-purple-300'
+                )}
+              >
+                <Brain size={14} />
+                建立索引
+              </button>
+            )}
+            {(aiIndexProgress?.status === 'indexing' || aiIndexProgress?.status === 'pausing') && (
+              <>
+                <button
+                  onClick={pauseAiIndex}
+                  disabled={aiIndexProgress?.status === 'pausing'}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors',
+                    aiIndexProgress?.status === 'pausing'
+                      ? 'bg-zinc-800/50 text-zinc-500 cursor-not-allowed'
+                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                  )}
+                >
+                  <Pause size={14} />
+                  {aiIndexProgress?.status === 'pausing' ? '暂停中' : '暂停'}
+                </button>
+                <button
+                  onClick={cancelAiIndex}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors',
+                    'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                  )}
+                >
+                  <Square size={14} />
+                  取消
+                </button>
+              </>
+            )}
+            {aiIndexProgress?.status === 'paused' && (
+              <>
+                <button
+                  onClick={resumeAiIndex}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors',
+                    'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                  )}
+                >
+                  <Play size={14} />
+                  继续
+                </button>
+                <button
+                  onClick={cancelAiIndex}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors',
+                    'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                  )}
+                >
+                  <Square size={14} />
+                  取消
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        {aiIndexProgress && ['loading', 'indexing', 'pausing', 'paused', 'error'].includes(aiIndexProgress.status) && (
+          <>
+            <div className="w-full bg-zinc-800 rounded-full h-2 mb-2">
+              <div
+                className={cn(
+                  'h-2 rounded-full transition-all duration-300',
+                  aiIndexProgress.status === 'error' ? 'bg-red-500' :
+                    aiIndexProgress.status === 'pausing' ? 'bg-yellow-500' :
+                      aiIndexProgress.status === 'paused' ? 'bg-zinc-500' : 'bg-purple-500'
+                )}
+                style={{ width: `${aiIndexProgress.total > 0 ? (aiIndexProgress.processed / aiIndexProgress.total) * 100 : 0}%` }}
+              />
+            </div>
+            <div className="flex justify-between text-xs text-zinc-500">
+              <span className="truncate mr-2">{aiIndexProgress.message}</span>
+              <span>{aiIndexProgress.processed.toLocaleString()} / {aiIndexProgress.total.toLocaleString()}</span>
+            </div>
+          </>
+        )}
+        {(!aiIndexProgress || aiIndexProgress.status === 'idle' || aiIndexProgress.status === 'complete') && (
+          <div className="space-y-3">
+            <p className="text-xs text-zinc-500">
+              建立索引后，可通过语义搜索照片内容。索引过程在后台运行，可随时暂停。
+            </p>
+            <label className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg cursor-pointer hover:bg-zinc-800 transition-colors">
+              <div className="flex items-center gap-2">
+                <Zap size={14} className={cn('transition-colors', aiGpuEnabled ? 'text-yellow-400' : 'text-zinc-500')} />
+                <div className="flex flex-col">
+                  <span className="text-xs text-zinc-300">GPU 加速索引</span>
+                  <span className="text-[10px] text-zinc-500">
+                    开启后使用 DirectML 调用显卡索引，失败会自动回退 CPU
+                  </span>
+                </div>
+              </div>
+              <div className="relative inline-flex items-center">
+                <input
+                  type="checkbox"
+                  checked={aiGpuEnabled}
+                  onChange={toggleAiGpu}
+                  className="sr-only peer"
+                />
+                <div className="w-9 h-5 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-500" />
+              </div>
+            </label>
+            {aiGpuEnabled && (
+              <p className="text-[10px] text-zinc-500">
+                当前执行器：{aiGpuActualProvider === 'dml' ? 'DirectML (GPU)' : 'CPU'}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="space-y-3">
         {folders.length === 0 ? (

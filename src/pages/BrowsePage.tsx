@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
-import { Filter, Grid3X3, MapPin, Camera, Trash2, CheckCircle2, Circle, Loader2, Play, Image, Film } from 'lucide-react';
+import { Filter, Grid3X3, MapPin, Camera, Trash2, CheckCircle2, Circle, Loader2, Play, Image, Film, Search, X } from 'lucide-react';
 import { VirtuosoGrid, type VirtuosoGridHandle } from 'react-virtuoso';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
@@ -134,6 +134,13 @@ export function BrowsePage() {
     setCurrentFilter,
     thumbnails,
     setThumbnails,
+    aiSearchQuery,
+    aiSearchResults,
+    aiSearching,
+    setAiSearchQuery,
+    setAiSearchResults,
+    setAiSearching,
+    aiSearch,
   } = useAppStore();
   const get = useAppStore.getState;
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
@@ -143,6 +150,7 @@ export function BrowsePage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [activeTimelineKey, setActiveTimelineKey] = useState<string | null>(null);
   const [visibleRange, setVisibleRange] = useState({ startIndex: 0, endIndex: 0 });
+  const [searchInput, setSearchInput] = useState('');
   const prevPhotoIdsRef = useRef<string>('');
   const virtuosoRef = useRef<VirtuosoGridHandle>(null);
   const mediumUpgradeVersionRef = useRef(0);
@@ -151,6 +159,11 @@ export function BrowsePage() {
   // 标记正在加载缩略图的 photoId，防止多个 effect 实例重复请求同一批
   const thumbnailInFlightRef = useRef<Set<string>>(new Set());
 
+  const isAiSearchMode = aiSearchQuery.trim().length > 0;
+  const displayPhotos = useMemo(() => {
+    return isAiSearchMode ? aiSearchResults : photos;
+  }, [isAiSearchMode, aiSearchResults, photos]);
+
   useEffect(() => {
     loadPhotosPage({});
     loadTimeline({});
@@ -158,14 +171,14 @@ export function BrowsePage() {
   }, [loadPhotosPage, loadTimeline, loadStats]);
 
   useEffect(() => {
-    // 计算 photos ID 摘要，用于检测 photos 是否真正变化
-    const photoIds = photos.map(p => p.id).join(',');
+    // 计算 displayPhotos ID 摘要，用于检测显示列表是否真正变化
+    const photoIds = displayPhotos.map(p => p.id).join(',');
     if (photoIds === prevPhotoIdsRef.current) return;
     prevPhotoIdsRef.current = photoIds;
 
     // 照片列表更换后，清理 upgradedIdsRef 中已不在当前列表的 ID，
     // 避免新列表中同 ID 照片（缩略图缓存已清除）不会重新触发 medium 升级
-    const currentIdSet = new Set(photos.map(p => p.id));
+    const currentIdSet = new Set(displayPhotos.map(p => p.id));
     for (const id of upgradedIdsRef.current) {
       if (!currentIdSet.has(id)) upgradedIdsRef.current.delete(id);
     }
@@ -177,7 +190,7 @@ export function BrowsePage() {
     const loadThumbnails = async () => {
       while (true) {
         const currentThumbnails = get().thumbnails;
-        const photosToLoad = photos
+        const photosToLoad = displayPhotos
           .filter(p => !(p.id in currentThumbnails) && !thumbnailInFlightRef.current.has(p.id))
           .slice(0, 100);
         if (photosToLoad.length === 0) return;
@@ -203,18 +216,18 @@ export function BrowsePage() {
     };
 
     loadThumbnails();
-  }, [photos, get, setThumbnails]);
+  }, [displayPhotos, get, setThumbnails]);
 
   // 可视区域缩略图升级为 medium（512px），提升浏览清晰度
   useEffect(() => {
-    if (photos.length === 0) return;
+    if (displayPhotos.length === 0) return;
 
     const timer = setTimeout(() => {
       const currentVersion = ++mediumUpgradeVersionRef.current;
       const { startIndex, endIndex } = visibleRange;
       if (startIndex < 0 || endIndex < startIndex) return;
 
-      const visiblePhotos = photos.slice(startIndex, endIndex + 1);
+      const visiblePhotos = displayPhotos.slice(startIndex, endIndex + 1);
       const currentThumbnails = get().thumbnails;
       const photosToUpgrade = visiblePhotos.filter(p => {
         if (upgradedIdsRef.current.has(p.id)) return false;
@@ -242,7 +255,7 @@ export function BrowsePage() {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [photos, visibleRange, get, setThumbnails]);
+  }, [displayPhotos, visibleRange, get, setThumbnails]);
 
   // 向上加载更早照片后，恢复视口位置，避免 prepending 导致滚动跳动
   useEffect(() => {
@@ -318,15 +331,15 @@ export function BrowsePage() {
 
   const handleDeletePhoto = async (photo: Photo) => {
     try {
-      const currentIndex = photos.findIndex(p => p.id === photo.id);
+      const currentIndex = displayPhotos.findIndex(p => p.id === photo.id);
       const newThumbnails = { ...get().thumbnails };
       delete newThumbnails[photo.id];
       setThumbnails(newThumbnails);
 
-      if (photos.length > 1 && currentIndex < photos.length - 1) {
-        setSelectedPhoto(photos[currentIndex + 1]);
-      } else if (photos.length > 1 && currentIndex > 0) {
-        setSelectedPhoto(photos[currentIndex - 1]);
+      if (displayPhotos.length > 1 && currentIndex < displayPhotos.length - 1) {
+        setSelectedPhoto(displayPhotos[currentIndex + 1]);
+      } else if (displayPhotos.length > 1 && currentIndex > 0) {
+        setSelectedPhoto(displayPhotos[currentIndex - 1]);
       } else {
         setSelectedPhoto(null);
       }
@@ -360,7 +373,7 @@ export function BrowsePage() {
   }, []);
 
   const selectAll = () => {
-    setSelectedIds(new Set(photos.map(p => p.id)));
+    setSelectedIds(new Set(displayPhotos.map(p => p.id)));
   };
 
   const clearSelection = () => {
@@ -490,11 +503,11 @@ export function BrowsePage() {
     setVisibleRange({ startIndex, endIndex });
     // 用可视区域中间位置的照片所属月份作为高亮，比起始位置更贴合用户当前在看的内容
     const centerIndex = Math.floor((startIndex + endIndex) / 2);
-    const photo = photos[centerIndex];
+    const photo = displayPhotos[centerIndex];
     if (photo) {
       setActiveTimelineKey(getPhotoMonthKey(photo));
     }
-  }, [photos, getPhotoMonthKey]);
+  }, [displayPhotos, getPhotoMonthKey]);
 
   return (
     <div className="h-full flex">
@@ -503,10 +516,43 @@ export function BrowsePage() {
           <div>
             <h1 className="text-2xl font-bold text-zinc-100 mb-1">浏览照片</h1>
             <p className="text-sm text-zinc-400">
-              共 {photosTotal.toLocaleString()} 张照片
+              {isAiSearchMode
+                ? `AI 搜索结果：${aiSearchResults.length.toLocaleString()} 张`
+                : `共 ${photosTotal.toLocaleString()} 张照片`}
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    aiSearch(searchInput);
+                  }
+                }}
+                placeholder="AI 语义搜索..."
+                className="w-64 bg-zinc-800 border border-zinc-700 rounded-lg pl-9 pr-8 py-2 text-sm text-zinc-300 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+              />
+              {searchInput && (
+                <button
+                  onClick={() => {
+                    setSearchInput('');
+                    setAiSearchQuery('');
+                    setAiSearchResults([]);
+                    setAiSearching(false);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            {aiSearching && (
+              <Loader2 size={18} className="text-purple-500 animate-spin" />
+            )}
             <button
               onClick={() => {
                 if (selectMode) {
@@ -587,18 +633,20 @@ export function BrowsePage() {
         )}
 
         <div className="flex-1 overflow-auto">
-          {photos.length === 0 ? (
+          {displayPhotos.length === 0 ? (
             <div className="text-center py-16 text-zinc-500">
               <Grid3X3 size={48} className="mx-auto mb-4 opacity-50" />
-              <p>没有找到照片</p>
-              <p className="text-sm mt-1">请先在照片库中添加并扫描文件夹</p>
+              <p>{isAiSearchMode ? '未找到匹配的照片' : '没有找到照片'}</p>
+              <p className="text-sm mt-1">
+                {isAiSearchMode ? '请尝试其他关键词，或确认已完成 AI 索引' : '请先在照片库中添加并扫描文件夹'}
+              </p>
             </div>
           ) : (
             <VirtuosoGrid
               ref={virtuosoRef}
-              data={photos}
-              endReached={loadMore}
-              atTopStateChange={handleAtTopChange}
+              data={displayPhotos}
+              endReached={isAiSearchMode ? undefined : loadMore}
+              atTopStateChange={isAiSearchMode ? undefined : handleAtTopChange}
               overscan={200}
               rangeChanged={handleRangeChanged}
               components={{
@@ -701,7 +749,7 @@ export function BrowsePage() {
 
       <PhotoDetailModal
         photo={selectedPhoto}
-        photos={photos}
+        photos={displayPhotos}
         onClose={() => setSelectedPhoto(null)}
         onNavigate={navigatePhoto}
         onUpdate={handleUpdatePhoto}

@@ -17,6 +17,10 @@ release
 # Data directories
 data
 
+# AI models bundled with the app (downloaded separately)
+resources/ai-models/*
+!resources/ai-models/.gitkeep
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

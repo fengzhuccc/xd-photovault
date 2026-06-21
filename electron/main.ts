@@ -9,6 +9,10 @@ import { ExifService } from './services/exif';
 import { ThumbnailService } from './services/thumbnail';
 import { VideoService } from './services/video';
 import { ConfigService } from './services/config';
+import { AiIndexService } from './services/aiIndexService';
+import { AiSearchService } from './services/aiSearchService';
+import { AiEmbeddingService } from './services/aiEmbedding';
+import { setAiConfig } from './services/aiConfig';
 
 // 配置 electron-log
 log.transports.file.level = 'info';
@@ -24,6 +28,9 @@ let hashService: HashService;
 let exifService: ExifService;
 let thumbnailService: ThumbnailService;
 let videoService: VideoService;
+let aiIndexService: AiIndexService;
+let aiSearchService: AiSearchService;
+let aiEmbeddingService: AiEmbeddingService;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -105,6 +112,24 @@ async function initializeServices() {
   scanner.onProgress = (progress) => {
     mainWindow?.webContents.send('duplicate:progress', progress);
   };
+
+  // AI 语义搜索服务（模型按需加载，启动时不初始化）
+  const bundledModelPath = app.isPackaged
+    ? join(process.resourcesPath, 'ai-models')
+    : join(process.cwd(), 'resources', 'ai-models');
+  log.info('[Main] AI 模型内置路径:', bundledModelPath);
+
+  // 读取用户是否开启 GPU 加速
+  const aiUseGpu = db.getSetting('ai_use_gpu') === 'true';
+  setAiConfig({ useGpu: aiUseGpu });
+  log.info('[Main] AI GPU 加速:', aiUseGpu ? '已开启' : '已关闭');
+
+  aiEmbeddingService = new AiEmbeddingService(dataPath, bundledModelPath, { useGpu: aiUseGpu });
+  aiIndexService = new AiIndexService(db, dataPath, aiEmbeddingService);
+  aiIndexService.onProgress((progress) => {
+    mainWindow?.webContents.send('aiIndex:progress', progress);
+  });
+  aiSearchService = new AiSearchService(db, dataPath, aiEmbeddingService);
   
   // S8: 检查并恢复中断的扫描
   const recovery = scanner.recoverInterruptedScans();
@@ -390,6 +415,70 @@ function setupIpcHandlers() {
   ipcMain.handle('app:openPath', async (_event, filePath: string) => {
     const result = await shell.openPath(filePath);
     return { success: result === '', error: result || undefined };
+  });
+
+  // AI 语义搜索
+  ipcMain.handle('aiSearch:search', async (_event, query: string, limit?: number) => {
+    try {
+      const results = await aiSearchService.search(query, limit ?? 50);
+      return { success: true, results };
+    } catch (error) {
+      log.error('[AI] 搜索失败:', error);
+      return { success: false, error: String(error) };
+    }
+  });
+
+  // AI 索引后台任务
+  ipcMain.handle('aiIndex:start', async () => {
+    if (aiIndexService.isRunning()) return { success: true, message: '索引已在运行' };
+    // 异步启动，不阻塞 IPC 响应
+    aiIndexService.start().catch((error) => {
+      log.error('[AI] 索引任务启动失败:', error);
+    });
+    return { success: true, message: '索引已启动' };
+  });
+
+  ipcMain.handle('aiIndex:pause', async () => {
+    aiIndexService.pause();
+    return { success: true };
+  });
+
+  ipcMain.handle('aiIndex:resume', async () => {
+    aiIndexService.resume();
+    return { success: true };
+  });
+
+  ipcMain.handle('aiIndex:cancel', async () => {
+    aiIndexService.cancel();
+    return { success: true };
+  });
+
+  ipcMain.handle('aiIndex:getStatus', async () => {
+    return aiIndexService.getStatus();
+  });
+
+  ipcMain.handle('aiIndex:getGpuStatus', async () => {
+    const enabled = db.getSetting('ai_use_gpu') === 'true';
+    return {
+      enabled,
+      actualProvider: aiEmbeddingService?.getActualExecutionProvider() ?? 'cpu',
+    };
+  });
+
+  ipcMain.handle('aiIndex:setUseGpu', async (_event, enabled: boolean) => {
+    try {
+      db.setSetting('ai_use_gpu', enabled ? 'true' : 'false');
+      setAiConfig({ useGpu: enabled });
+      // 如果模型已经加载，重置模型状态，让下次 init() 按新配置重新加载
+      if (aiEmbeddingService?.isReady()) {
+        aiEmbeddingService.reset();
+        log.info('[AI] GPU 设置已更改，模型已重置，下次索引将使用新配置');
+      }
+      return { success: true };
+    } catch (error) {
+      log.error('[AI] 设置 GPU 加速失败:', error);
+      return { success: false, error: String(error) };
+    }
   });
 }
 

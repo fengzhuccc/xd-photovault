@@ -187,21 +187,6 @@ export function PhotoDetailModal({
 
   return (
     <div className="fixed inset-0 z-[10000] bg-black/90 flex items-center justify-center">
-      <button
-        onClick={onClose}
-        className="absolute top-4 right-4 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors z-10"
-      >
-        <X size={20} />
-      </button>
-
-      <button
-        onClick={handleDelete}
-        className="absolute top-4 right-14 p-2 rounded-lg bg-zinc-800 hover:bg-red-500/20 text-zinc-300 hover:text-red-400 transition-colors z-10"
-        title="删除照片"
-      >
-        <Trash2 size={20} />
-      </button>
-
       {showNavigation && !editingDate && !editingLocation && (
         <>
           <button
@@ -252,10 +237,30 @@ export function PhotoDetailModal({
           )}
         </div>
 
-        <div className="w-64 bg-zinc-900/95 border-l border-zinc-800 p-4 overflow-auto">
-          <h3 className="text-base font-medium text-zinc-100 mb-3 truncate">{photo.filename}</h3>
+        <div className="w-64 bg-zinc-900/95 border-l border-zinc-800 flex flex-col">
+          <div className="p-4 border-b border-zinc-800 flex items-start gap-2">
+            <h3 className="flex-1 text-base font-medium text-zinc-100 break-all leading-snug" title={photo.filename}>
+              {photo.filename}
+            </h3>
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={handleDelete}
+                className="p-2 rounded-lg bg-zinc-800 hover:bg-red-500/20 text-zinc-300 hover:text-red-400 transition-colors"
+                title="删除照片"
+              >
+                <Trash2 size={18} />
+              </button>
+              <button
+                onClick={onClose}
+                className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
+                title="关闭"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
 
-          <div className="space-y-3">
+          <div className="flex-1 p-4 overflow-auto space-y-3">
             <div>
               <label className="text-xs text-zinc-500 uppercase tracking-wider">文件信息</label>
               <div className="mt-1.5 space-y-1 text-sm">

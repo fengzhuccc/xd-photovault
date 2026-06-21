@@ -10,6 +10,22 @@ function compareDateDesc(a: string | null | undefined, b: string | null | undefi
   return b.localeCompare(a);
 }
 
+function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    const av = a[i] || 0;
+    const bv = b[i] || 0;
+    dot += av * bv;
+    normA += av * av;
+    normB += bv * bv;
+  }
+  if (normA === 0 || normB === 0) return 0;
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
 export interface PhotoRow {
   id: string;
   folder_id: string;
@@ -68,7 +84,7 @@ export interface PhotoInsert {
   path: string;
   filename: string;
   fileSize: number;
-  fileHash: string;
+  fileHash: string | null;
   perceptualHash: string | null;
   takenAt: string;
   latitude: number | null;
@@ -337,6 +353,23 @@ export class DatabaseService {
           `);
         },
       },
+      {
+        version: 6,
+        up: () => {
+          // AI 语义搜索：照片向量表
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS photo_embeddings (
+              photo_id TEXT PRIMARY KEY,
+              embedding BLOB NOT NULL,
+              model TEXT NOT NULL,
+              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+              updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_photo_embeddings_model ON photo_embeddings(model);
+          `);
+        },
+      },
     ];
 
     const pending = migrations.filter(m => m.version > currentVersion);
@@ -366,6 +399,15 @@ export class DatabaseService {
         WHERE p.folder_id = ?
       `).all(id) as { group_id: string }[];
 
+      // 解除该文件夹照片作为重复组推荐照片的外键约束
+      this.db.prepare(`
+        UPDATE duplicate_groups
+        SET recommended_photo_id = NULL
+        WHERE recommended_photo_id IN (
+          SELECT id FROM photos WHERE folder_id = ?
+        )
+      `).run(id);
+
       // 删除该文件夹照片的 photo_duplicates 关联
       this.db.prepare(`
         DELETE FROM photo_duplicates WHERE photo_id IN (
@@ -387,6 +429,15 @@ export class DatabaseService {
 
   deletePhotosByFolder(folderId: string): void {
     const transaction = this.db.transaction(() => {
+      // 解除该文件夹照片作为重复组推荐照片的外键约束
+      this.db.prepare(`
+        UPDATE duplicate_groups
+        SET recommended_photo_id = NULL
+        WHERE recommended_photo_id IN (
+          SELECT id FROM photos WHERE folder_id = ?
+        )
+      `).run(folderId);
+
       this.db.prepare(`
         DELETE FROM photo_duplicates WHERE photo_id IN (
           SELECT id FROM photos WHERE folder_id = ?
@@ -947,6 +998,11 @@ export class DatabaseService {
 
     // 整个删除+清理空组包裹在事务中，避免中途崩溃导致数据不一致
     const transaction = this.db.transaction(() => {
+      // 解除该照片作为重复组推荐照片的外键约束
+      this.db.prepare(`
+        UPDATE duplicate_groups SET recommended_photo_id = NULL WHERE recommended_photo_id = ?
+      `).run(id);
+
       // 删除照片（CASCADE 会清理 photo_duplicates）
       this.db.prepare('DELETE FROM photos WHERE id = ?').run(id);
 
@@ -1149,6 +1205,7 @@ export class DatabaseService {
 
   clearAllData(): void {
     const transaction = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM photo_embeddings').run();
       this.db.prepare('DELETE FROM photo_duplicates').run();
       this.db.prepare('DELETE FROM duplicate_groups').run();
       this.db.prepare('DELETE FROM photos').run();
@@ -1169,6 +1226,78 @@ export class DatabaseService {
   removeSetting(key: string): void {
     this.db.prepare('DELETE FROM app_settings WHERE key = ?').run(key);
   }
+
+  // region AI Embeddings
+  upsertPhotoEmbedding(photoId: string, embedding: Float32Array, model: string): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO photo_embeddings (photo_id, embedding, model, updated_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(photo_id) DO UPDATE SET
+        embedding = excluded.embedding,
+        model = excluded.model,
+        updated_at = CURRENT_TIMESTAMP
+    `);
+    stmt.run(photoId, Buffer.from(embedding.buffer), model);
+  }
+
+  getPhotoEmbedding(photoId: string): { embedding: Float32Array; model: string } | null {
+    const row = this.db.prepare('SELECT embedding, model FROM photo_embeddings WHERE photo_id = ?').get(photoId) as
+      | { embedding: Buffer; model: string }
+      | undefined;
+    if (!row) return null;
+    return {
+      embedding: new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.length / 4),
+      model: row.model,
+    };
+  }
+
+  getPhotosWithoutEmbedding(limit: number): { id: string; path: string; filename: string; media_type: 'image' | 'video' }[] {
+    return this.db.prepare(`
+      SELECT p.id, p.path, p.filename, p.media_type FROM photos p
+      LEFT JOIN photo_embeddings pe ON p.id = pe.photo_id
+      WHERE pe.photo_id IS NULL
+      LIMIT ?
+    `).all(limit) as { id: string; path: string; filename: string; media_type: 'image' | 'video' }[];
+  }
+
+  getEmbeddingCount(): number {
+    const row = this.db.prepare('SELECT COUNT(*) as count FROM photo_embeddings').get() as { count: number };
+    return row.count;
+  }
+
+  getTotalPhotoCount(): number {
+    const row = this.db.prepare('SELECT COUNT(*) as count FROM photos').get() as { count: number };
+    return row.count;
+  }
+
+  deletePhotoEmbeddings(photoIds: string[]): void {
+    if (photoIds.length === 0) return;
+    const placeholders = photoIds.map(() => '?').join(',');
+    this.db.prepare(`DELETE FROM photo_embeddings WHERE photo_id IN (${placeholders})`).run(...photoIds);
+  }
+
+  searchPhotosByEmbedding(
+    queryEmbedding: Float32Array,
+    model: string,
+    limit: number
+  ): { photo: PhotoRow; similarity: number }[] {
+    const rows = this.db.prepare(`
+      SELECT p.*, pe.embedding FROM photos p
+      JOIN photo_embeddings pe ON p.id = pe.photo_id
+      WHERE pe.model = ?
+    `).all(model) as (PhotoRow & { embedding: Buffer })[];
+
+    const results: { photo: PhotoRow; similarity: number }[] = [];
+    for (const row of rows) {
+      const embedding = new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.length / 4);
+      const similarity = cosineSimilarity(queryEmbedding, embedding);
+      results.push({ photo: row, similarity });
+    }
+
+    results.sort((a, b) => b.similarity - a.similarity);
+    return results.slice(0, limit);
+  }
+  // endregion
 
   setDuplicateDetectionDirty(reason: 'exact' | 'similar', dirty: boolean): void {
     this.setSetting(`duplicate_${reason}_dirty`, dirty ? '1' : '0');

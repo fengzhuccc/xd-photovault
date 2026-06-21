@@ -34,7 +34,15 @@ export class VideoService {
 
       const stream = command.pipe();
       stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-      stream.on('end', () => resolve(Buffer.concat(chunks)));
+      stream.on('end', () => {
+        const buffer = Buffer.concat(chunks);
+        if (buffer.length === 0) {
+          log.warn(`[VideoService] 视频第一帧为空或无法解码: ${videoPath}`);
+          reject(new Error('视频第一帧为空或无法解码'));
+          return;
+        }
+        resolve(buffer);
+      });
       stream.on('error', (err: Error) => {
         log.warn(`[VideoService] 读取视频第一帧流失败: ${videoPath}`, err.message);
         reject(err);

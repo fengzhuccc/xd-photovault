@@ -16,7 +16,7 @@ const THUMBNAIL_CONFIG: Record<ThumbnailSize, ThumbnailConfig> = {
   medium: { size: 512, quality: 90 },
 };
 
-const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v']);
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.3gp', '.avi']);
 
 function isVideoFile(path: string): boolean {
   return VIDEO_EXTENSIONS.has(extname(path).toLowerCase());
@@ -102,6 +102,12 @@ export class ThumbnailService {
   }
 
   private async doGetThumbnail(photoId: string, photoPath: string, thumbSize: ThumbnailSize): Promise<string> {
+    // 源文件已不存在（例如被删除但数据库记录还在），直接返回原图 URL 避免报错
+    if (!existsSync(photoPath)) {
+      log.warn(`[Thumbnail] 源文件不存在，跳过缩略图生成: ${photoPath}`);
+      return this.fileUrl(photoPath);
+    }
+
     const thumbnailPath = this.getThumbnailPath(photoId, thumbSize);
 
     if (this.isThumbnailFresh(thumbnailPath, photoPath)) {

@@ -81,6 +81,25 @@ export const api = {
     clear: () => ipcRenderer.invoke('database:clear'),
   },
 
+  aiSearch: {
+    search: (query: string, limit?: number) => ipcRenderer.invoke('aiSearch:search', query, limit),
+  },
+
+  aiIndex: {
+    start: () => ipcRenderer.invoke('aiIndex:start'),
+    pause: () => ipcRenderer.invoke('aiIndex:pause'),
+    resume: () => ipcRenderer.invoke('aiIndex:resume'),
+    cancel: () => ipcRenderer.invoke('aiIndex:cancel'),
+    getStatus: () => ipcRenderer.invoke('aiIndex:getStatus'),
+    getGpuStatus: () => ipcRenderer.invoke('aiIndex:getGpuStatus') as Promise<{ enabled: boolean; actualProvider: string }>,
+    setUseGpu: (enabled: boolean) => ipcRenderer.invoke('aiIndex:setUseGpu', enabled) as Promise<{ success: boolean; needsRestart?: boolean; error?: string }>,
+    onProgress: (callback: (progress: AiIndexProgress) => void) => {
+      const listener = (_event: unknown, progress: AiIndexProgress) => callback(progress);
+      ipcRenderer.on('aiIndex:progress', listener);
+      return () => ipcRenderer.removeListener('aiIndex:progress', listener);
+    },
+  },
+
   log: {
     getPath: () => ipcRenderer.invoke('log:getPath'),
     read: (lines?: number) => ipcRenderer.invoke('log:read', lines),
@@ -152,6 +171,14 @@ export interface DuplicateGroup {
   reason: 'exact' | 'similar';
   recommended_photo_id: string;
   photos: Photo[];
+}
+
+export interface AiIndexProgress {
+  status: 'idle' | 'loading' | 'indexing' | 'pausing' | 'paused' | 'complete' | 'error';
+  processed: number;
+  total: number;
+  currentFile: string;
+  message: string;
 }
 
 export interface PhotoStats {

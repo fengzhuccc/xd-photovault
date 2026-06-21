@@ -262,18 +262,12 @@ export function DuplicatesPage() {
   const toggleKeep = useCallback((groupId: string, photoId: string, recommendedPhotoId: string) => {
     setManualKeep(prev => {
       const current = prev[groupId] ?? new Set([recommendedPhotoId]);
-      const next = new Set(current);
-      if (next.has(photoId)) {
-        // 至少保留一张
-        if (next.size <= 1) {
-          toast('warning', '至少需要保留一张照片');
-          return prev;
-        }
-        next.delete(photoId);
-      } else {
-        next.add(photoId);
+      // 重复组内只能保留一张照片，再次点击已保留项时禁止取消
+      if (current.has(photoId) && current.size <= 1) {
+        toast('warning', '每组至少需要保留一张照片');
+        return prev;
       }
-      return { ...prev, [groupId]: next };
+      return { ...prev, [groupId]: new Set([photoId]) };
     });
   }, []);
 
@@ -1077,7 +1071,7 @@ function DuplicateCard({
 
       <div className="mt-3 text-xs text-zinc-500 flex items-center gap-2">
         <AlertTriangle size={12} className="inline" />
-        <span>点击右上角星标切换保留状态，未标记保留的照片将被删除。带"推荐"标签为系统推荐保留项。</span>
+        <span>点击右上角星标选择要保留的照片，每组仅保留一张，未选中的照片将被删除。带"推荐"标签为系统推荐保留项。</span>
       </div>
     </div>
   );

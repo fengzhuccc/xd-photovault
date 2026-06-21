@@ -77,3 +77,16 @@ export interface PhotoStats {
   folders: number;
   cameras: { camera: string; count: number }[];
 }
+
+export interface AiIndexProgress {
+  status: 'idle' | 'loading' | 'indexing' | 'pausing' | 'paused' | 'complete' | 'error';
+  processed: number;
+  total: number;
+  currentFile: string;
+  message: string;
+}
+
+export interface AiSearchResult {
+  photo: Photo;
+  similarity: number;
+}

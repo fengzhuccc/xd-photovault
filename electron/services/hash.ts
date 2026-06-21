@@ -75,6 +75,46 @@ export class HashService {
   }
 
   /**
+   * 计算文件抽样 hash：取头部、中部、尾部各 1MB 合并后做 xxhash64。
+   * 文件 ≤ 3MB 时直接计算全文件 hash，避免分段重叠。
+   * 用于视频去重二次确认，比全文件 hash 快，又比单点 hash 稳。
+   */
+  async calculateSampledHash(filePath: string, fileSize: number): Promise<string> {
+    const chunkSize = 1024 * 1024;
+    if (fileSize <= chunkSize * 3) {
+      return this.calculateFileHash(filePath);
+    }
+
+    const hasher = await this.acquireHasher();
+    try {
+      return await new Promise((resolve, reject) => {
+        hasher.init();
+        const ranges: { start: number; end: number }[] = [
+          { start: 0, end: chunkSize - 1 },
+          { start: Math.floor(fileSize / 2) - Math.floor(chunkSize / 2), end: Math.floor(fileSize / 2) + Math.floor(chunkSize / 2) - 1 },
+          { start: fileSize - chunkSize, end: fileSize - 1 },
+        ];
+
+        let index = 0;
+        const readNext = () => {
+          if (index >= ranges.length) {
+            resolve(hasher.digest());
+            return;
+          }
+          const { start, end } = ranges[index++];
+          const stream = createReadStream(filePath, { start, end, highWaterMark: 64 * 1024 });
+          stream.on('data', (chunk) => hasher.update(chunk as Buffer));
+          stream.on('end', readNext);
+          stream.on('error', reject);
+        };
+        readNext();
+      });
+    } finally {
+      this.releaseHasher(hasher);
+    }
+  }
+
+  /**
    * 判断 file_hash 是否为旧版 MD5（32 位十六进制）。
    * xxhash64 输出为 16 位十六进制。
    */

@@ -11,7 +11,7 @@ import { scorePhoto } from './scoring';
 import log from 'electron-log';
 
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.raw', '.cr2', '.nef', '.arw'];
-const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.m4v'];
+const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.m4v', '.3gp', '.avi'];
 const SUPPORTED_EXTENSIONS = [...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS];
 
 function isVideoFile(path: string): boolean {
@@ -183,7 +183,7 @@ export class ScannerService {
     folderId: string,
     existingPathMap: Map<string, { id: string; fileHash: string | null; fileSize: number; modifiedTime: string }>,
     forceRescan: boolean
-  ): Promise<{ photo: PhotoInsert; hash: string; frameHash: string | null } | 'skipped' | null> {
+  ): Promise<{ photo: PhotoInsert; hash: string | null; frameHash: string | null } | 'skipped' | null> {
     if (this.checkCancelled(folderId)) return null;
 
     try {
@@ -261,11 +261,8 @@ export class ScannerService {
     folderId: string,
     photoId: string,
     stats: { size: number; mtime: Date }
-  ): Promise<{ photo: PhotoInsert; hash: string; frameHash: string }> {
-    const [fileHash, metadata] = await Promise.all([
-      this.hashService.calculateFileHash(filePath),
-      this.videoService.getMetadata(filePath),
-    ]);
+  ): Promise<{ photo: PhotoInsert; hash: null; frameHash: string }> {
+    const metadata = await this.videoService.getMetadata(filePath);
 
     // 抽取第一帧并计算其 hash，作为视频去重依据
     const frameBuffer = await this.videoService.extractFirstFrame(filePath);
@@ -277,7 +274,7 @@ export class ScannerService {
       path: filePath,
       filename: filePath.split(/[/\\]/).pop() || '',
       fileSize: stats.size,
-      fileHash,
+      fileHash: null,
       perceptualHash: null,
       takenAt: stats.mtime.toISOString(),
       latitude: null,
@@ -299,7 +296,7 @@ export class ScannerService {
     if (!DEFER_THUMBNAILS_DURING_SCAN) {
       this.enqueueThumbnail(photoId, filePath);
     }
-    return { photo, hash: fileHash, frameHash };
+    return { photo, hash: null, frameHash };
   }
 
   /**
@@ -336,7 +333,9 @@ export class ScannerService {
         if (result === 'skipped') {
           skipped++;
         } else if (result) {
-          hashes.push(result.hash);
+          if (result.hash) {
+            hashes.push(result.hash);
+          }
           if (result.frameHash) {
             frameHashes.push(result.frameHash);
           }
@@ -803,6 +802,88 @@ export class ScannerService {
     return groupCount;
   }
 
+  /**
+   * 对视频重复组做抽样 hash 二次确认。
+   * 因为视频扫描时只按首帧 hash + 文件大小分组，可能存在不同视频首帧相同的情况。
+   * 抽样 hash 取头/中/尾各 1MB，相同才确认是真正的重复。
+   * 确认后的抽样 hash 会写回 file_hash 字段，避免下次重复计算。
+   */
+  private async verifyVideoDuplicatesBySampledHash(
+    duplicates: { key: string; photo_ids: string; count: number }[]
+  ): Promise<{ key: string; photo_ids: string; count: number }[]> {
+    // 先分离视频组和非视频组，避免重复查询
+    const nonVideoResults: { key: string; photo_ids: string; count: number }[] = [];
+    const videoGroups: { dup: { key: string; photo_ids: string; count: number }; photos: PhotoRow[] }[] = [];
+
+    for (const dup of duplicates) {
+      const photoIds = dup.photo_ids.split(',');
+      const photos = this.db.getPhotosByIds(photoIds);
+
+      if (photos.some(p => p.media_type !== 'video')) {
+        nonVideoResults.push(dup);
+      } else {
+        videoGroups.push({ dup, photos });
+      }
+    }
+
+    if (videoGroups.length === 0) {
+      return nonVideoResults;
+    }
+
+    this.emitDuplicateProgress({
+      stage: 'exact',
+      current: 0,
+      total: videoGroups.length,
+      message: `正在对 ${videoGroups.length} 组视频做抽样确认...`,
+    });
+
+    const verifiedResults: { key: string; photo_ids: string; count: number }[] = [];
+
+    for (let i = 0; i < videoGroups.length; i++) {
+      const { dup, photos } = videoGroups[i];
+
+      // 计算抽样 hash（视频 file_hash 在新逻辑下表示抽样 hash）
+      const sampledHashMap = new Map<string, string>();
+      for (const photo of photos) {
+        const hash = await this.hashService.calculateSampledHash(photo.path, photo.file_size);
+        sampledHashMap.set(photo.id, hash);
+        this.db.updatePhotoFileHash(photo.id, hash);
+      }
+
+      // 按抽样 hash 拆分组，只保留仍重复的
+      const groups = new Map<string, string[]>();
+      for (const photo of photos) {
+        const hash = sampledHashMap.get(photo.id);
+        if (!hash) continue;
+        const list = groups.get(hash) || [];
+        list.push(photo.id);
+        groups.set(hash, list);
+      }
+
+      for (const [hash, ids] of groups) {
+        if (ids.length > 1) {
+          verifiedResults.push({
+            key: `${dup.key}_sampled_${hash}`,
+            photo_ids: ids.join(','),
+            count: ids.length,
+          });
+        }
+      }
+
+      if ((i + 1) % 10 === 0 || i === videoGroups.length - 1) {
+        this.emitDuplicateProgress({
+          stage: 'exact',
+          current: i + 1,
+          total: videoGroups.length,
+          message: `正在确认视频重复 ${i + 1}/${videoGroups.length}`,
+        });
+        await yieldToMain();
+      }
+    }
+
+    return [...nonVideoResults, ...verifiedResults];
+  }
+
   private async runExactDuplicateDetection(fullRebuild: boolean, newHashes: string[], newFrameHashes: string[]): Promise<number> {
     this.emitDuplicateProgress({ stage: 'exact', current: 0, total: 0, message: '正在检测精确重复...' });
 
@@ -812,6 +893,9 @@ export class ScannerService {
           ...this.db.findExactDuplicatesByHashes(newHashes),
           ...this.db.findExactDuplicatesByFrameHashes(newFrameHashes),
         ];
+
+    // 对视频重复组做抽样 hash 二次确认
+    exactDuplicates = await this.verifyVideoDuplicatesBySampledHash(exactDuplicates);
 
     // 增量模式下图片/视频两种查询可能返回重叠组，按 photo_id 集合去重
     if (!fullRebuild) {
