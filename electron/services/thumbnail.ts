@@ -36,10 +36,11 @@ export class ThumbnailService {
     }
   }
 
-  private getShardDir(photoId: string): string {
+  private getShardDir(photoId: string, ensureExists: boolean = true): string {
     const prefix = photoId.slice(0, 2);
     const dir = join(this.thumbnailDir, prefix);
-    if (!existsSync(dir)) {
+    // M-28: 仅在需要写入时创建目录，避免查询/删除路径时产生空目录
+    if (ensureExists && !existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
     return dir;
@@ -50,7 +51,8 @@ export class ThumbnailService {
   }
 
   private getThumbnailPath(photoId: string, thumbSize: ThumbnailSize): string {
-    return join(this.getShardDir(photoId), `${photoId}_${thumbSize}.webp`);
+    // 查询路径时不创建目录
+    return join(this.getShardDir(photoId, false), `${photoId}_${thumbSize}.webp`);
   }
 
   private isThumbnailFresh(thumbnailPath: string, photoPath: string): boolean {
@@ -65,7 +67,9 @@ export class ThumbnailService {
   }
 
   private fileUrl(filePath: string): string {
-    return `file:///${filePath.replace(/\\/g, '/')}`;
+    const normalized = filePath.replace(/\\/g, '/');
+    // Unix 路径以 / 开头，使用 file:// 避免多一个斜杠；Windows 用 file:///
+    return normalized.startsWith('/') ? `file://${normalized}` : `file:///${normalized}`;
   }
 
   private async generateThumbnail(photoPath: string, thumbnailPath: string, config: ThumbnailConfig): Promise<void> {
@@ -131,6 +135,8 @@ export class ThumbnailService {
     }
 
     try {
+      // 确保分片目录存在（getThumbnailPath 不再自动创建）
+      this.getShardDir(photoId, true);
       await this.generateThumbnail(photoPath, thumbnailPath, THUMBNAIL_CONFIG[thumbSize]);
       return this.fileUrl(thumbnailPath);
     } catch (error) {

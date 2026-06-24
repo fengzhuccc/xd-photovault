@@ -111,17 +111,27 @@ export function SettingsPage() {
   };
 
   const loadDataPath = async () => {
-    const path = await window.api.config.getDataPath();
-    setDataPath(path);
-    const config = await window.api.config.get();
-    setCustomPath(config.dataPath);
+    try {
+      const path = await window.api.config.getDataPath();
+      setDataPath(path);
+      const config = await window.api.config.get();
+      setCustomPath(config.dataPath);
+    } catch (error) {
+      console.error('加载数据路径失败:', error);
+      toast('error', '加载数据路径失败');
+    }
   };
 
   const loadLogPath = async () => {
-    const path = await window.api.config.getLogPath();
-    setLogPath(path);
-    const config = await window.api.config.get();
-    setCustomLogPath(config.logPath);
+    try {
+      const path = await window.api.config.getLogPath();
+      setLogPath(path);
+      const config = await window.api.config.get();
+      setCustomLogPath(config.logPath);
+    } catch (error) {
+      console.error('加载日志路径失败:', error);
+      toast('error', '加载日志路径失败');
+    }
   };
 
   const handleClearThumbnails = async () => {

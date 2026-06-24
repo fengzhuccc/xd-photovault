@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import type { Folder, Photo, PhotoStats, DuplicateGroup, ScanProgress, PhotoFilter, TimelineGroup, AiIndexProgress } from '@/types';
 
+export interface BrowseScrollState {
+  /** 全局排序下的照片索引 */
+  index: number;
+  /** 索引在视口中的对齐方式 */
+  align?: 'start' | 'center' | 'end';
+}
+
 interface AppState {
   folders: Folder[];
   photos: Photo[];
@@ -27,27 +34,30 @@ interface AppState {
   aiSearching: boolean;
   aiGpuEnabled: boolean;
   aiGpuActualProvider: string;
+  /** 浏览页切走前保存的滚动位置（全局索引） */
+  browseScrollState: BrowseScrollState | null;
 
   setFolders: (folders: Folder[]) => void;
   addFolder: (folder: Folder) => void;
   removeFolder: (id: string) => void;
-  
+
   setPhotos: (photos: Photo[]) => void;
   setSelectedPhoto: (photo: Photo | null) => void;
-  
+
   setStats: (stats: PhotoStats) => void;
   setDuplicates: (duplicates: DuplicateGroup[]) => void;
-  
+
   setScanProgress: (progress: ScanProgress | null) => void;
   setIsScanning: (isScanning: boolean) => void;
   setScanningFolderId: (folderId: string | null) => void;
   setDuplicateProgress: (progress: { stage: 'hashing' | 'exact' | 'similar' | 'complete'; current: number; total: number; message: string } | null) => void;
-  
+
   setCurrentFilter: (filter: PhotoFilter) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setActiveTab: (tab: 'library' | 'browse' | 'duplicates' | 'map') => void;
 
   setThumbnails: (thumbnails: Record<string, string>) => void;
+  setBrowseScrollState: (state: BrowseScrollState | null) => void;
 
   setAiIndexProgress: (progress: AiIndexProgress | null) => void;
   setAiSearchQuery: (query: string) => void;
@@ -62,7 +72,7 @@ interface AppState {
   resumeAiIndex: () => Promise<void>;
   cancelAiIndex: () => Promise<void>;
   aiSearch: (query: string) => Promise<void>;
-  
+
   loadFolders: () => Promise<void>;
   loadStats: () => Promise<void>;
   loadPhotos: (filter?: PhotoFilter) => Promise<void>;
@@ -75,6 +85,9 @@ interface AppState {
   duplicateReason: 'all' | 'exact' | 'similar';
   setDuplicateReason: (reason: 'all' | 'exact' | 'similar') => void;
 }
+
+// AI 搜索请求令牌，用于取消过期请求
+let aiSearchToken = 0;
 
 export const useAppStore = create<AppState>((set, get) => ({
   folders: [],
@@ -103,6 +116,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   aiSearching: false,
   aiGpuEnabled: false,
   aiGpuActualProvider: 'cpu',
+  browseScrollState: null,
 
   setFolders: (folders) => set({ folders }),
   addFolder: (folder) => set((state) => ({ folders: [folder, ...state.folders] })),
@@ -141,6 +155,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setActiveTab: (tab) => set({ activeTab: tab }),
 
   setThumbnails: (thumbnails) => set({ thumbnails }),
+  setBrowseScrollState: (state) => set({ browseScrollState: state }),
 
   setAiIndexProgress: (progress) => set({ aiIndexProgress: progress }),
   setAiSearchQuery: (query) => set({ aiSearchQuery: query }),
@@ -191,9 +206,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ aiSearchResults: [], aiSearchQuery: '', aiSearching: false });
       return;
     }
+    // H-17: 使用请求令牌，防止快速连续搜索时过期结果覆盖最新结果
+    aiSearchToken++;
+    const token = aiSearchToken;
     set({ aiSearching: true, aiSearchQuery: query });
     try {
       const response = await window.api.aiSearch.search(query.trim(), 100);
+      if (token !== aiSearchToken) return; // 过期请求，忽略
       if (response.success && response.results) {
         const photos = response.results.map((r: { photo: Photo; similarity: number }) => r.photo);
         set({ aiSearchResults: photos, aiSearching: false });
@@ -201,6 +220,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         set({ aiSearchResults: [], aiSearching: false });
       }
     } catch {
+      if (token !== aiSearchToken) return;
       set({ aiSearchResults: [], aiSearching: false });
     }
   },
@@ -286,6 +306,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       photos: newPhotos,
       photosOffset: newOffset,
       photosTotal: result.total,
+      // photosHasMore 表示"向下是否还有更多"，向上加载不改变此状态，
+      // 但用服务端最新结果更新，避免数据变化导致状态过期
+      photosHasMore: result.hasMore,
       currentFilter,
     });
     return { hasMore: result.hasMore, total: result.total };

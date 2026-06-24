@@ -31,6 +31,8 @@ export class AiIndexService {
   private message = '';
   private status: AiIndexProgress['status'] = 'idle';
   private onProgressCallback?: (progress: AiIndexProgress) => void;
+  // 本次运行中索引失败的照片 ID，避免重复查询导致死循环
+  private failedPhotoIds: Set<string> = new Set();
 
   constructor(db: DatabaseService, dataPath: string, embeddingService?: AiEmbeddingService) {
     this.db = db;
@@ -80,6 +82,7 @@ export class AiIndexService {
     this.cancelled = false;
     this.paused = false;
     this.processed = 0;
+    this.failedPhotoIds.clear();
     this.status = 'loading';
     this.message = '正在加载 AI 模型...';
     this.emitProgress();
@@ -96,11 +99,11 @@ export class AiIndexService {
 
     this.status = 'indexing';
     this.message = '开始索引照片...';
+    const config = getAiConfig();
     this.total = this.db.getTotalPhotoCount();
-    this.processed = this.db.getEmbeddingCount();
+    this.processed = this.db.getEmbeddingCount(config.model);
     this.emitProgress();
 
-    const config = getAiConfig();
     // GPU 模式下一次从数据库取更多照片，以便批量推理；CPU 模式保持小批量
     const effectiveIndexBatchSize = config.useGpu ? 16 : config.indexBatchSize;
 
@@ -109,65 +112,79 @@ export class AiIndexService {
         await this.waitWhilePaused();
         if (this.cancelled) break;
 
-        const photos = this.db.getPhotosWithoutEmbedding(effectiveIndexBatchSize);
+        const photos = this.db.getPhotosWithoutEmbedding(effectiveIndexBatchSize, [...this.failedPhotoIds]);
         if (photos.length === 0) {
           break;
         }
 
-        const imagePhotos = photos.filter(p => p.media_type === 'image');
+        // 查询已过滤为仅图片，直接使用
+        const imagePhotos = photos;
 
-        if (imagePhotos.length > 0) {
-          this.currentFile = imagePhotos[0].filename;
-          this.message = `正在索引 ${imagePhotos[0].filename}`;
-          this.emitProgress();
+        this.currentFile = imagePhotos[0].filename;
+        this.message = `正在索引 ${imagePhotos[0].filename}`;
+        this.emitProgress();
 
-          if (config.useGpu) {
-            // GPU 模式：批量编码，充分利用 GPU 算力
-            try {
-              const imagePaths = imagePhotos.map(p => p.path);
-              const embeddings = await this.embeddingService.encodeImages(imagePaths);
-              for (let i = 0; i < imagePhotos.length; i++) {
-                if (this.cancelled) break;
-                await this.waitWhilePaused();
-                this.db.upsertPhotoEmbedding(imagePhotos[i].id, embeddings[i], config.model);
-                this.processed++;
-              }
-            } catch (error) {
-              log.error('[AI] GPU 批量索引失败，本次批次跳过:', error);
-            }
-          } else {
-            // CPU 模式：单张单张推理，避免占用过多内存和线程
+        if (config.useGpu) {
+          // GPU 模式：批量编码，充分利用 GPU 算力
+          try {
+            const imagePaths = imagePhotos.map(p => p.path);
+            const embeddings = await this.embeddingService.encodeImages(imagePaths);
             for (let i = 0; i < imagePhotos.length; i++) {
               if (this.cancelled) break;
               await this.waitWhilePaused();
-
-              const photo = imagePhotos[i];
-              this.currentFile = photo.filename;
-              this.message = `正在索引 ${photo.filename}`;
-              this.emitProgress();
-
+              const embedding = embeddings[i];
+              if (embedding) {
+                this.db.upsertPhotoEmbedding(imagePhotos[i].id, embedding, config.model);
+                this.processed++;
+              } else {
+                log.warn(`[AI] 该照片批量索引失败，跳过: ${imagePhotos[i].path}`);
+                this.failedPhotoIds.add(imagePhotos[i].id);
+                this.processed++;
+              }
+            }
+          } catch (error) {
+            log.error('[AI] GPU 批量索引失败，降级为单张重试:', error);
+            // 批量失败时降级为单张处理，避免整批跳过导致死循环
+            for (const photo of imagePhotos) {
+              if (this.cancelled) break;
+              await this.waitWhilePaused();
               try {
                 const embedding = await this.embeddingService.encodeImage(photo.path);
                 this.db.upsertPhotoEmbedding(photo.id, embedding, config.model);
                 this.processed++;
-              } catch (error) {
-                log.warn(`[AI] 索引照片失败: ${photo.path}`, error);
-              }
-
-              // 每处理完一张让出事件循环，避免主进程/Worker卡死
-              if (i % config.inferenceBatchSize === 0) {
-                await this.yieldToMain();
+              } catch (err) {
+                log.warn(`[AI] 单张索引失败，跳过: ${photo.path}`, err);
+                this.failedPhotoIds.add(photo.id);
+                this.processed++;
               }
             }
           }
-        }
+        } else {
+          // CPU 模式：单张单张推理，避免占用过多内存和线程
+          for (let i = 0; i < imagePhotos.length; i++) {
+            if (this.cancelled) break;
+            await this.waitWhilePaused();
 
-        // 处理视频：抽取第一帧再编码（当前仅跳过，后续可扩展）
-        const videos = photos.filter(p => p.media_type === 'video');
-        for (const video of videos) {
-          if (this.cancelled) break;
-          await this.waitWhilePaused();
-          log.info(`[AI] 跳过视频索引: ${video.path}`);
+            const photo = imagePhotos[i];
+            this.currentFile = photo.filename;
+            this.message = `正在索引 ${photo.filename}`;
+            this.emitProgress();
+
+            try {
+              const embedding = await this.embeddingService.encodeImage(photo.path);
+              this.db.upsertPhotoEmbedding(photo.id, embedding, config.model);
+              this.processed++;
+            } catch (error) {
+              log.warn(`[AI] 索引照片失败，跳过: ${photo.path}`, error);
+              this.failedPhotoIds.add(photo.id);
+              this.processed++;
+            }
+
+            // 每处理完一张让出事件循环，避免主进程/Worker卡死
+            if (i % config.inferenceBatchSize === 0) {
+              await this.yieldToMain();
+            }
+          }
         }
       }
 
@@ -192,8 +209,9 @@ export class AiIndexService {
   pause(): void {
     if (!this.running) return;
     this.paused = true;
-    this.status = 'pausing';
-    this.message = '正在暂停，等待当前批次完成...';
+    // M-13: 直接设置为 paused 状态，避免卡在 'pausing' 状态
+    this.status = 'paused';
+    this.message = '索引已暂停';
     this.emitProgress();
     log.info('[AI] 索引任务暂停请求已收到');
   }
@@ -207,6 +225,12 @@ export class AiIndexService {
   cancel(): void {
     this.cancelled = true;
     this.paused = false;
+    // L-5: 立即更新状态为 idle，避免 UI 仍显示 indexing 数秒
+    if (this.status === 'indexing' || this.status === 'paused' || this.status === 'pausing') {
+      this.status = 'idle';
+      this.message = '索引已取消';
+      this.emitProgress();
+    }
     log.info('[AI] 索引任务取消');
   }
 

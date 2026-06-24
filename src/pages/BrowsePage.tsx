@@ -118,8 +118,8 @@ const GridList = React.forwardRef<HTMLDivElement, any>(({ style, children, ...pr
 const GridItem = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>;
 
 export function BrowsePage() {
-  const { 
-    photos, 
+  const {
+    photos,
     photosOffset,
     photosTotal,
     photosHasMore,
@@ -129,8 +129,8 @@ export function BrowsePage() {
     loadPhotosAtOffset,
     loadPreviousPhotosPage,
     loadTimeline,
-    loadStats, 
-    currentFilter, 
+    loadStats,
+    currentFilter,
     setCurrentFilter,
     thumbnails,
     setThumbnails,
@@ -141,6 +141,8 @@ export function BrowsePage() {
     setAiSearchResults,
     setAiSearching,
     aiSearch,
+    browseScrollState,
+    setBrowseScrollState,
   } = useAppStore();
   const get = useAppStore.getState;
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
@@ -156,19 +158,82 @@ export function BrowsePage() {
   const mediumUpgradeVersionRef = useRef(0);
   const upgradedIdsRef = useRef<Set<string>>(new Set());
   const scrollRestoreIndexRef = useRef<number | null>(null);
+  const isRestoringScrollRef = useRef(false);
   // 标记正在加载缩略图的 photoId，防止多个 effect 实例重复请求同一批
   const thumbnailInFlightRef = useRef<Set<string>>(new Set());
+  // 持有 displayPhotos 的最新引用，供 handleRangeChanged 使用，避免依赖 displayPhotos 导致频繁重建
+  const displayPhotosRef = useRef<Photo[]>([]);
 
   const isAiSearchMode = aiSearchQuery.trim().length > 0;
   const displayPhotos = useMemo(() => {
     return isAiSearchMode ? aiSearchResults : photos;
   }, [isAiSearchMode, aiSearchResults, photos]);
+  displayPhotosRef.current = displayPhotos;
 
+  // 页面挂载时，如果有保存的滚动状态，先尝试使用现有数据恢复；否则走正常的首次加载
   useEffect(() => {
-    loadPhotosPage({});
+    // AI 搜索模式不恢复滚动状态（搜索结果是临时列表）
+    if (!browseScrollState || isAiSearchMode) {
+      loadPhotosPage({});
+      loadTimeline({});
+      loadStats();
+      return;
+    }
+
+    // 已经有数据且覆盖了目标索引：直接标记恢复
+    if (photos.length > 0) {
+      const localIndex = browseScrollState.index - photosOffset;
+      if (localIndex >= 0 && localIndex < photos.length) {
+        isRestoringScrollRef.current = true;
+        return;
+      }
+    }
+
+    // 没有数据或不在当前窗口：加载目标窗口
+    const windowSize = 1500;
+    const loadOffset = Math.max(0, browseScrollState.index - 500);
+    setLoadingMore(true);
+    loadPhotosAtOffset(currentFilter, loadOffset, windowSize).finally(() => {
+      setLoadingMore(false);
+      isRestoringScrollRef.current = true;
+    });
     loadTimeline({});
     loadStats();
-  }, [loadPhotosPage, loadTimeline, loadStats]);
+  }, []);
+
+  // 当列表数据变化且需要恢复时，执行滚动恢复
+  useEffect(() => {
+    if (!isRestoringScrollRef.current || !browseScrollState || !virtuosoRef.current) return;
+
+    const localIndex = browseScrollState.index - photosOffset;
+    if (localIndex >= 0 && localIndex < photos.length) {
+      virtuosoRef.current.scrollToIndex({
+        index: localIndex,
+        align: browseScrollState.align ?? 'start',
+        behavior: 'auto',
+      });
+      isRestoringScrollRef.current = false;
+    }
+  }, [photos, photosOffset, browseScrollState]);
+
+  // 页面卸载前保存当前滚动位置
+  useEffect(() => {
+    return () => {
+      if (isAiSearchMode) return;
+      // 优先用可视区域起始位置，若起始位置无效则用上一次保存的
+      const { startIndex } = visibleRange;
+      // 校验索引基于浏览列表（photos）而非 displayPhotos，避免 AI 搜索结果污染
+      if (startIndex >= 0 && startIndex < photos.length) {
+        const globalIndex = photosOffset + startIndex;
+        setBrowseScrollState({ index: globalIndex, align: 'start' });
+      }
+    };
+  }, [isAiSearchMode, photosOffset, visibleRange, photos.length, setBrowseScrollState]);
+
+  // 进入/退出 AI 搜索模式时重置 visibleRange，避免搜索结果的索引污染浏览页滚动位置
+  useEffect(() => {
+    setVisibleRange({ startIndex: 0, endIndex: 0 });
+  }, [isAiSearchMode]);
 
   useEffect(() => {
     // 计算 displayPhotos ID 摘要，用于检测显示列表是否真正变化
@@ -204,11 +269,8 @@ export function BrowsePage() {
           // 无论 photos 是否变化，都写入 store（缩略图按 photoId 索引，始终有效）
           setThumbnails({ ...get().thumbnails, ...batch });
         } catch {
-          const fallback: Record<string, string> = {};
-          for (const photo of photosToLoad) {
-            fallback[photo.id] = `file:///${photo.path.replace(/\\/g, '/')}`;
-          }
-          setThumbnails({ ...get().thumbnails, ...fallback });
+          // 缩略图加载失败时不设置 fallback，让 PhotoGridItem 显示骨架屏，
+          // 避免 file:/// 直接加载原图对 RAW 格式显示破损图标或大图卡顿
         } finally {
           photosToLoad.forEach(p => thumbnailInFlightRef.current.delete(p.id));
         }
@@ -309,6 +371,7 @@ export function BrowsePage() {
     setCurrentFilter(newFilter);
     loadPhotosPage(newFilter);
     loadTimeline(newFilter);
+    setBrowseScrollState(null);
   };
 
   const formatDate = (dateStr: string | null) => {
@@ -329,34 +392,42 @@ export function BrowsePage() {
     });
   };
 
-  const handleDeletePhoto = async (photo: Photo) => {
-    try {
-      const currentIndex = displayPhotos.findIndex(p => p.id === photo.id);
-      const newThumbnails = { ...get().thumbnails };
-      delete newThumbnails[photo.id];
-      setThumbnails(newThumbnails);
+  const handlePhotoDeleted = (photo: Photo) => {
+    // 后端删除已由 PhotoDetailModal.handleDelete 完成，此处只同步前端状态
+    const currentIndex = displayPhotos.findIndex(p => p.id === photo.id);
+    const newThumbnails = { ...get().thumbnails };
+    delete newThumbnails[photo.id];
+    setThumbnails(newThumbnails);
 
-      if (displayPhotos.length > 1 && currentIndex < displayPhotos.length - 1) {
-        setSelectedPhoto(displayPhotos[currentIndex + 1]);
-      } else if (displayPhotos.length > 1 && currentIndex > 0) {
-        setSelectedPhoto(displayPhotos[currentIndex - 1]);
-      } else {
-        setSelectedPhoto(null);
-      }
+    if (displayPhotos.length > 1 && currentIndex < displayPhotos.length - 1) {
+      setSelectedPhoto(displayPhotos[currentIndex + 1]);
+    } else if (displayPhotos.length > 1 && currentIndex > 0) {
+      setSelectedPhoto(displayPhotos[currentIndex - 1]);
+    } else {
+      setSelectedPhoto(null);
+    }
 
-      // 从当前列表移除被删除项，避免重新加载导致滚动位置和时间轴重置
+    // AI 搜索模式下同步更新 aiSearchResults，避免已删除照片仍显示在网格中
+    if (isAiSearchMode) {
+      useAppStore.setState({
+        aiSearchResults: aiSearchResults.filter(p => p.id !== photo.id),
+        photosTotal: Math.max(0, photosTotal - 1),
+      });
+    } else {
       const nextPhotos = photos.filter(p => p.id !== photo.id);
+      // M-25: 同步递减 photosOffset，避免后续 loadMore 跳过照片
+      const deletedBeforeOrInView = photos.findIndex(p => p.id === photo.id);
+      const offsetAdjust = deletedBeforeOrInView >= 0 ? 1 : 0;
       useAppStore.setState({
         photos: nextPhotos,
         photosTotal: Math.max(0, photosTotal - 1),
+        photosOffset: Math.max(0, useAppStore.getState().photosOffset - offsetAdjust),
       });
       if (nextPhotos.length === 0) {
         loadPhotosPage(currentFilter);
       }
-      loadStats();
-    } catch (error) {
-      toast('error', '删除失败：' + error);
     }
+    loadStats();
   };
 
   const toggleSelect = useCallback((photoId: string, e?: React.MouseEvent) => {
@@ -401,14 +472,21 @@ export function BrowsePage() {
       setThumbnails(newThumbnails);
       setSelectedIds(new Set());
       setSelectMode(false);
-      // 从当前列表移除被删除项，避免重新加载导致滚动位置和时间轴重置
-      const nextPhotos = photos.filter(p => !selectedIds.has(p.id));
-      useAppStore.setState({
-        photos: nextPhotos,
-        photosTotal: Math.max(0, photosTotal - count),
-      });
-      if (nextPhotos.length === 0) {
-        loadPhotosPage(currentFilter);
+      // AI 搜索模式下同步更新 aiSearchResults，浏览模式更新 photos
+      if (isAiSearchMode) {
+        useAppStore.setState({
+          aiSearchResults: aiSearchResults.filter(p => !selectedIds.has(p.id)),
+          photosTotal: Math.max(0, photosTotal - count),
+        });
+      } else {
+        const nextPhotos = photos.filter(p => !selectedIds.has(p.id));
+        useAppStore.setState({
+          photos: nextPhotos,
+          photosTotal: Math.max(0, photosTotal - count),
+        });
+        if (nextPhotos.length === 0) {
+          loadPhotosPage(currentFilter);
+        }
       }
       loadStats();
     } catch (error) {
@@ -481,8 +559,13 @@ export function BrowsePage() {
     // 让目标月份落在加载窗口内偏中间的位置，留出向上/向下滚动的空间
     const loadOffset = Math.max(0, targetOffset - buffer);
 
+    // 读取最新 store 状态，避免闭包过期
+    const stateBeforeLoad = get();
+    const currentPhotosOffset = stateBeforeLoad.photosOffset;
+    const currentPhotos = stateBeforeLoad.photos;
+
     // 如果目标已经在当前加载窗口内，直接滚动；否则直接加载目标窗口
-    const inCurrentWindow = targetOffset >= photosOffset && targetOffset < photosOffset + photos.length;
+    const inCurrentWindow = targetOffset >= currentPhotosOffset && targetOffset < currentPhotosOffset + currentPhotos.length;
     if (!inCurrentWindow) {
       setLoadingMore(true);
       try {
@@ -492,22 +575,26 @@ export function BrowsePage() {
       }
     }
 
-    const localIndex = targetOffset - (inCurrentWindow ? photosOffset : loadOffset);
-    const index = Math.max(0, Math.min(localIndex, photos.length - 1));
+    // await 后重新读取最新状态，避免闭包过期导致索引计算错误
+    const stateAfterLoad = get();
+    const latestPhotosOffset = inCurrentWindow ? currentPhotosOffset : stateAfterLoad.photosOffset;
+    const latestPhotos = inCurrentWindow ? currentPhotos : stateAfterLoad.photos;
+    const localIndex = targetOffset - latestPhotosOffset;
+    const index = Math.max(0, Math.min(localIndex, latestPhotos.length - 1));
     if (virtuosoRef.current) {
       virtuosoRef.current.scrollToIndex({ index, behavior: 'auto' });
     }
-  }, [photos, photosOffset, photosHasMore, currentFilter, loadPhotosPage, loadPhotosAtOffset, getPhotoMonthKey]);
+  }, [currentFilter, loadPhotosAtOffset, get]);
 
   const handleRangeChanged = useCallback(({ startIndex, endIndex }: { startIndex: number; endIndex: number }) => {
     setVisibleRange({ startIndex, endIndex });
     // 用可视区域中间位置的照片所属月份作为高亮，比起始位置更贴合用户当前在看的内容
     const centerIndex = Math.floor((startIndex + endIndex) / 2);
-    const photo = displayPhotos[centerIndex];
+    const photo = displayPhotosRef.current[centerIndex];
     if (photo) {
       setActiveTimelineKey(getPhotoMonthKey(photo));
     }
-  }, [displayPhotos, getPhotoMonthKey]);
+  }, [getPhotoMonthKey]);
 
   return (
     <div className="h-full flex">
@@ -614,7 +701,7 @@ export function BrowsePage() {
               )}
               <div className="flex items-center gap-2">
                 {currentFilter.mediaType === 'video' ? (
-                  <Film size={14} className="text-zinc-500" />
+                  <Film size={14} className="text-zinc-700" />
                 ) : (
                   <Image size={14} className="text-zinc-500" />
                 )}
@@ -753,7 +840,7 @@ export function BrowsePage() {
         onClose={() => setSelectedPhoto(null)}
         onNavigate={navigatePhoto}
         onUpdate={handleUpdatePhoto}
-        onDelete={handleDeletePhoto}
+        onDelete={handlePhotoDeleted}
       />
     </div>
   );

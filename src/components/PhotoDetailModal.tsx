@@ -45,17 +45,22 @@ export function PhotoDetailModal({
       setPhotoDetail(null);
       return;
     }
+    // H-16: 添加取消标志，防止快速切换照片时过期请求覆盖当前显示
+    let cancelled = false;
     setLoadingDetail(true);
     setImageError(false);
     setVideoError(false);
     window.api.photo.getById(photo.id).then(detail => {
-      setPhotoDetail(detail);
+      if (!cancelled) setPhotoDetail(detail);
     }).catch(e => {
-      console.error('Failed to load photo detail:', e);
-      setPhotoDetail(null);
+      if (!cancelled) {
+        console.error('Failed to load photo detail:', e);
+        setPhotoDetail(null);
+      }
     }).finally(() => {
-      setLoadingDetail(false);
+      if (!cancelled) setLoadingDetail(false);
     });
+    return () => { cancelled = true; };
   }, [photo]);
 
   // 同步编辑框初始值
@@ -435,7 +440,7 @@ export function PhotoDetailModal({
                       </span>
                     </div>
                     <button
-                      onClick={() => navigate(`/map?photoId=${photo.id}`)}
+                      onClick={() => navigate(`/map?photoId=${encodeURIComponent(photo.id)}`)}
                       className="flex items-center gap-1 text-xs text-amber-500 hover:text-amber-400 transition-colors"
                     >
                       <MapPinned size={12} />

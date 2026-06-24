@@ -30,6 +30,8 @@ export const useConfirmStore = create<ConfirmState & ConfirmActions>((set) => ({
 
   showConfirm: (options) => {
     return new Promise<boolean>((resolve) => {
+      // H-18: 覆盖前先 resolve 前一个为 false，避免 Promise 永久挂起
+      if (resolveRef) resolveRef(false);
       resolveRef = resolve;
       set({
         open: true,

@@ -23,7 +23,11 @@ export class HashService {
   }
 
   private releaseHasher(hasher: XXHash64Hasher): void {
-    this.hasherPool.push(hasher);
+    // M-3: 限制池大小，避免无限增长
+    if (this.hasherPool.length < 16) {
+      this.hasherPool.push(hasher);
+    }
+    // 超出上限的 hasher 直接丢弃，由 GC 回收
   }
 
   /**
@@ -50,9 +54,20 @@ export class HashService {
       return await new Promise((resolve, reject) => {
         hasher.init();
         const stream = createReadStream(filePath, { highWaterMark: 256 * 1024 });
-        stream.on('data', (chunk) => hasher.update(chunk as Buffer));
+        // M-2: 错误时销毁流，避免文件描述符泄漏
+        stream.on('data', (chunk) => {
+          try {
+            hasher.update(chunk as Buffer);
+          } catch (err) {
+            stream.destroy();
+            reject(err);
+          }
+        });
         stream.on('end', () => resolve(hasher.digest()));
-        stream.on('error', reject);
+        stream.on('error', (err) => {
+          stream.destroy();
+          reject(err);
+        });
       });
     } finally {
       this.releaseHasher(hasher);
@@ -65,9 +80,19 @@ export class HashService {
       return await new Promise((resolve, reject) => {
         hasher.init();
         const stream = createReadStream(filePath, { start: 0, end: 1023, highWaterMark: 64 * 1024 });
-        stream.on('data', (chunk) => hasher.update(chunk as Buffer));
+        stream.on('data', (chunk) => {
+          try {
+            hasher.update(chunk as Buffer);
+          } catch (err) {
+            stream.destroy();
+            reject(err);
+          }
+        });
         stream.on('end', () => resolve(hasher.digest()));
-        stream.on('error', reject);
+        stream.on('error', (err) => {
+          stream.destroy();
+          reject(err);
+        });
       });
     } finally {
       this.releaseHasher(hasher);
@@ -103,9 +128,19 @@ export class HashService {
           }
           const { start, end } = ranges[index++];
           const stream = createReadStream(filePath, { start, end, highWaterMark: 64 * 1024 });
-          stream.on('data', (chunk) => hasher.update(chunk as Buffer));
+          stream.on('data', (chunk) => {
+            try {
+              hasher.update(chunk as Buffer);
+            } catch (err) {
+              stream.destroy();
+              reject(err);
+            }
+          });
           stream.on('end', readNext);
-          stream.on('error', reject);
+          stream.on('error', (err) => {
+            stream.destroy();
+            reject(err);
+          });
         };
         readNext();
       });
@@ -198,7 +233,19 @@ export class HashService {
    * pHash 为 64 位二进制字符串，使用 BigInt XOR + popcount，比逐字符比较快 5~10 倍。
    */
   hammingDistance(hash1: string, hash2: string): number {
-    const len = Math.min(hash1.length, hash2.length);
+    // M-11: 长度不一致时，额外位视为差异（每 4 位一组，不足部分按实际位数计算）
+    if (hash1.length !== hash2.length) {
+      const lenDiff = Math.abs(hash1.length - hash2.length);
+      // 逐字符比较公共部分
+      const commonLen = Math.min(hash1.length, hash2.length);
+      let distance = 0;
+      for (let i = 0; i < commonLen; i++) {
+        if (hash1[i] !== hash2[i]) distance++;
+      }
+      return distance + lenDiff;
+    }
+
+    const len = hash1.length;
     if (len === 0) return 0;
 
     // 分段处理：每 64 位一个 BigInt，避免单个大数转换过慢

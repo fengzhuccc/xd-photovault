@@ -12,6 +12,8 @@ export interface AiModelConfig {
   inferenceBatchSize: number;
   /** 是否使用 GPU 加速（Windows 下使用 DirectML，失败自动回退 CPU） */
   useGpu: boolean;
+  /** 语义搜索最小相似度阈值，低于此值的结果不返回 */
+  searchMinSimilarity: number;
 }
 
 /** 默认模型：OpenAI CLIP ViT-B/16 的 ONNX 版本，支持简单中文查询。 */
@@ -21,6 +23,7 @@ export const DEFAULT_AI_CONFIG: AiModelConfig = {
   indexBatchSize: 8,
   inferenceBatchSize: 1,
   useGpu: false,
+  searchMinSimilarity: 0.2,
 };
 
 /** 中文 CLIP 示例配置（需自行准备 ONNX 权重）。 */
@@ -30,6 +33,7 @@ export const CHINESE_CLIP_CONFIG: AiModelConfig = {
   indexBatchSize: 4,
   inferenceBatchSize: 1,
   useGpu: false,
+  searchMinSimilarity: 0.2,
 };
 
 let activeConfig: AiModelConfig = { ...DEFAULT_AI_CONFIG };

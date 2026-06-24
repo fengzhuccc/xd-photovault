@@ -45,14 +45,17 @@ export function LibraryPage() {
   useEffect(() => {
     const unsubscribe = window.api.scan.onProgress((progress: ScanProgress) => {
       setScanProgress(progress);
-      if (progress.status === 'complete') {
+      // M-22: complete/idle 状态都清除扫描中标志，防止永久卡住
+      if (progress.status === 'complete' || progress.status === 'idle') {
         setScanningFolderId(null);
-        setScanResult(progress);
-        // 扫描完成后刷新照片列表、时间线和统计，缩略图保留已有缓存按需补充
-        loadPhotosPage({});
-        loadTimeline({});
-        loadFolders();
-        loadStats();
+        if (progress.status === 'complete') {
+          setScanResult(progress);
+          // 扫描完成后刷新照片列表、时间线和统计，缩略图保留已有缓存按需补充
+          loadPhotosPage({});
+          loadTimeline({});
+          loadFolders();
+          loadStats();
+        }
       }
     });
     return () => { unsubscribe(); };
@@ -244,7 +247,7 @@ export function LibraryPage() {
             {scanResult.deletedCount !== undefined && scanResult.deletedCount > 0 && (
               <span className="text-red-400">删除 {scanResult.deletedCount} 张</span>
             )}
-            {scanResult.newCount === 0 && scanResult.skipped === scanResult.total && (
+            {scanResult.newCount === 0 && (scanResult.skipped ?? 0) === scanResult.total && (
               <span>未发现新照片</span>
             )}
           </div>

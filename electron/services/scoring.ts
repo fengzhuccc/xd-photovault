@@ -10,7 +10,7 @@ import type { PhotoRow } from './database';
  */
 export function scorePhoto(p: PhotoRow): number {
   let score = 0;
-  if (p.latitude && p.longitude) score += 100;
+  if (p.latitude != null && p.longitude != null) score += 100;
   score += Math.log2(Math.max(1, p.file_size)) * 10;
   score += ((p.width || 0) * (p.height || 0)) / 1000000;
   const name = (p.filename || '').toLowerCase();

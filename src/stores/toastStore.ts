@@ -14,6 +14,8 @@ interface ToastState {
 }
 
 let toastId = 0;
+// L-16: 维护 timer 引用，手动关闭时清除定时器，避免无操作的状态更新
+const toastTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export const useToastStore = create<ToastState>((set) => ({
   toasts: [],
@@ -21,11 +23,19 @@ export const useToastStore = create<ToastState>((set) => ({
     const id = String(++toastId);
     set((state) => ({ toasts: [...state.toasts, { ...toast, id }] }));
     const duration = toast.duration ?? (toast.type === 'error' ? 5000 : 3000);
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      toastTimers.delete(id);
       set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
     }, duration);
+    toastTimers.set(id, timer);
   },
   removeToast: (id) => {
+    // L-16: 手动关闭时清除定时器，避免后续无操作的状态更新
+    const timer = toastTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      toastTimers.delete(id);
+    }
     set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
   },
 }));

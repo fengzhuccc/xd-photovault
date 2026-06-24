@@ -3,6 +3,13 @@ import sharp from 'sharp';
 import { exiftool } from 'exiftool-vendored';
 import log from 'electron-log';
 
+/** 格式化快门速度，正确处理长曝光（≥1秒）和除零情况 */
+function formatShutterSpeed(exposureTime: number | undefined | null): string | null {
+  if (!exposureTime || exposureTime === 0) return null;
+  if (exposureTime >= 1) return `${exposureTime}s`;
+  return `1/${Math.round(1 / exposureTime)}s`;
+}
+
 export interface ExifData {
   takenAt: Date | null;
   latitude: number | null;
@@ -134,7 +141,7 @@ export class ExifService {
         height,
         camera,
         aperture: exif.FNumber ? `f/${exif.FNumber}` : null,
-        shutterSpeed: exif.ExposureTime ? `1/${Math.round(1 / exif.ExposureTime)}s` : null,
+        shutterSpeed: formatShutterSpeed(exif.ExposureTime),
         iso: exif.ISO || null,
         focalLength: exif.FocalLength ? `${exif.FocalLength}mm` : null,
       };
@@ -165,19 +172,29 @@ export class ExifService {
     if (!coords || coords.length < 3) return null;
 
     const [degrees, minutes, seconds] = coords;
+    // M-31: 验证坐标值有效性，过滤 NaN 和异常值
+    if (!Number.isFinite(degrees) || !Number.isFinite(minutes) || !Number.isFinite(seconds)) {
+      return null;
+    }
     let decimal = degrees + minutes / 60 + seconds / 3600;
 
     if (ref === 'S' || ref === 'W') {
       decimal = -decimal;
     }
 
+    // 验证最终坐标在合理范围内
+    if (!Number.isFinite(decimal)) return null;
+
     return decimal;
   }
 
   async writeDate(filePath: string, date: Date): Promise<void> {
     try {
-      // 使用 AllDates 快捷标签同时写入 DateTimeOriginal、CreateDate、ModifyDate
-      const dateStr = date.toISOString().replace('Z', '');
+      // M-27: 使用本地时间格式化，避免 toISOString 转 UTC 后去 Z 导致时间偏移
+      // EXIF 标准期望本地时间（无时区），格式 YYYY:MM:DD HH:MM:SS
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const dateStr = `${date.getFullYear()}:${pad(date.getMonth() + 1)}:${pad(date.getDate())} ` +
+        `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
       await exiftool.write(filePath, {
         AllDates: dateStr,
       }, ['-overwrite_original']);

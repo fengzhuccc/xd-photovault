@@ -361,7 +361,8 @@ function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick,
     mapInstanceRef.current = map;
 
     // 确保 Leaflet 正确计算容器尺寸
-    setTimeout(() => {
+    // L-11: 保存 timer 引用，组件卸载时清理
+    const sizeTimer = setTimeout(() => {
       map.invalidateSize();
     }, 200);
 
@@ -377,6 +378,7 @@ function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick,
     scheduleLoad();
 
     return () => {
+      clearTimeout(sizeTimer);
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       map.remove();
       mapInstanceRef.current = null;

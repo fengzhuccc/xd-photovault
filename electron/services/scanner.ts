@@ -93,6 +93,8 @@ export class ScannerService {
   private scanning = false;
   private activeScanFolderId: string | null = null;
   private cancelRequested = false;
+  // 去重检测互斥锁，防止并发调用导致重复组数据损坏
+  private isDetectingDuplicates = false;
   private thumbnailQueue: Array<{ id: string; path: string }> = [];
   private thumbnailWorkersActive = false;
   onProgress?: (progress: DuplicateProgress) => void;
@@ -140,8 +142,16 @@ export class ScannerService {
       this.clearThumbnailQueueForFolder(folder.path);
     }
 
-    // 等待扫描循环结束
+    // M-7: 等待扫描循环结束，添加 10 秒超时防止永久卡住
+    const TIMEOUT_MS = 10000;
+    const start = Date.now();
     while (this.scanning) {
+      if (Date.now() - start > TIMEOUT_MS) {
+        log.warn(`[Scanner] 停止扫描超时 (${TIMEOUT_MS}ms)，强制重置扫描状态`);
+        this.scanning = false;
+        this.activeScanFolderId = null;
+        break;
+      }
       await new Promise(resolve => setTimeout(resolve, 50));
     }
   }
@@ -197,17 +207,22 @@ export class ScannerService {
         return 'skipped';
       }
 
-      if (existing) {
-        this.db.deletePhoto(existing.id);
-      }
-
+      // H-10: 先处理新文件，成功后再删旧记录，避免处理失败导致数据丢失
       const photoId = existing?.id || uuidv4();
 
       if (isVideo) {
-        return await this.processVideoFile(filePath, folderId, photoId, stats);
+        const result = await this.processVideoFile(filePath, folderId, photoId, stats);
+        if (existing) {
+          this.db.deletePhoto(existing.id);
+        }
+        return result;
       }
 
-      return await this.processImageFile(filePath, folderId, photoId, stats);
+      const result = await this.processImageFile(filePath, folderId, photoId, stats);
+      if (existing) {
+        this.db.deletePhoto(existing.id);
+      }
+      return result;
     } catch (error) {
       log.warn(`[Scanner] 处理文件失败: ${filePath}`, error);
       return null;
@@ -732,10 +747,11 @@ export class ScannerService {
   private async migrateLegacyHashes(): Promise<number> {
     const BATCH = 200;
     let migrated = 0;
-    let offset = 0;
 
     while (true) {
-      const photos = this.db.getPhotosWithLegacyMd5Hashes(BATCH, offset);
+      // 迁移后记录的 file_hash 从 MD5 变为 xxhash64，不再匹配查询条件，
+      // 因此始终使用 offset=0，避免跳过未迁移的记录
+      const photos = this.db.getPhotosWithLegacyMd5Hashes(BATCH, 0);
       if (photos.length === 0) break;
 
       for (const photo of photos) {
@@ -748,7 +764,6 @@ export class ScannerService {
         }
       }
 
-      offset += photos.length;
       await yieldToMain();
       if (photos.length < BATCH) break;
     }
@@ -773,33 +788,51 @@ export class ScannerService {
     newHashes: string[] = [],
     newFrameHashes: string[] = []
   ): Promise<number> {
-    log.info(`[Scanner] 开始检测重复照片 (mode=${mode}, fullRebuild=${fullRebuild}, newHashes=${newHashes.length}, newFrameHashes=${newFrameHashes.length})...`);
+    // 互斥锁：防止并发去重检测导致重复组数据损坏
+    if (this.isDetectingDuplicates) {
+      log.info(`[Scanner] 去重检测已在进行中，跳过 (mode=${mode})`);
+      return 0;
+    }
+    this.isDetectingDuplicates = true;
 
-    if (fullRebuild) {
-      await this.migrateLegacyHashes();
-      if (mode === 'exact') {
-        this.db.clearDuplicateGroupsByReason('exact');
-      } else {
-        this.db.clearDuplicateGroupsByReason('similar');
+    try {
+      log.info(`[Scanner] 开始检测重复照片 (mode=${mode}, fullRebuild=${fullRebuild}, newHashes=${newHashes.length}, newFrameHashes=${newFrameHashes.length})...`);
+
+      if (fullRebuild) {
+        await this.migrateLegacyHashes();
       }
+
+      // C-5: 精确去重添加错误恢复，检测失败时保留旧数据
+      if (mode === 'similar') {
+        // 相似去重需要先确保 pHash 存在，失败时不清空旧数据
+        try {
+          await this.ensurePerceptualHashes();
+        } catch (error) {
+          log.error('[Scanner] 感知哈希计算失败，保留旧相似组数据:', error);
+          throw error;
+        }
+      }
+
+      let groupCount = 0;
+
+      if (mode === 'exact') {
+        try {
+          groupCount += await this.runExactDuplicateDetection(fullRebuild, newHashes, newFrameHashes);
+        } catch (error) {
+          log.error('[Scanner] 精确去重检测失败，保留旧数据:', error);
+          throw error;
+        }
+      } else {
+        const similarCount = await this.runSimilarDuplicateDetection(fullRebuild);
+        groupCount += similarCount;
+      }
+
+      this.emitDuplicateProgress({ stage: 'complete', current: 1, total: 1, message: '去重检测完成' });
+      log.info(`[Scanner] 检测到 ${groupCount} 组重复/相似照片`);
+      return groupCount;
+    } finally {
+      this.isDetectingDuplicates = false;
     }
-
-    if (mode === 'similar') {
-      await this.ensurePerceptualHashes();
-    }
-
-    let groupCount = 0;
-
-    if (mode === 'exact') {
-      groupCount += await this.runExactDuplicateDetection(fullRebuild, newHashes, newFrameHashes);
-    } else {
-      const similarCount = await this.runSimilarDuplicateDetection(fullRebuild);
-      groupCount += similarCount;
-    }
-
-    this.emitDuplicateProgress({ stage: 'complete', current: 1, total: 1, message: '去重检测完成' });
-    log.info(`[Scanner] 检测到 ${groupCount} 组重复/相似照片`);
-    return groupCount;
   }
 
   /**
@@ -1224,9 +1257,8 @@ export class ScannerService {
     log.info(`[Scanner] 相似图片检测完成: ${newGroups.length} 组 (比较 ${comparisons} 对，桶数 ${lshBuckets.size})`);
     return newGroups.length;
     } catch (err) {
-      // 异常时清理本次产生的半成品相似组，避免脏数据残留
-      this.db.clearDuplicateGroupsByReason('similar');
-      log.error('[Scanner] 相似图片检测失败，已清理半成品组', err);
+      // M-5: 异常时保留旧相似组数据，避免感知哈希计算失败导致已有相似组被清空
+      log.error('[Scanner] 相似图片检测失败，保留旧相似组数据', err);
       throw err;
     } finally {
       // 无论成功或异常都清除脏标记
@@ -1252,20 +1284,28 @@ export class ScannerService {
     const photos = this.db.getPhotosByIds(photoIds);
     if (photos.length === 0) return;
 
-    // 移动文件到回收站（顺序执行，避免文件系统竞争）
+    // M-26: 移动文件到回收站，回收失败的跳过 DB 删除，避免文件残留但记录丢失
+    const successfullyTrashed: PhotoRow[] = [];
+    const failedToTrash: PhotoRow[] = [];
     for (const photo of photos) {
       try {
         await shell.trashItem(photo.path);
+        successfullyTrashed.push(photo);
       } catch (e) {
         log.warn(`[Scanner] 移动文件到回收站失败: ${photo.path}`, e);
+        failedToTrash.push(photo);
       }
     }
 
+    if (successfullyTrashed.length === 0) {
+      throw new Error('所有文件移动到回收站失败，未删除任何数据库记录');
+    }
+
     // 批量删除缩略图文件（含新版多尺寸和旧版无分片）
-    this.thumbnailService.deleteThumbnailsByPhotoIds(photos.map(p => p.id));
+    this.thumbnailService.deleteThumbnailsByPhotoIds(successfullyTrashed.map(p => p.id));
 
     // 批量删除数据库记录，并获取受影响且仍存在的重复组
-    const affectedGroupIds = this.db.deletePhotosBatch(photos.map(p => p.id));
+    const affectedGroupIds = this.db.deletePhotosBatch(successfullyTrashed.map(p => p.id));
 
     // 对每个受影响组重新选择推荐照片，避免 recommended_photo_id 为 NULL
     for (const groupId of affectedGroupIds) {
@@ -1274,6 +1314,10 @@ export class ScannerService {
         const newRecommended = this.selectBestPhoto(remaining);
         this.db.updateDuplicateGroupRecommended(groupId, newRecommended.id);
       }
+    }
+
+    if (failedToTrash.length > 0) {
+      log.warn(`[Scanner] ${failedToTrash.length} 个文件回收失败，已保留其数据库记录: ${failedToTrash.map(p => p.path).join(', ')}`);
     }
   }
 }

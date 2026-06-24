@@ -73,6 +73,8 @@ export function DuplicatesPage() {
   }, [duplicates.length, focusedIndex]);
 
   useEffect(() => {
+    // M-24: 添加取消标志，防止 duplicates 快速变化时过期请求覆盖当前结果
+    let cancelled = false;
     const loadThumbnails = async () => {
       const allPhotos = duplicates.flatMap(g => g.photos);
       const missing = allPhotos.filter(p => !(p.id in thumbnailsRef.current));
@@ -81,10 +83,12 @@ export function DuplicatesPage() {
       // 分批请求，避免单次 IPC 负载过大
       const BATCH = 100;
       for (let i = 0; i < missing.length; i += BATCH) {
+        if (cancelled) return;
         const chunk = missing.slice(i, i + BATCH);
         const items = chunk.map(p => ({ photoId: p.id, photoPath: p.path, size: 'small' as const }));
         try {
           const batch = await window.api.thumbnail.getBatch(items);
+          if (cancelled) return;
           setThumbnails(prev => ({ ...prev, ...batch }));
         } catch {
           // 加载失败时不显示随机占位图，保持默认占位等待下次重试
@@ -94,6 +98,7 @@ export function DuplicatesPage() {
     if (duplicates.length > 0) {
       loadThumbnails();
     }
+    return () => { cancelled = true; };
   }, [duplicates]);
 
   const loadMore = useCallback(async () => {
@@ -293,6 +298,8 @@ export function DuplicatesPage() {
   // ===== 删除逻辑 =====
 
   const handleDeleteDuplicates = useCallback(async () => {
+    // M-20: 重入守卫，防止重复点击导致多次删除
+    if (isDeleting) return;
     const toDelete: string[] = [];
     for (const group of duplicates) {
       if (selectedGroups.has(group.id)) {
@@ -321,7 +328,7 @@ export function DuplicatesPage() {
     } finally {
       setIsDeleting(false);
     }
-  }, [duplicates, selectedGroups, getPhotosToDelete, confirm, applyPhotoDeletion]);
+  }, [duplicates, selectedGroups, getPhotosToDelete, confirm, applyPhotoDeletion, isDeleting]);
 
   const handleDeleteGroup = useCallback(async (group: DuplicateGroup) => {
     const toDelete = getPhotosToDelete(group);

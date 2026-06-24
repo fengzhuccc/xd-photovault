@@ -11,13 +11,17 @@ function compareDateDesc(a: string | null | undefined, b: string | null | undefi
 }
 
 function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+  // M-18: 维度不匹配时返回 0（完全不相似），而非静默截断导致错误的高相似度
+  if (a.length !== b.length) {
+    return 0;
+  }
   let dot = 0;
   let normA = 0;
   let normB = 0;
-  const len = Math.min(a.length, b.length);
+  const len = a.length;
   for (let i = 0; i < len; i++) {
-    const av = a[i] || 0;
-    const bv = b[i] || 0;
+    const av = a[i];
+    const bv = b[i];
     dot += av * bv;
     normA += av * av;
     normB += bv * bv;
@@ -415,10 +419,21 @@ export class DatabaseService {
         )
       `).run(id);
 
-      // 删除受影响的重复组
+      // 删除受影响的重复组：仅删除变为空组（≤1 张照片）的组，保留跨文件夹的多照片组
       for (const g of affectedGroupIds) {
-        this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.group_id);
-        this.db.prepare('DELETE FROM photo_duplicates WHERE group_id = ?').run(g.group_id);
+        const remaining = this.db.prepare(
+          'SELECT COUNT(*) as count FROM photo_duplicates WHERE group_id = ?'
+        ).get(g.group_id) as { count: number };
+        if (remaining.count <= 1) {
+          this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.group_id);
+          this.db.prepare('DELETE FROM photo_duplicates WHERE group_id = ?').run(g.group_id);
+        } else {
+          // 组内仍有多个照片，重新选择推荐照片
+          const bestId = this.pickBestPhotoForGroup(g.group_id);
+          if (bestId) {
+            this.updateDuplicateGroupRecommended(g.group_id, bestId);
+          }
+        }
       }
 
       this.db.prepare('DELETE FROM photos WHERE folder_id = ?').run(id);
@@ -429,26 +444,36 @@ export class DatabaseService {
 
   deletePhotosByFolder(folderId: string): void {
     const transaction = this.db.transaction(() => {
-      // 解除该文件夹照片作为重复组推荐照片的外键约束
-      this.db.prepare(`
-        UPDATE duplicate_groups
-        SET recommended_photo_id = NULL
-        WHERE recommended_photo_id IN (
-          SELECT id FROM photos WHERE folder_id = ?
-        )
-      `).run(folderId);
+      // 收集受影响的重复组（跨文件夹的组在删除本文件夹照片后仍保留）
+      const affectedGroups = this.db.prepare(`
+        SELECT DISTINCT dg.id, dg.reason FROM duplicate_groups dg
+        JOIN photo_duplicates pd ON pd.group_id = dg.id
+        JOIN photos p ON p.id = pd.photo_id
+        WHERE p.folder_id = ?
+      `).all(folderId) as { id: string; reason: string }[];
 
+      // 删除该文件夹照片在重复组中的成员记录
       this.db.prepare(`
         DELETE FROM photo_duplicates WHERE photo_id IN (
           SELECT id FROM photos WHERE folder_id = ?
         )
       `).run(folderId);
 
-      this.db.prepare(`
-        DELETE FROM duplicate_groups WHERE id NOT IN (
-          SELECT DISTINCT group_id FROM photo_duplicates
-        )
-      `).run();
+      // 删除变为空的重复组，并为仍有多照片的组重新选择推荐照片
+      for (const g of affectedGroups) {
+        const remaining = this.db.prepare(
+          'SELECT COUNT(*) as count FROM photo_duplicates WHERE group_id = ?'
+        ).get(g.id) as { count: number };
+        if (remaining.count === 0) {
+          this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.id);
+        } else {
+          // 重新选择推荐照片，避免 recommended_photo_id 为 NULL
+          const bestId = this.pickBestPhotoForGroup(g.id);
+          if (bestId) {
+            this.updateDuplicateGroupRecommended(g.id, bestId);
+          }
+        }
+      }
 
       this.db.prepare('DELETE FROM photos WHERE folder_id = ?').run(folderId);
     });
@@ -733,8 +758,16 @@ export class DatabaseService {
 
   getPhotosByIds(ids: string[]): PhotoRow[] {
     if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    return this.db.prepare(`SELECT * FROM photos WHERE id IN (${placeholders})`).all(...ids) as PhotoRow[];
+    // SQLite 默认参数上限 999，分批查询避免超限
+    const BATCH = 900;
+    const result: PhotoRow[] = [];
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const batch = ids.slice(i, i + BATCH);
+      const placeholders = batch.map(() => '?').join(',');
+      const rows = this.db.prepare(`SELECT * FROM photos WHERE id IN (${placeholders})`).all(...batch) as PhotoRow[];
+      result.push(...rows);
+    }
+    return result;
   }
 
   getPhotoStats() {
@@ -891,6 +924,26 @@ export class DatabaseService {
     this.db.prepare(`
       UPDATE duplicate_groups SET recommended_photo_id = ? WHERE id = ?
     `).run(photoId, groupId);
+  }
+
+  /**
+   * 选择组内最佳照片作为推荐照片。
+   * 简化版评分：有 GPS > 文件大小更大 > 拍摄时间更早。
+   * 与 ScannerService.selectBestPhoto 的策略保持一致。
+   */
+  private pickBestPhotoForGroup(groupId: string): string | null {
+    const row = this.db.prepare(`
+      SELECT p.id FROM photos p
+      JOIN photo_duplicates pd ON pd.photo_id = p.id
+      WHERE pd.group_id = ?
+      ORDER BY
+        (p.latitude IS NOT NULL AND p.longitude IS NOT NULL) DESC,
+        p.file_size DESC,
+        p.taken_at IS NULL,
+        p.taken_at ASC
+      LIMIT 1
+    `).get(groupId) as { id: string } | undefined;
+    return row?.id ?? null;
   }
 
   getDuplicateGroups(): DuplicateGroupDetail[] {
@@ -1237,7 +1290,7 @@ export class DatabaseService {
         model = excluded.model,
         updated_at = CURRENT_TIMESTAMP
     `);
-    stmt.run(photoId, Buffer.from(embedding.buffer), model);
+    stmt.run(photoId, Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength), model);
   }
 
   getPhotoEmbedding(photoId: string): { embedding: Float32Array; model: string } | null {
@@ -1245,28 +1298,45 @@ export class DatabaseService {
       | { embedding: Buffer; model: string }
       | undefined;
     if (!row) return null;
+    // 复制到新对齐缓冲区，避免 better-sqlite3 返回的 Buffer 字节对齐不满足 Float32Array 要求
+    const bytes = new Uint8Array(row.embedding);
+    const embedding = new Float32Array(bytes.buffer.slice(0));
     return {
-      embedding: new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.length / 4),
+      embedding,
       model: row.model,
     };
   }
 
-  getPhotosWithoutEmbedding(limit: number): { id: string; path: string; filename: string; media_type: 'image' | 'video' }[] {
+  getPhotosWithoutEmbedding(limit: number, excludeIds: string[] = []): { id: string; path: string; filename: string; media_type: 'image' | 'video' }[] {
+    if (excludeIds.length === 0) {
+      return this.db.prepare(`
+        SELECT p.id, p.path, p.filename, p.media_type FROM photos p
+        LEFT JOIN photo_embeddings pe ON p.id = pe.photo_id
+        WHERE pe.photo_id IS NULL AND p.media_type = 'image'
+        LIMIT ?
+      `).all(limit) as { id: string; path: string; filename: string; media_type: 'image' | 'video' }[];
+    }
+    const placeholders = excludeIds.map(() => '?').join(',');
     return this.db.prepare(`
       SELECT p.id, p.path, p.filename, p.media_type FROM photos p
       LEFT JOIN photo_embeddings pe ON p.id = pe.photo_id
-      WHERE pe.photo_id IS NULL
+      WHERE pe.photo_id IS NULL AND p.media_type = 'image'
+      AND p.id NOT IN (${placeholders})
       LIMIT ?
-    `).all(limit) as { id: string; path: string; filename: string; media_type: 'image' | 'video' }[];
+    `).all(...excludeIds, limit) as { id: string; path: string; filename: string; media_type: 'image' | 'video' }[];
   }
 
-  getEmbeddingCount(): number {
+  getEmbeddingCount(model?: string): number {
+    if (model) {
+      const row = this.db.prepare('SELECT COUNT(*) as count FROM photo_embeddings WHERE model = ?').get(model) as { count: number };
+      return row.count;
+    }
     const row = this.db.prepare('SELECT COUNT(*) as count FROM photo_embeddings').get() as { count: number };
     return row.count;
   }
 
   getTotalPhotoCount(): number {
-    const row = this.db.prepare('SELECT COUNT(*) as count FROM photos').get() as { count: number };
+    const row = this.db.prepare("SELECT COUNT(*) as count FROM photos WHERE media_type = 'image'").get() as { count: number };
     return row.count;
   }
 
@@ -1297,6 +1367,26 @@ export class DatabaseService {
     results.sort((a, b) => b.similarity - a.similarity);
     return results.slice(0, limit);
   }
+
+  /** 加载指定模型的所有 embedding 及对应照片，供搜索服务缓存使用 */
+  getAllEmbeddings(model: string): { photo: PhotoRow; embedding: Float32Array }[] {
+    const rows = this.db.prepare(`
+      SELECT p.*, pe.embedding FROM photos p
+      JOIN photo_embeddings pe ON p.id = pe.photo_id
+      WHERE pe.model = ?
+    `).all(model) as (PhotoRow & { embedding: Buffer })[];
+
+    return rows.map(row => ({
+      photo: row,
+      // 复制 Buffer 数据到独立的 Float32Array，避免引用共享的 SQLite 内存
+      embedding: new Float32Array(
+        row.embedding.buffer.slice(
+          row.embedding.byteOffset,
+          row.embedding.byteOffset + row.embedding.length
+        )
+      ),
+    }));
+  }
   // endregion
 
   setDuplicateDetectionDirty(reason: 'exact' | 'similar', dirty: boolean): void {
@@ -1305,5 +1395,17 @@ export class DatabaseService {
 
   isDuplicateDetectionDirty(reason: 'exact' | 'similar'): boolean {
     return this.getSetting(`duplicate_${reason}_dirty`) === '1';
+  }
+
+  /** 关闭数据库连接，应用退出时调用以确保 WAL checkpoint */
+  close(): void {
+    try {
+      if (this.db) {
+        this.db.close();
+        log.info('[Database] 数据库连接已关闭');
+      }
+    } catch (err) {
+      log.error('[Database] 关闭数据库失败:', err);
+    }
   }
 }

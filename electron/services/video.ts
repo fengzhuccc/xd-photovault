@@ -19,33 +19,58 @@ export interface VideoMetadata {
 export class VideoService {
   /**
    * 抽取视频第一帧，直接返回 JPEG Buffer，避免生成临时文件。
+   * 添加 30 秒超时，防止损坏视频导致 ffmpeg 永久挂起。
    */
   async extractFirstFrame(videoPath: string): Promise<Buffer> {
+    const TIMEOUT_MS = 30000;
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
-      const command = ffmpeg(videoPath)
+      let command: any;
+      let settled = false;
+
+      const timeout = setTimeout(() => {
+        if (!settled && command) {
+          try { command.kill('SIGKILL'); } catch { /* ignore */ }
+          settled = true;
+          reject(new Error(`ffmpeg 抽取首帧超时 (${TIMEOUT_MS}ms): ${videoPath}`));
+        }
+      }, TIMEOUT_MS);
+
+      command = ffmpeg(videoPath)
         .seekInput(0)
         .frames(1)
         .outputFormat('image2')
         .on('error', (err) => {
-          log.warn(`[VideoService] 抽取视频第一帧失败: ${videoPath}`, err.message);
-          reject(err);
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeout);
+            log.warn(`[VideoService] 抽取视频第一帧失败: ${videoPath}`, err.message);
+            reject(err);
+          }
         });
 
       const stream = command.pipe();
       stream.on('data', (chunk: Buffer) => chunks.push(chunk));
       stream.on('end', () => {
-        const buffer = Buffer.concat(chunks);
-        if (buffer.length === 0) {
-          log.warn(`[VideoService] 视频第一帧为空或无法解码: ${videoPath}`);
-          reject(new Error('视频第一帧为空或无法解码'));
-          return;
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          const buffer = Buffer.concat(chunks);
+          if (buffer.length === 0) {
+            log.warn(`[VideoService] 视频第一帧为空或无法解码: ${videoPath}`);
+            reject(new Error('视频第一帧为空或无法解码'));
+            return;
+          }
+          resolve(buffer);
         }
-        resolve(buffer);
       });
       stream.on('error', (err: Error) => {
-        log.warn(`[VideoService] 读取视频第一帧流失败: ${videoPath}`, err.message);
-        reject(err);
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          log.warn(`[VideoService] 读取视频第一帧流失败: ${videoPath}`, err.message);
+          reject(err);
+        }
       });
     });
   }
@@ -63,7 +88,7 @@ export class VideoService {
 
         const videoStream = metadata.streams.find(s => s.codec_type === 'video');
         resolve({
-          duration: metadata.format.duration || 0,
+          duration: metadata?.format?.duration || 0,
           width: videoStream?.width ?? null,
           height: videoStream?.height ?? null,
         });

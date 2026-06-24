@@ -1,7 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, Menu, globalShortcut } from 'electron';
 import { join } from 'path';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, openSync, readSync, closeSync } from 'fs';
 import log from 'electron-log';
+import { exiftool } from 'exiftool-vendored';
 import { DatabaseService } from './services/database';
 import { ScannerService } from './services/scanner';
 import { HashService } from './services/hash';
@@ -128,6 +129,10 @@ async function initializeServices() {
   aiIndexService = new AiIndexService(db, dataPath, aiEmbeddingService);
   aiIndexService.onProgress((progress) => {
     mainWindow?.webContents.send('aiIndex:progress', progress);
+    // 索引完成或取消后清除搜索缓存，使下次搜索加载新 embedding
+    if (progress.status === 'complete' || progress.status === 'idle') {
+      aiSearchService.invalidateCache();
+    }
   });
   aiSearchService = new AiSearchService(db, dataPath, aiEmbeddingService);
   
@@ -379,10 +384,20 @@ function setupIpcHandlers() {
       if (!existsSync(logFile)) {
         return '暂无日志';
       }
-      const content = readFileSync(logFile, 'utf-8');
-      const allLines = content.trim().split('\n');
-      const selectedLines = allLines.slice(-lines);
-      return selectedLines.join('\n');
+      // M-8: 从文件尾部读取，避免大日志文件全部读入内存
+      const fileSize = statSync(logFile).size;
+      const maxBytes = Math.min(fileSize, lines * 512); // 估算每行最多 512 字节
+      const fd = openSync(logFile, 'r');
+      try {
+        const buffer = Buffer.alloc(maxBytes);
+        const bytesRead = readSync(fd, buffer, 0, maxBytes, fileSize - maxBytes);
+        const content = buffer.slice(0, bytesRead).toString('utf-8');
+        const allLines = content.trim().split('\n');
+        const selectedLines = allLines.slice(-lines);
+        return selectedLines.join('\n');
+      } finally {
+        closeSync(fd);
+      }
     } catch (error) {
       log.error('读取日志失败:', error);
       return '读取日志失败';
@@ -496,6 +511,9 @@ app.whenReady().then(async () => {
     await initializeServices();
   } catch (err) {
     log.error('Failed to initialize services:', err);
+    dialog.showErrorBox('初始化失败', `服务初始化失败，应用将退出:\n${err instanceof Error ? err.message : String(err)}`);
+    app.quit();
+    return;
   }
   createWindow();
 
@@ -504,6 +522,28 @@ app.whenReady().then(async () => {
       createWindow();
     }
   });
+});
+
+// H-4/H-5: 应用退出前清理资源（exiftool 进程、DB 连接、停止扫描）
+app.on('before-quit', async (event) => {
+  event.preventDefault();
+  try {
+    // 停止正在进行的扫描（设置取消标志，不等待完成）
+    if (scanner?.isScanning && scanner['activeScanFolderId']) {
+      scanner['cancelRequested'] = true;
+    }
+    // 终止 exiftool 子进程池
+    await exiftool.end();
+  } catch (err) {
+    log.error('退出清理失败:', err);
+  }
+  // 关闭数据库连接（WAL checkpoint）
+  try {
+    db?.close();
+  } catch {
+    // ignore
+  }
+  app.exit();
 });
 
 app.on('window-all-closed', () => {

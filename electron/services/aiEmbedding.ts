@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import log from 'electron-log';
+import sharp from 'sharp';
 import { getAiConfig, getModelCachePath, type AiModelConfig } from './aiConfig';
 
 export class AiEmbeddingService {
@@ -13,6 +14,10 @@ export class AiEmbeddingService {
   private visionModel: any = null;
   private ready = false;
   private actualExecutionProvider = 'cpu';
+  // 推理互斥锁：索引和搜索共享同一模型实例，串行化推理避免 ONNX session 并发崩溃
+  private inferenceChain: Promise<unknown> = Promise.resolve();
+  // init in-flight promise，防止并发 init 重复加载模型
+  private initPromise?: Promise<void>;
 
   constructor(dataPath: string, bundledModelPath?: string, config?: Partial<AiModelConfig>) {
     this.dataPath = dataPath;
@@ -26,6 +31,16 @@ export class AiEmbeddingService {
 
   async init(): Promise<void> {
     if (this.ready) return;
+    // 复用 in-flight promise，防止并发 init 重复加载模型
+    if (this.initPromise) return this.initPromise;
+    this.initPromise = this.doInit().finally(() => { this.initPromise = undefined; });
+    return this.initPromise;
+  }
+
+  private async doInit(): Promise<void> {
+
+    // 加载前刷新全局配置，确保 GPU 开关等设置变更后立即生效
+    this.config = getAiConfig();
 
     // 使用运行时 import() 绕过 TypeScript CommonJS 编译，避免 require() ESM 模块失败
     const transformers = await new Function('return import("@xenova/transformers")')() as typeof import('@xenova/transformers');
@@ -92,12 +107,19 @@ export class AiEmbeddingService {
 
   /** 卸载已加载的模型，下次 init() 会按最新配置重新加载 */
   reset(): void {
+    // M-15: 尝试释放 ONNX 模型的原生内存
+    this.tokenizer?.dispose?.();
+    this.textModel?.dispose?.();
+    this.processor?.dispose?.();
+    this.visionModel?.dispose?.();
     this.tokenizer = null;
     this.textModel = null;
     this.processor = null;
     this.visionModel = null;
     this.ready = false;
     this.actualExecutionProvider = 'cpu';
+    // 清除 in-flight promise，允许重新 init
+    this.initPromise = undefined;
     log.info('[AI] 模型状态已重置，下次加载将使用新配置');
   }
 
@@ -105,32 +127,131 @@ export class AiEmbeddingService {
     if (!this.tokenizer || !this.textModel) {
       throw new Error('AI 模型尚未加载，请先调用 init()');
     }
-    const inputs = this.tokenizer(text, { padding: true, truncation: true });
-    const { text_embeds } = await this.textModel(inputs);
-    return normalizeVector(new Float32Array(text_embeds.data));
+    return this.runExclusive(async () => {
+      const inputs = this.tokenizer(text, { padding: true, truncation: true });
+      const { text_embeds } = await this.textModel(inputs);
+      const result = normalizeVector(new Float32Array(text_embeds.data));
+      // H-14: 释放 ONNX Tensor 原生内存
+      inputs.dispose?.();
+      text_embeds.dispose?.();
+      return result;
+    });
   }
 
   async encodeImage(imagePath: string): Promise<Float32Array> {
     if (!this.processor || !this.visionModel) {
       throw new Error('AI 模型尚未加载，请先调用 init()');
     }
-    const transformers = await new Function('return import("@xenova/transformers")')() as typeof import('@xenova/transformers');
-    const image = await transformers.RawImage.read(imagePath);
-    const inputs = await this.processor(image);
-    const { image_embeds } = await this.visionModel(inputs);
-    return normalizeVector(new Float32Array(image_embeds.data));
+    return this.runExclusive(async () => {
+      const transformers = await new Function('return import("@xenova/transformers")')() as typeof import('@xenova/transformers');
+      const image = await this.readImageWithFallback(imagePath, transformers);
+      const inputs = await this.processor(image);
+      const { image_embeds } = await this.visionModel(inputs);
+      const result = normalizeVector(new Float32Array(image_embeds.data));
+      // H-14: 释放 ONNX Tensor 原生内存
+      inputs.dispose?.();
+      image_embeds.dispose?.();
+      return result;
+    });
   }
 
-  /** 批量编码图片，降低模型加载开销 */
-  async encodeImages(imagePaths: string[]): Promise<Float32Array[]> {
+  /** 批量编码图片，降低模型加载开销。单张图片加载失败会被跳过并汇总记录日志。 */
+  async encodeImages(imagePaths: string[]): Promise<(Float32Array | null)[]> {
     if (!this.processor || !this.visionModel) {
       throw new Error('AI 模型尚未加载，请先调用 init()');
     }
-    const transformers = await new Function('return import("@xenova/transformers")')() as typeof import('@xenova/transformers');
-    const images = await Promise.all(imagePaths.map((p) => transformers.RawImage.read(p)));
-    const inputs = await this.processor(images);
-    const { image_embeds } = await this.visionModel(inputs);
-    return splitBatchEmbeddings(image_embeds.data, imagePaths.length, this.config.embeddingDim);
+    return this.runExclusive(async () => {
+      const transformers = await new Function('return import("@xenova/transformers")')() as typeof import('@xenova/transformers');
+
+      // 逐个加载图片，单张失败不影响整批
+      const failedPaths: string[] = [];
+      const loadResults = await Promise.all(
+        imagePaths.map(async (path) => {
+          try {
+            const image = await this.readImageWithFallback(path, transformers);
+            return { ok: true as const, image, path };
+          } catch (error) {
+            failedPaths.push(path);
+            return { ok: false as const, path, error };
+          }
+        })
+      );
+
+      // 失败的图片汇总打印一条日志，避免刷屏
+      if (failedPaths.length > 0) {
+        log.warn(`[AI] 本批次 ${failedPaths.length} 张图片加载失败，已跳过:\n${failedPaths.join('\n')}`);
+      }
+
+      const validImages = loadResults.filter((r): r is { ok: true; image: any; path: string } => r.ok).map(r => r.image);
+
+      if (validImages.length === 0) {
+        throw new Error('批量图片加载全部失败');
+      }
+
+      const inputs = await this.processor(validImages);
+      const { image_embeds } = await this.visionModel(inputs);
+      const validEmbeddings = splitBatchEmbeddings(image_embeds.data, validImages.length, this.config.embeddingDim);
+
+      // 按原始顺序填充结果，失败的返回 null
+      const embeddings: (Float32Array | null)[] = [];
+      let validIndex = 0;
+      for (const result of loadResults) {
+        if (result.ok) {
+          embeddings.push(validEmbeddings[validIndex++]);
+        } else {
+          embeddings.push(null);
+        }
+      }
+
+      // H-14: 释放 ONNX Tensor 原生内存
+      inputs.dispose?.();
+      image_embeds.dispose?.();
+
+      return embeddings;
+    });
+  }
+
+  /** 串行化推理调用，避免索引和搜索并发使用同一 ONNX session */
+  private async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const previous = this.inferenceChain;
+    let resolveNext!: () => void;
+    this.inferenceChain = new Promise<void>((resolve) => { resolveNext = resolve; });
+    await previous;
+    try {
+      return await fn();
+    } finally {
+      resolveNext();
+    }
+  }
+
+  /**
+   * 读取图片，先尝试 transformers.RawImage.read（严格模式），
+   * 失败后回退到 sharp({ failOnError: false }) 容忍损坏的 JPEG/图片。
+   */
+  private async readImageWithFallback(
+    path: string,
+    transformers: typeof import('@xenova/transformers')
+  ): Promise<any> {
+    try {
+      return await transformers.RawImage.read(path);
+    } catch (primaryError) {
+      // 回退：用 sharp 的 failOnError: false 容忍损坏的 JPEG（如 premature end of data segment）
+      try {
+        const { data, info } = await sharp(path, { failOnError: false })
+          .removeAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        return new transformers.RawImage(
+          new Uint8Array(data),
+          info.width,
+          info.height,
+          info.channels
+        );
+      } catch {
+        // 回退也失败，抛出原始错误
+        throw primaryError;
+      }
+    }
   }
 
   private setupGpuExecutionProvider(transformers: typeof import('@xenova/transformers')): void {
@@ -189,5 +310,3 @@ function splitBatchEmbeddings(data: Float32Array, batchSize: number, dim: number
   }
   return results;
 }
-
-
