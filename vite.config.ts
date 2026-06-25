@@ -9,7 +9,18 @@ export default defineConfig({
     sourcemap: 'hidden',
     outDir: 'dist',
     rollupOptions: {
-      external: ['better-sqlite3', 'sharp', 'exifr'],
+      external: [
+        'better-sqlite3',
+        'sharp',
+        'exifr',
+        '@xenova/transformers',
+        'onnxruntime-node',
+        'fluent-ffmpeg',
+        '@ffmpeg-installer/ffmpeg',
+        'exiftool-vendored',
+        'electron-log',
+        'trash',
+      ],
     },
   },
   plugins: [

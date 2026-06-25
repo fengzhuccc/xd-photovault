@@ -12,8 +12,11 @@
     "build": "tsc -b && vite build && tsc -p tsconfig.electron.json",
     "build:electron": "tsc -p tsconfig.electron.json",
     "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder",
+    "predist": "npm run download:ai-model",
+    "predist:portable": "npm run download:ai-model",
+    "dist": "npm run build && electron-builder --win zip",
     "dist:portable": "npm run build && electron-builder --win portable",
+    "dist:zip": "npm run build && electron-builder --win zip",
     "lint": "eslint .",
     "preview": "vite preview",
     "check": "tsc -b --noEmit",
@@ -97,25 +100,29 @@
     },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*"
+      "dist-electron/**/*",
+      "node_modules/**/*",
+      "package.json"
     ],
     "extraResources": [
-      {
-        "from": "node_modules/sharp",
-        "to": "node_modules/sharp"
-      },
       {
         "from": "resources/ai-models",
         "to": "ai-models"
       }
     ],
     "asarUnpack": [
-      "node_modules/@ffmpeg-installer/**/*"
+      "node_modules/@ffmpeg-installer/**/*",
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/sharp/**/*",
+      "node_modules/onnxruntime-node/**/*",
+      "node_modules/exiftool-vendored/**/*",
+      "node_modules/@huggingface/tokenizers/**/*"
     ],
+    "compression": "maximum",
     "win": {
       "target": [
         {
-          "target": "nsis",
+          "target": "zip",
           "arch": [
             "x64"
           ]
@@ -127,14 +134,6 @@
           ]
         }
       ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "installerLanguages": [
-        "zh-CN"
-      ],
-      "language": 2052
     },
     "portable": {
       "artifactName": "PhotoVault-Portable-${version}.exe"
