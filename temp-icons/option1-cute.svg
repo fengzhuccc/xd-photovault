@@ -1,0 +1,52 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFE4B5"/>
+      <stop offset="100%" stop-color="#FFB347"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- 背景圆形 -->
+  <circle cx="256" cy="256" r="240" fill="url(#bg1)"/>
+  
+  <!-- 小呆身体 -->
+  <ellipse cx="256" cy="320" rx="110" ry="100" fill="#9CA3AF"/>
+  
+  <!-- 翅膀 -->
+  <path d="M170 300 Q150 360 200 390 Q230 350 220 300 Z" fill="#D1D5DB"/>
+  <path d="M342 300 Q362 360 312 390 Q282 350 292 300 Z" fill="#D1D5DB"/>
+  
+  <!-- 头部 -->
+  <ellipse cx="256" cy="210" rx="95" ry="85" fill="#9CA3AF"/>
+  
+  <!-- 黄色面部 -->
+  <ellipse cx="256" cy="225" rx="70" ry="60" fill="#FCD34D"/>
+  
+  <!-- 橙色腮红 -->
+  <circle cx="200" cy="235" r="18" fill="#F97316" opacity="0.9"/>
+  <circle cx="312" cy="235" r="18" fill="#F97316" opacity="0.9"/>
+  
+  <!-- 眼睛 -->
+  <circle cx="225" cy="205" r="14" fill="#1F2937"/>
+  <circle cx="229" cy="201" r="5" fill="white"/>
+  <circle cx="287" cy="205" r="14" fill="#1F2937"/>
+  <circle cx="291" cy="201" r="5" fill="white"/>
+  
+  <!-- 喙 -->
+  <path d="M248 235 L256 260 L264 235 Z" fill="#4B5563"/>
+  <path d="M248 235 Q256 245 264 235" fill="#6B7280"/>
+  
+  <!-- 冠羽 -->
+  <path d="M230 140 Q220 90 240 100 Q250 130 248 150" fill="#9CA3AF" stroke="#9CA3AF" stroke-width="12" stroke-linecap="round"/>
+  <path d="M256 130 Q256 75 270 90 Q272 120 268 145" fill="#9CA3AF" stroke="#9CA3AF" stroke-width="12" stroke-linecap="round"/>
+  <path d="M282 140 Q292 90 272 100 Q262 130 264 150" fill="#9CA3AF" stroke="#9CA3AF" stroke-width="12" stroke-linecap="round"/>
+  
+  <!-- 拍立得照片 -->
+  <g transform="translate(300, 340) rotate(12)">
+    <rect x="0" y="0" width="130" height="150" rx="8" fill="white" stroke="#E5E7EB" stroke-width="4"/>
+    <rect x="12" y="12" width="106" height="90" rx="4" fill="#E5E7EB"/>
+    <circle cx="65" cy="57" r="22" fill="#F97316" opacity="0.3"/>
+    <path d="M30 102 L100 102" stroke="#E5E7EB" stroke-width="6" stroke-linecap="round"/>
+    <path d="M30 120 L80 120" stroke="#E5E7EB" stroke-width="6" stroke-linecap="round"/>
+  </g>
+</svg>
