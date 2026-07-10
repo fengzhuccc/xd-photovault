@@ -267,7 +267,7 @@ export function PhotoDetailModal({
 
           <div className="flex-1 p-4 overflow-auto space-y-3">
             <div>
-              <label className="text-xs text-zinc-500 uppercase tracking-wider">文件信息</label>
+              <label className="text-xs text-zinc-400 uppercase tracking-wider">文件信息</label>
               <div className="mt-1.5 space-y-1 text-sm">
                 <div className="flex justify-between">
                   <span className="text-zinc-400">大小</span>
@@ -291,7 +291,7 @@ export function PhotoDetailModal({
             </div>
 
             <div>
-              <label className="text-xs text-zinc-500 uppercase tracking-wider flex items-center justify-between">
+              <label className="text-xs text-zinc-400 uppercase tracking-wider flex items-center justify-between">
                 拍摄信息
                 <button
                   onClick={() => setEditingDate(!editingDate)}
@@ -375,7 +375,7 @@ export function PhotoDetailModal({
             </div>
 
             <div>
-              <label className="text-xs text-zinc-500 uppercase tracking-wider flex items-center justify-between">
+              <label className="text-xs text-zinc-400 uppercase tracking-wider flex items-center justify-between">
                 位置
                 <button
                   onClick={() => setEditingLocation(!editingLocation)}
@@ -389,7 +389,7 @@ export function PhotoDetailModal({
                   <div className="space-y-1.5">
                     <div className="space-y-1.5">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-zinc-500 w-8">纬度</span>
+                        <span className="text-xs text-zinc-400 w-8">纬度</span>
                         <input
                           type="number"
                           value={editLatValue}
@@ -402,7 +402,7 @@ export function PhotoDetailModal({
                         />
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-zinc-500 w-8">经度</span>
+                        <span className="text-xs text-zinc-400 w-8">经度</span>
                         <input
                           type="number"
                           value={editLngValue}
@@ -449,7 +449,7 @@ export function PhotoDetailModal({
                   </div>
                 ) : (
                   <div className="p-2 bg-zinc-800 rounded text-center">
-                    <p className="text-xs text-zinc-500">此照片没有GPS信息</p>
+                    <p className="text-xs text-zinc-400">此照片没有GPS信息</p>
                     <button
                       onClick={() => setEditingLocation(true)}
                       className="mt-1 text-xs text-amber-500 hover:text-amber-400 transition-colors"

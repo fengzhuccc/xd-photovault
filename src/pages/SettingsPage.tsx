@@ -305,12 +305,12 @@ export function SettingsPage() {
             
             <div className="space-y-4">
               <div className="p-4 bg-zinc-800 rounded-lg">
-                <p className="text-xs text-zinc-500 mb-1">当前位置</p>
+                <p className="text-xs text-zinc-400 mb-1">当前位置</p>
                 <p className="text-sm text-zinc-200 break-all">{dataPath}</p>
               </div>
 
               <div className="p-4 bg-zinc-800 rounded-lg">
-                <p className="text-xs text-zinc-500 mb-2">自定义存储位置</p>
+                <p className="text-xs text-zinc-400 mb-2">自定义存储位置</p>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
@@ -327,7 +327,7 @@ export function SettingsPage() {
                     浏览...
                   </button>
                 </div>
-                <p className="text-xs text-zinc-500 mt-2">
+                <p className="text-xs text-zinc-400 mt-2">
                   数据库和缩略图将存储在此位置。留空则使用默认位置。
                 </p>
               </div>
@@ -374,12 +374,12 @@ export function SettingsPage() {
             
             <div className="space-y-4">
               <div className="p-4 bg-zinc-800 rounded-lg">
-                <p className="text-xs text-zinc-500 mb-1">当前日志路径</p>
+                <p className="text-xs text-zinc-400 mb-1">当前日志路径</p>
                 <p className="text-sm text-zinc-200 break-all">{logPath}</p>
               </div>
 
               <div className="p-4 bg-zinc-800 rounded-lg">
-                <p className="text-xs text-zinc-500 mb-2">自定义日志路径</p>
+                <p className="text-xs text-zinc-400 mb-2">自定义日志路径</p>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
@@ -396,7 +396,7 @@ export function SettingsPage() {
                     浏览...
                   </button>
                 </div>
-                <p className="text-xs text-zinc-500 mt-2">
+                <p className="text-xs text-zinc-400 mt-2">
                   日志文件将存储在此目录下。留空则使用默认位置。
                 </p>
               </div>
@@ -537,7 +537,7 @@ export function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-zinc-200">缩略图缓存</p>
-                    <p className="text-xs text-zinc-500 mt-1">清除后下次浏览时会重新生成</p>
+                    <p className="text-xs text-zinc-400 mt-1">清除后下次浏览时会重新生成</p>
                   </div>
                   <button
                     onClick={handleClearThumbnails}
@@ -553,19 +553,19 @@ export function SettingsPage() {
                 </div>
                 <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-zinc-700/50">
                   <div>
-                    <p className="text-xs text-zinc-500">文件总数</p>
+                    <p className="text-xs text-zinc-400">文件总数</p>
                     <p className="text-lg font-semibold text-zinc-200">
                       {isLoadingThumbnailStats ? '-' : (thumbnailStats?.count ?? 0).toLocaleString()}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-zinc-500">占用空间</p>
+                    <p className="text-xs text-zinc-400">占用空间</p>
                     <p className="text-lg font-semibold text-zinc-200">
                       {isLoadingThumbnailStats ? '-' : formatBytes(thumbnailStats?.totalSize ?? 0)}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-zinc-500">尺寸分布</p>
+                    <p className="text-xs text-zinc-400">尺寸分布</p>
                     <p className="text-sm text-zinc-300 mt-0.5">
                       {isLoadingThumbnailStats
                         ? '-'
@@ -577,7 +577,7 @@ export function SettingsPage() {
               <div className="flex items-center justify-between p-4 bg-zinc-800 rounded-lg">
                 <div>
                   <p className="text-sm text-zinc-200">清除数据库</p>
-                  <p className="text-xs text-zinc-500 mt-1">删除所有照片记录和文件夹，从零开始</p>
+                  <p className="text-xs text-zinc-400 mt-1">删除所有照片记录和文件夹，从零开始</p>
                 </div>
                 <button
                   onClick={handleClearDatabase}
@@ -605,7 +605,7 @@ export function SettingsPage() {
 
             <div className="space-y-4">
               <div className="p-4 bg-zinc-800 rounded-lg">
-                <p className="text-xs text-zinc-500 mb-2">地图瓦片源</p>
+                <p className="text-xs text-zinc-400 mb-2">地图瓦片源</p>
                 <select
                   value={mapTileProvider}
                   onChange={(e) => setMapTileProvider(e.target.value)}
@@ -624,7 +624,7 @@ export function SettingsPage() {
 
               {TILE_PROVIDERS[mapTileProvider]?.needKey && (
                 <div className="p-4 bg-zinc-800 rounded-lg">
-                  <p className="text-xs text-zinc-500 mb-2">API Key</p>
+                  <p className="text-xs text-zinc-400 mb-2">API Key</p>
                   <input
                     type="text"
                     value={mapApiKey}
