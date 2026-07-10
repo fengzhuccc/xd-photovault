@@ -1083,3 +1083,5 @@ function DuplicateCard({
     </div>
   );
 }
+
+export default DuplicatesPage;

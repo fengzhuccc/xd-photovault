@@ -494,3 +494,5 @@ function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick,
     </div>
   );
 }
+
+export default MapPage;

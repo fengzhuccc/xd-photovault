@@ -845,3 +845,5 @@ export function BrowsePage() {
     </div>
   );
 }
+
+export default BrowsePage;
