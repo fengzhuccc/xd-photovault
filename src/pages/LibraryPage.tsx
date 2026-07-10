@@ -216,7 +216,7 @@ export function LibraryPage() {
               style={{ width: `${scanProgress.total > 0 ? (scanProgress.current / scanProgress.total) * 100 : 0}%` }}
             />
           </div>
-          <div className="flex justify-between text-xs text-zinc-500">
+          <div className="flex justify-between text-xs text-zinc-400">
             <span className="truncate mr-2">{scanProgress.currentFile}</span>
             <span>{scanProgress.current} / {scanProgress.total}</span>
           </div>
@@ -232,7 +232,7 @@ export function LibraryPage() {
             </div>
             <button
               onClick={() => setScanResult(null)}
-              className="text-zinc-500 hover:text-zinc-300 text-xs"
+              className="text-zinc-400 hover:text-zinc-300 text-xs"
             >
               关闭
             </button>
@@ -340,7 +340,7 @@ export function LibraryPage() {
                 style={{ width: `${aiIndexProgress.total > 0 ? (aiIndexProgress.processed / aiIndexProgress.total) * 100 : 0}%` }}
               />
             </div>
-            <div className="flex justify-between text-xs text-zinc-500">
+            <div className="flex justify-between text-xs text-zinc-400">
               <span className="truncate mr-2">{aiIndexProgress.message}</span>
               <span>{aiIndexProgress.processed.toLocaleString()} / {aiIndexProgress.total.toLocaleString()}</span>
             </div>
@@ -348,7 +348,7 @@ export function LibraryPage() {
         )}
         {(!aiIndexProgress || aiIndexProgress.status === 'idle' || aiIndexProgress.status === 'complete') && (
           <div className="space-y-3">
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-zinc-400">
               建立索引后，可通过语义搜索照片内容。索引过程在后台运行，可随时暂停。
             </p>
             <label className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg cursor-pointer hover:bg-zinc-800 transition-colors">
@@ -356,7 +356,7 @@ export function LibraryPage() {
                 <Zap size={14} className={cn('transition-colors', aiGpuEnabled ? 'text-yellow-400' : 'text-zinc-500')} />
                 <div className="flex flex-col">
                   <span className="text-xs text-zinc-300">GPU 加速索引</span>
-                  <span className="text-[10px] text-zinc-500">
+                  <span className="text-xs text-zinc-400">
                     开启后使用 DirectML 调用显卡索引，失败会自动回退 CPU
                   </span>
                 </div>
@@ -372,7 +372,7 @@ export function LibraryPage() {
               </div>
             </label>
             {aiGpuEnabled && (
-              <p className="text-[10px] text-zinc-500">
+              <p className="text-xs text-zinc-400">
                 当前执行器：{aiGpuActualProvider === 'dml' ? 'DirectML (GPU)' : 'CPU'}
               </p>
             )}
@@ -404,7 +404,7 @@ export function LibraryPage() {
                         {formatPath(folder.path)}
                       </span>
                     </div>
-                    <div className="flex items-center gap-4 text-xs text-zinc-500">
+                    <div className="flex items-center gap-4 text-xs text-zinc-400">
                       <span>{folder.photo_count.toLocaleString()} 张照片</span>
                       <span className="flex items-center gap-1">
                         <Calendar size={12} />
