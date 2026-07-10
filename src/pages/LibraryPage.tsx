@@ -37,9 +37,11 @@ export function LibraryPage() {
   const [removingFolderId, setRemovingFolderId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadFolders();
-    loadStats();
-    loadAiGpuStatus();
+    const start = performance.now();
+    Promise.all([loadFolders(), loadStats(), loadAiGpuStatus()]).then(() => {
+      // eslint-disable-next-line no-console
+      console.log(`[Startup][Renderer] LibraryPage initial data loaded: ${Math.round(performance.now() - start)}ms`);
+    });
   }, [loadFolders, loadStats, loadAiGpuStatus]);
 
   useEffect(() => {

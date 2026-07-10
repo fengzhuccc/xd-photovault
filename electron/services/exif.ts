@@ -1,7 +1,16 @@
 import Exifr from 'exifr';
 import sharp from 'sharp';
-import { exiftool } from 'exiftool-vendored';
 import log from 'electron-log';
+
+// 延迟加载 exiftool，避免应用启动时立即 fork Perl 子进程
+let exiftoolPromise: Promise<typeof import('exiftool-vendored').exiftool> | null = null;
+
+async function getExiftool() {
+  if (!exiftoolPromise) {
+    exiftoolPromise = import('exiftool-vendored').then((m) => m.exiftool);
+  }
+  return exiftoolPromise;
+}
 
 /** 格式化快门速度，正确处理长曝光（≥1秒）和除零情况 */
 function formatShutterSpeed(exposureTime: number | undefined | null): string | null {
@@ -72,7 +81,7 @@ export class ExifService {
         let fallbackLat: number | null = null;
         let fallbackLng: number | null = null;
         try {
-          const etTags = await exiftool.read(filePath);
+          const etTags = await (await getExiftool()).read(filePath);
           const etDate = etTags.DateTimeOriginal || etTags.CreateDate || etTags.ModifyDate;
           if (etDate) {
             fallbackTakenAt = etDate instanceof Date ? etDate : new Date(String(etDate));
@@ -111,7 +120,7 @@ export class ExifService {
       let finalLng = longitude;
       if (!finalTakenAt || (finalLat === null && finalLng === null)) {
         try {
-          const etTags = await exiftool.read(filePath);
+          const etTags = await (await getExiftool()).read(filePath);
           if (!finalTakenAt) {
             const etDate = etTags.DateTimeOriginal || etTags.CreateDate || etTags.ModifyDate;
             if (etDate) {
@@ -195,7 +204,7 @@ export class ExifService {
       const pad = (n: number) => String(n).padStart(2, '0');
       const dateStr = `${date.getFullYear()}:${pad(date.getMonth() + 1)}:${pad(date.getDate())} ` +
         `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-      await exiftool.write(filePath, {
+      await (await getExiftool()).write(filePath, {
         AllDates: dateStr,
       }, ['-overwrite_original']);
       log.info(`[ExifService] 写入日期成功: ${filePath}`);
@@ -207,7 +216,7 @@ export class ExifService {
 
   async writeLocation(filePath: string, lat: number, lng: number): Promise<void> {
     try {
-      await exiftool.write(filePath, {
+      await (await getExiftool()).write(filePath, {
         GPSLatitude: lat,
         GPSLatitudeRef: lat >= 0 ? 'N' : 'S',
         GPSLongitude: lng,
@@ -217,6 +226,19 @@ export class ExifService {
     } catch (error) {
       log.error(`[ExifService] 写入位置失败: ${filePath}`, error);
       throw error;
+    }
+  }
+
+  /** 应用退出前终止 exiftool 子进程 */
+  async dispose(): Promise<void> {
+    try {
+      if (exiftoolPromise) {
+        const et = await exiftoolPromise;
+        await et.end();
+        exiftoolPromise = null;
+      }
+    } catch (error) {
+      log.error('[ExifService] 终止 exiftool 失败:', error);
     }
   }
 }
