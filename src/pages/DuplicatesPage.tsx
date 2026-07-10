@@ -626,7 +626,7 @@ export function DuplicatesPage() {
         <div className="mb-4 p-4 bg-zinc-900 rounded-xl border border-zinc-800">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm text-zinc-300">{detectProgress.message}</span>
-            <span className="text-xs text-zinc-500">
+            <span className="text-xs text-zinc-400">
               {detectProgress.total > 0 ? `${Math.round((detectProgress.current / detectProgress.total) * 100)}%` : ''}
             </span>
           </div>
@@ -740,14 +740,14 @@ export function DuplicatesPage() {
 
               <div className="space-y-3">
                 <div>
-                  <label className="text-xs text-zinc-500 uppercase tracking-wider">文件路径</label>
+                  <label className="text-xs text-zinc-400 uppercase tracking-wider">文件路径</label>
                   <div className="mt-1.5 p-2 bg-zinc-800 rounded text-xs text-zinc-300 break-all">
                     {selectedPhoto.path}
                   </div>
                 </div>
 
                 <div>
-                  <label className="text-xs text-zinc-500 uppercase tracking-wider">文件信息</label>
+                  <label className="text-xs text-zinc-400 uppercase tracking-wider">文件信息</label>
                   <div className="mt-1.5 space-y-1 text-sm">
                     <div className="flex justify-between">
                       <span className="text-zinc-400">大小</span>
@@ -761,7 +761,7 @@ export function DuplicatesPage() {
                 </div>
 
                 <div>
-                  <label className="text-xs text-zinc-500 uppercase tracking-wider">拍摄信息</label>
+                  <label className="text-xs text-zinc-400 uppercase tracking-wider">拍摄信息</label>
                   <div className="mt-1.5 space-y-1 text-sm">
                     <div className="flex justify-between">
                       <span className="text-zinc-400">日期</span>
@@ -781,7 +781,7 @@ export function DuplicatesPage() {
                 </div>
 
                 <div>
-                  <label className="text-xs text-zinc-500 uppercase tracking-wider">位置</label>
+                  <label className="text-xs text-zinc-400 uppercase tracking-wider">位置</label>
                   <div className="mt-1.5">
                     {selectedPhoto.latitude && selectedPhoto.longitude ? (
                       <div className="flex items-center gap-2 text-sm text-zinc-200">
@@ -792,7 +792,7 @@ export function DuplicatesPage() {
                       </div>
                     ) : (
                       <div className="p-2 bg-zinc-800 rounded text-center">
-                        <p className="text-xs text-zinc-500">此照片没有GPS信息</p>
+                        <p className="text-xs text-zinc-400">此照片没有GPS信息</p>
                       </div>
                     )}
                   </div>
@@ -863,7 +863,7 @@ export function DuplicatesPage() {
             </div>
             <div className="space-y-4 text-sm">
               <div>
-                <div className="text-xs text-zinc-500 uppercase tracking-wider mb-2">选择</div>
+                <div className="text-xs text-zinc-400 uppercase tracking-wider mb-2">选择</div>
                 <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
                   <Kbd>Ctrl+A</Kbd><span className="text-zinc-300">全选已加载组</span>
                   <Kbd>Ctrl+I</Kbd><span className="text-zinc-300">反选</span>
@@ -875,7 +875,7 @@ export function DuplicatesPage() {
                 </div>
               </div>
               <div>
-                <div className="text-xs text-zinc-500 uppercase tracking-wider mb-2">操作</div>
+                <div className="text-xs text-zinc-400 uppercase tracking-wider mb-2">操作</div>
                 <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
                   <Kbd>Delete</Kbd><span className="text-zinc-300">删除选中组的重复照片</span>
                   <Kbd>1 / 2 / 3</Kbd><span className="text-zinc-300">切换 全部 / 精确 / 相似</span>
@@ -883,7 +883,7 @@ export function DuplicatesPage() {
                 </div>
               </div>
               <div>
-                <div className="text-xs text-zinc-500 uppercase tracking-wider mb-2">详情弹窗</div>
+                <div className="text-xs text-zinc-400 uppercase tracking-wider mb-2">详情弹窗</div>
                 <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
                   <Kbd>← / →</Kbd><span className="text-zinc-300">上一张 / 下一张</span>
                   <Kbd>Esc</Kbd><span className="text-zinc-300">关闭弹窗</span>
@@ -891,13 +891,13 @@ export function DuplicatesPage() {
                 </div>
               </div>
               <div>
-                <div className="text-xs text-zinc-500 uppercase tracking-wider mb-2">其他</div>
+                <div className="text-xs text-zinc-400 uppercase tracking-wider mb-2">其他</div>
                 <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
                   <Kbd>?</Kbd><span className="text-zinc-300">显示 / 隐藏本帮助</span>
                 </div>
               </div>
             </div>
-            <div className="mt-4 pt-4 border-t border-zinc-800 text-xs text-zinc-500 flex items-center gap-2">
+            <div className="mt-4 pt-4 border-t border-zinc-800 text-xs text-zinc-400 flex items-center gap-2">
               <CornerDownLeft size={12} />
               <span>点击空白处或按 Esc 关闭</span>
             </div>
@@ -1046,7 +1046,7 @@ function DuplicateCard({
 
                 {/* 推荐标记：左上角小标签 */}
                 {isRecommended && (
-                  <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-amber-500/90 rounded text-[10px] text-zinc-900 font-medium z-10">
+                  <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-amber-500/90 rounded text-xs text-zinc-900 font-medium z-10">
                     推荐
                   </div>
                 )}
@@ -1057,10 +1057,10 @@ function DuplicateCard({
               </div>
               <div className="p-2 bg-zinc-800">
                 <p className="text-xs text-zinc-300 truncate" title={photo.path}>{photo.filename}</p>
-                <p className="text-xs text-zinc-500 truncate mt-0.5" title={photo.path}>
+                <p className="text-xs text-zinc-400 truncate mt-0.5" title={photo.path}>
                   {photo.path.split(/[\\/]/).slice(-2, -1)[0] || ''}
                 </p>
-                <div className="mt-1 flex items-center gap-2 text-xs text-zinc-500">
+                <div className="mt-1 flex items-center gap-2 text-xs text-zinc-400">
                   <Calendar size={10} />
                   {formatDate(photo.taken_at)}
                 </div>
@@ -1076,7 +1076,7 @@ function DuplicateCard({
         })}
       </div>
 
-      <div className="mt-3 text-xs text-zinc-500 flex items-center gap-2">
+      <div className="mt-3 text-xs text-zinc-400 flex items-center gap-2">
         <AlertTriangle size={12} className="inline" />
         <span>点击右上角星标选择要保留的照片，每组仅保留一张，未选中的照片将被删除。带"推荐"标签为系统推荐保留项。</span>
       </div>

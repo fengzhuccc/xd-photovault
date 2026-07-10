@@ -63,7 +63,7 @@ export function Sidebar() {
       <div className="border-t border-zinc-800">
         {!sidebarCollapsed && stats && (
           <div className="p-4">
-            <div className="text-xs text-zinc-500 space-y-1">
+            <div className="text-xs text-zinc-400 space-y-1">
               <div className="flex justify-between">
                 <span>照片总数</span>
                 <span className="text-zinc-300">{stats.total.toLocaleString()}</span>

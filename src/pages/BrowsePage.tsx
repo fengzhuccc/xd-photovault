@@ -77,7 +77,7 @@ const PhotoGridItem = React.memo(function PhotoGridItem({
             </div>
           </div>
           {photo.duration !== null && photo.duration > 0 && (
-            <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white font-medium pointer-events-none">
+            <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/60 text-xs text-white font-medium pointer-events-none">
               {formatDuration(photo.duration)}
             </div>
           )}
@@ -96,7 +96,7 @@ const PhotoGridItem = React.memo(function PhotoGridItem({
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
           <div className="absolute bottom-0 left-0 right-0 p-2">
             <p className="text-xs text-white truncate">{photo.filename}</p>
-            <p className="text-xs text-zinc-400">{formatDate(photo.taken_at)}</p>
+            <p className="text-xs text-zinc-200">{formatDate(photo.taken_at)}</p>
           </div>
         </div>
       )}

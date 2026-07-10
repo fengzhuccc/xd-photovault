@@ -259,7 +259,7 @@ export function MapPage() {
                     </div>
                   )}
                 </div>
-                <p className="mt-1 text-xs text-zinc-500 truncate w-24 group-hover:text-zinc-300 transition-colors">{photo.filename}</p>
+                <p className="mt-1 text-xs text-zinc-400 truncate w-24 group-hover:text-zinc-300 transition-colors">{photo.filename}</p>
               </button>
             ))}
           </div>
