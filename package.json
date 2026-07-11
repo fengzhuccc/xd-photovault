@@ -13,6 +13,7 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
+    "dist:zip": "npm run build && electron-builder --win zip",
     "dist:portable": "npm run build && electron-builder --win portable",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -115,29 +116,12 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
+          "target": "zip",
           "arch": [
             "x64"
           ]
         }
       ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "installerLanguages": [
-        "zh-CN"
-      ],
-      "language": 2052
-    },
-    "portable": {
-      "artifactName": "PhotoVault-Portable-${version}.exe"
     }
   }
 }
