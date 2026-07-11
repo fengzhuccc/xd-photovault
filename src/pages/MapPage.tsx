@@ -445,6 +445,19 @@ function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick,
       layerGroup.addLayer(marker);
     }
 
+    // 高亮目标照片时：展示所有照片的分布范围，并打开目标 tooltip
+    if (highlightedMarker && !highlightFitRef.current) {
+      highlightFitRef.current = true;
+      initialFitRef.current = true;
+      const allMarkers = layerGroup.getLayers() as L.Marker[];
+      if (allMarkers.length > 0) {
+        const featureGroup = L.featureGroup(allMarkers);
+        mapInstanceRef.current.fitBounds(featureGroup.getBounds().pad(0.1), { maxZoom: 12, duration: 1 });
+      }
+      highlightedMarker.openTooltip();
+      return;
+    }
+
     // 首次加载时 fit bounds
     if (!initialFitRef.current && clusters.length > 0) {
       initialFitRef.current = true;
@@ -453,15 +466,6 @@ function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick,
         const featureGroup = L.featureGroup(allMarkers);
         mapInstanceRef.current.fitBounds(featureGroup.getBounds().pad(0.1), { maxZoom: 12 });
       }
-    }
-
-    // 高亮目标照片：定位并打开 tooltip
-    if (highlightedMarker && !highlightFitRef.current) {
-      highlightFitRef.current = true;
-      const map = mapInstanceRef.current;
-      const latLng = highlightedMarker.getLatLng();
-      map.flyTo(latLng, 15, { duration: 1 });
-      highlightedMarker.openTooltip();
     }
   }, [clusters, transformCoord, onPhotoClick, onClusterClick, highlightPhotoId]);
 
