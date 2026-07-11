@@ -315,14 +315,14 @@ export function PhotoDetailModal({
                     <div className="flex gap-2">
                       <button
                         onClick={() => setEditingDate(false)}
-                        className="flex-1 px-2 py-1 rounded bg-zinc-800 text-zinc-400 text-sm hover:bg-zinc-700 transition-colors"
+                        className="flex-1 btn-secondary"
                       >
                         取消
                       </button>
                       <button
                         onClick={handleSaveDate}
                         disabled={isSaving}
-                        className="flex-1 px-2 py-1 rounded bg-amber-500 text-zinc-900 text-sm font-medium hover:bg-amber-400 transition-colors disabled:opacity-50"
+                        className="flex-1 btn-primary"
                       >
                         {isSaving ? '保存中...' : '保存'}
                       </button>
@@ -418,14 +418,14 @@ export function PhotoDetailModal({
                     <div className="flex gap-2">
                       <button
                         onClick={() => setEditingLocation(false)}
-                        className="flex-1 px-2 py-1 rounded bg-zinc-800 text-zinc-400 text-sm hover:bg-zinc-700 transition-colors"
+                        className="flex-1 btn-secondary"
                       >
                         取消
                       </button>
                       <button
                         onClick={handleSaveLocation}
                         disabled={isSaving}
-                        className="flex-1 px-2 py-1 rounded bg-amber-500 text-zinc-900 text-sm font-medium hover:bg-amber-400 transition-colors disabled:opacity-50"
+                        className="flex-1 btn-primary"
                       >
                         {isSaving ? '保存中...' : '保存'}
                       </button>

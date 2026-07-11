@@ -50,6 +50,7 @@ export function SettingsPage() {
   const [logContent, setLogContent] = useState<string>('');
   const [showLog, setShowLog] = useState(false);
   const [isLogLoading, setIsLogLoading] = useState(false);
+  const [isLogSaving, setIsLogSaving] = useState(false);
 
   useEffect(() => {
     loadDataPath();
@@ -217,6 +218,7 @@ export function SettingsPage() {
   };
 
   const handleSaveLogPath = async () => {
+    setIsLogSaving(true);
     try {
       await window.api.config.setLogPath(customLogPath);
       const newPath = await window.api.config.getLogPath();
@@ -224,18 +226,23 @@ export function SettingsPage() {
       toast('success', '日志路径已更新');
     } catch (error) {
       toast('error', '保存失败：' + error);
+    } finally {
+      setIsLogSaving(false);
     }
   };
 
   const handleResetLogPath = async () => {
-    setCustomLogPath(null);
+    setIsLogSaving(true);
     try {
+      setCustomLogPath(null);
       await window.api.config.setLogPath(null);
       const newPath = await window.api.config.getLogPath();
       setLogPath(newPath);
       toast('success', '已恢复默认日志路径');
     } catch (error) {
       toast('error', '保存失败：' + error);
+    } finally {
+      setIsLogSaving(false);
     }
   };
 
@@ -307,19 +314,19 @@ export function SettingsPage() {
             
             <div className="space-y-4">
               <div className="p-4 bg-zinc-800 rounded-lg">
-                <p className="text-xs text-zinc-400 mb-1">当前位置</p>
+                <label className="form-label">当前位置</label>
                 <p className="text-sm text-zinc-200 break-all">{dataPath}</p>
               </div>
 
               <div className="p-4 bg-zinc-800 rounded-lg">
-                <p className="text-xs text-zinc-400 mb-2">自定义存储位置</p>
+                <label className="form-label">自定义存储位置</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
                     value={customPath || ''}
                     onChange={(e) => setCustomPath(e.target.value || null)}
                     placeholder="使用默认位置"
-                    className="flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm text-zinc-200"
+                    className="flex-1 input-readonly"
                     readOnly
                   />
                   <button
@@ -372,19 +379,19 @@ export function SettingsPage() {
             
             <div className="space-y-4">
               <div className="p-4 bg-zinc-800 rounded-lg">
-                <p className="text-xs text-zinc-400 mb-1">当前日志路径</p>
+                <label className="form-label">当前日志路径</label>
                 <p className="text-sm text-zinc-200 break-all">{logPath}</p>
               </div>
 
               <div className="p-4 bg-zinc-800 rounded-lg">
-                <p className="text-xs text-zinc-400 mb-2">自定义日志路径</p>
+                <label className="form-label">自定义日志路径</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
                     value={customLogPath || ''}
                     onChange={(e) => setCustomLogPath(e.target.value || null)}
                     placeholder="使用默认位置"
-                    className="flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm text-zinc-200"
+                    className="flex-1 input-readonly"
                     readOnly
                   />
                   <button
@@ -402,13 +409,19 @@ export function SettingsPage() {
               <div className="flex gap-2">
                 <button
                   onClick={handleSaveLogPath}
+                  disabled={isLogSaving}
                   className="btn-secondary"
                 >
-                  保存路径
+                  {isLogSaving ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <RefreshCw size={14} />
+                  )}
+                  {isLogSaving ? '保存中...' : '保存路径'}
                 </button>
                 <button
                   onClick={handleResetLogPath}
-                  disabled={customLogPath === null}
+                  disabled={isLogSaving || customLogPath === null}
                   className="btn-secondary"
                 >
                   恢复默认
@@ -416,6 +429,7 @@ export function SettingsPage() {
                 <button
                   onClick={handleOpenLogFolder}
                   className="btn-secondary"
+                  disabled={isLogSaving}
                 >
                   <ExternalLink size={14} />
                   打开目录
@@ -585,11 +599,11 @@ export function SettingsPage() {
 
             <div className="space-y-4">
               <div className="p-4 bg-zinc-800 rounded-lg">
-                <p className="text-xs text-zinc-400 mb-2">地图瓦片源</p>
+                <label className="form-label">地图瓦片源</label>
                 <select
                   value={mapTileProvider}
                   onChange={(e) => setMapTileProvider(e.target.value)}
-                  className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm text-zinc-200 appearance-none cursor-pointer"
+                  className="w-full input appearance-none cursor-pointer"
                 >
                   {Object.entries(TILE_PROVIDERS).map(([key, provider]) => (
                     <option key={key} value={key}>{provider.name}</option>
@@ -604,13 +618,13 @@ export function SettingsPage() {
 
               {TILE_PROVIDERS[mapTileProvider]?.needKey && (
                 <div className="p-4 bg-zinc-800 rounded-lg">
-                  <p className="text-xs text-zinc-400 mb-2">API Key</p>
+                  <label className="form-label">API Key</label>
                   <input
                     type="text"
                     value={mapApiKey}
                     onChange={(e) => setMapApiKey(e.target.value)}
                     placeholder="输入 API Key"
-                    className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-sm text-zinc-200"
+                    className="w-full input"
                   />
                   {TILE_PROVIDERS[mapTileProvider]?.keyApplyUrl && (
                     <a

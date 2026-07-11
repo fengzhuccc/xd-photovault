@@ -73,6 +73,10 @@
     @apply btn bg-zinc-800 text-zinc-200 hover:bg-zinc-700 border border-zinc-700/50;
   }
 
+  .btn-secondary-active {
+    @apply btn bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border border-amber-500/30;
+  }
+
   .btn-ghost {
     @apply btn text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200;
   }

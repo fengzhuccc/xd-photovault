@@ -231,7 +231,7 @@ export function MapPage() {
           <div className="flex items-center gap-2 text-sm text-zinc-400">
             <MapPin size={14} />
             <span>{drawerLocation}</span>
-            <span className="text-zinc-600">·</span>
+            <span className="text-zinc-500">·</span>
             <span>{drawerPhotos.length} 张照片</span>
           </div>
           <button
@@ -258,7 +258,7 @@ export function MapPage() {
                     />
                   ) : (
                     <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
-                      <Image size={20} className="text-zinc-600" />
+                      <Image size={20} className="text-zinc-500" />
                     </div>
                   )}
                 </div>

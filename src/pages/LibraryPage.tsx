@@ -313,7 +313,7 @@ export function LibraryPage() {
             <p className="text-xs text-zinc-400">
               建立索引后，可通过语义搜索照片内容。索引过程在后台运行，可随时暂停。
             </p>
-            <label className="flex items-center justify-between p-3 bg-zinc-900 rounded-lg cursor-pointer hover:bg-zinc-800 transition-colors border border-zinc-800/50">
+            <label className="flex items-center justify-between p-3 bg-zinc-800 rounded-lg cursor-pointer hover:bg-zinc-700 transition-colors">
               <div className="flex items-center gap-2">
                 <Zap size={14} className={cn('transition-colors', aiGpuEnabled ? 'text-amber-500' : 'text-zinc-500')} />
                 <div className="flex flex-col">

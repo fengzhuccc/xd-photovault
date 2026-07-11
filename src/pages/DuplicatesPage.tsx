@@ -546,68 +546,70 @@ export function DuplicatesPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleDetectExact}
-              disabled={isDetecting}
-              title="Ctrl+E"
-              className={cn(
-                'btn-secondary',
-                'disabled:opacity-50 disabled:cursor-not-allowed'
-              )}
-            >
-              {isDetecting && detectStage === 'exact' ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : (
-                <RefreshCw size={16} />
-              )}
-              {isDetecting && detectStage === 'exact' ? '检测中...' : '精确去重'}
-            </button>
-            <button
-              onClick={handleDetectSimilar}
-              disabled={isDetecting}
-              className={cn(
-                'btn',
-                'bg-amber-500/10 text-amber-500 hover:bg-amber-500/20',
-                'disabled:opacity-50 disabled:cursor-not-allowed'
-              )}
-            >
-              {isDetecting && (detectStage === 'similar' || detectStage === 'hashing') ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : (
-                <RefreshCw size={16} />
-              )}
-              {isDetecting && (detectStage === 'similar' || detectStage === 'hashing') ? '检测中...' : '相似去重'}
-            </button>
-            <div className="w-px h-6 bg-zinc-800 mx-1" />
-            <button
-              onClick={selectAll}
-              title="Ctrl+A"
-              className="btn-secondary"
-            >
-              全选
-            </button>
-            <button
-              onClick={invertSelection}
-              title="Ctrl+I"
-              className="btn-secondary"
-            >
-              反选
-            </button>
-            <button
-              onClick={deselectAll}
-              title="Esc"
-              className="btn-secondary"
-            >
-              取消全选
-            </button>
+            {/* 检测操作 */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleDetectExact}
+                disabled={isDetecting}
+                title="Ctrl+E"
+                className="btn-secondary"
+              >
+                {isDetecting && detectStage === 'exact' ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={16} />
+                )}
+                {isDetecting && detectStage === 'exact' ? '检测中...' : '精确去重'}
+              </button>
+              <button
+                onClick={handleDetectSimilar}
+                disabled={isDetecting}
+                className="btn-primary"
+              >
+                {isDetecting && (detectStage === 'similar' || detectStage === 'hashing') ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={16} />
+                )}
+                {isDetecting && (detectStage === 'similar' || detectStage === 'hashing') ? '检测中...' : '相似去重'}
+              </button>
+            </div>
+
+            <div className="w-px h-6 bg-zinc-800" />
+
+            {/* 选择操作 */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={selectAll}
+                title="Ctrl+A"
+                className="btn-secondary"
+              >
+                全选
+              </button>
+              <button
+                onClick={invertSelection}
+                title="Ctrl+I"
+                className="btn-secondary"
+              >
+                反选
+              </button>
+              <button
+                onClick={deselectAll}
+                title="Esc"
+                className="btn-secondary"
+              >
+                取消全选
+              </button>
+            </div>
+
+            <div className="w-px h-6 bg-zinc-800" />
+
+            {/* 删除操作 */}
             <button
               onClick={handleDeleteDuplicates}
               disabled={isDeleting || deleteStats.count === 0}
               title="Delete"
-              className={cn(
-                'btn-danger-solid',
-                'disabled:opacity-50 disabled:cursor-not-allowed'
-              )}
+              className="btn-danger-solid"
             >
               {isDeleting ? (
                 <Loader2 size={16} className="animate-spin" />
@@ -651,7 +653,7 @@ export function DuplicatesPage() {
               {reason === 'similar' && '相似重复'}
             </button>
           ))}
-          <span className="text-xs text-zinc-600 ml-2">
+          <span className="text-xs text-zinc-500 ml-2">
             提示：点击卡片选择，Shift+点击范围选择，? 查看快捷键
           </span>
         </div>

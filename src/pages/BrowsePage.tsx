@@ -650,8 +650,7 @@ export function BrowsePage() {
                 }
               }}
               className={cn(
-                'btn',
-                selectMode ? 'bg-amber-500/10 text-amber-500 hover:bg-amber-500/20' : 'btn-secondary'
+                selectMode ? 'btn-secondary-active' : 'btn-secondary'
               )}
             >
               <CheckCircle2 size={16} />
@@ -660,8 +659,7 @@ export function BrowsePage() {
             <button
               onClick={() => setShowFilters(!showFilters)}
               className={cn(
-                'btn',
-                showFilters ? 'bg-amber-500/10 text-amber-500 hover:bg-amber-500/20' : 'btn-secondary'
+                showFilters ? 'btn-secondary-active' : 'btn-secondary'
               )}
             >
               <Filter size={16} />
@@ -830,7 +828,7 @@ export function BrowsePage() {
             >
               <div className="flex items-center justify-between">
                 <span className="truncate">{group.label}</span>
-                <span className="text-xs text-zinc-600">{group.count}</span>
+                <span className="text-xs text-zinc-500">{group.count}</span>
               </div>
             </button>
           ))}
