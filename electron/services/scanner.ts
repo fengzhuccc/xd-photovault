@@ -703,9 +703,12 @@ export class ScannerService {
       onProgress({ current: total, total, currentFile: '', status: 'complete', newCount, skipped, deletedCount });
 
       // 扫描完成后异步触发增量精确去重（相似去重需用户手动触发）
+      // 使用 setImmediate 让 finally 先把 this.scanning 置为 false，避免互斥锁把本次检测跳过
       if (newCount > 0 || deletedCount > 0) {
-        this.detectExactDuplicates(false, newHashes, newFrameHashes).catch(err => {
-          log.error('[Scanner] 后台精确去重检测失败:', err);
+        setImmediate(() => {
+          this.detectExactDuplicates(false, newHashes, newFrameHashes).catch(err => {
+            log.error('[Scanner] 后台精确去重检测失败:', err);
+          });
         });
       }
 

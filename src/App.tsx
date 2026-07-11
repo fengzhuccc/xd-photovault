@@ -14,16 +14,22 @@ const MapPage = lazy(() => import('@/pages/MapPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 
 function DuplicateProgressSubscriber() {
-  const { setDuplicateProgress, loadDuplicates } = useAppStore(state => ({
-    setDuplicateProgress: state.setDuplicateProgress,
-    loadDuplicates: state.loadDuplicates,
-  }));
+  const setDuplicateProgress = useAppStore(state => state.setDuplicateProgress);
+  const loadDuplicates = useAppStore(state => state.loadDuplicates);
 
   useEffect(() => {
+    if (!window.api?.duplicate?.onProgress) {
+      console.warn('[DuplicateProgressSubscriber] window.api.duplicate.onProgress 不可用');
+      return;
+    }
+
     const unsubscribe = window.api.duplicate.onProgress((progress) => {
       setDuplicateProgress(progress.stage === 'complete' ? null : progress);
       if (progress.stage === 'complete') {
-        loadDuplicates();
+        loadDuplicates().catch((error) => {
+          console.error('[DuplicateProgressSubscriber] 加载去重结果失败:', error);
+          toast('error', '去重结果加载失败');
+        });
         toast('success', '去重检测完成');
       }
     });
