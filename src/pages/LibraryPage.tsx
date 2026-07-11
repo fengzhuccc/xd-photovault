@@ -366,7 +366,7 @@ export function LibraryPage() {
           <Empty
             icon={FolderOpen}
             title="还没有添加任何文件夹"
-            description="添加照片文件夹后，小呆相册会扫描并建立索引，方便你浏览、搜索和管理照片。"
+            description="添加照片文件夹后，小呆画册会扫描并建立索引，方便你浏览、搜索和管理照片。"
             action={
               <button onClick={handleAddFolder} disabled={isAddingFolder} className="btn-primary">
                 <Plus size={18} />

@@ -2,9 +2,9 @@
   "name": "xiaodai-album",
   "private": true,
   "version": "1.0.0",
-  "description": "小呆相册 - 照片管理与去重应用",
+  "description": "小呆画册 - 照片管理与去重应用",
   "main": "dist-electron/main.js",
-  "author": "小呆相册",
+  "author": "小呆画册",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -91,7 +91,7 @@
   },
   "build": {
     "appId": "com.xiaodai.album",
-    "productName": "小呆相册",
+    "productName": "PhotoVault",
     "directories": {
       "output": "release"
     },
@@ -137,7 +137,7 @@
       "language": 2052
     },
     "portable": {
-      "artifactName": "小呆相册-Portable-${version}.exe"
+      "artifactName": "PhotoVault-Portable-${version}.exe"
     }
   }
 }

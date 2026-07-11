@@ -30,7 +30,7 @@ export function Sidebar() {
     >
       <div className="h-14 flex items-center justify-between px-4 border-b border-zinc-800">
         {!sidebarCollapsed && (
-          <h1 className="text-lg font-semibold text-zinc-100">小呆<span className="text-amber-500">相册</span></h1>
+          <h1 className="text-lg font-semibold text-zinc-100">小呆<span className="text-amber-500">画册</span></h1>
         )}
         <button
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
