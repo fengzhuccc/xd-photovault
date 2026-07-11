@@ -5,7 +5,6 @@ import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
 import { cn } from '@/lib/utils';
-import type { ScanProgress } from '@/types';
 
 export function LibraryPage() {
   const {
@@ -13,6 +12,7 @@ export function LibraryPage() {
     scanProgress,
     scanningFolderId,
     isScanning,
+    lastScanResult,
     aiIndexProgress,
     aiGpuEnabled,
     aiGpuActualProvider,
@@ -24,6 +24,7 @@ export function LibraryPage() {
     removeFolder,
     setScanProgress,
     setScanningFolderId,
+    clearLastScanResult,
     startAiIndex,
     pauseAiIndex,
     resumeAiIndex,
@@ -33,7 +34,6 @@ export function LibraryPage() {
   } = useAppStore();
 
   const [isAddingFolder, setIsAddingFolder] = useState(false);
-  const [scanResult, setScanResult] = useState<ScanProgress | null>(null);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [removingFolderId, setRemovingFolderId] = useState<string | null>(null);
 
@@ -44,25 +44,6 @@ export function LibraryPage() {
       console.log(`[Startup][Renderer] LibraryPage initial data loaded: ${Math.round(performance.now() - start)}ms`);
     });
   }, [loadFolders, loadStats, loadAiGpuStatus]);
-
-  useEffect(() => {
-    const unsubscribe = window.api.scan.onProgress((progress: ScanProgress) => {
-      setScanProgress(progress);
-      // M-22: complete/idle 状态都清除扫描中标志，防止永久卡住
-      if (progress.status === 'complete' || progress.status === 'idle') {
-        setScanningFolderId(null);
-        if (progress.status === 'complete') {
-          setScanResult(progress);
-          // 扫描完成后刷新照片列表、时间线和统计，缩略图保留已有缓存按需补充
-          loadPhotosPage({});
-          loadTimeline({});
-          loadFolders();
-          loadStats();
-        }
-      }
-    });
-    return () => { unsubscribe(); };
-  }, [setScanProgress, setScanningFolderId, loadPhotosPage, loadTimeline, loadFolders, loadStats]);
 
   // ESC 关闭下拉菜单
   useEffect(() => {
@@ -133,7 +114,7 @@ export function LibraryPage() {
     }
     setOpenDropdown(null);
     setScanningFolderId(folderId);
-    setScanResult(null);
+    clearLastScanResult();
     setScanProgress({ current: 0, total: 0, currentFile: '', status: 'scanning' });
     try {
       await window.api.scan.start(folderId, forceRescan);
@@ -221,7 +202,7 @@ export function LibraryPage() {
         </div>
       )}
 
-      {scanResult && scanResult.status === 'complete' && (
+      {lastScanResult && lastScanResult.status === 'complete' && (
         <div className="card card-section mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -229,23 +210,23 @@ export function LibraryPage() {
               <span className="text-sm text-zinc-300">扫描完成</span>
             </div>
             <button
-              onClick={() => setScanResult(null)}
+              onClick={() => clearLastScanResult()}
               className="icon-btn"
             >
               <X size={16} />
             </button>
           </div>
           <div className="flex gap-4 mt-2 text-xs text-zinc-400">
-            {scanResult.newCount !== undefined && scanResult.newCount > 0 && (
-              <span className="text-green-400">新增 {scanResult.newCount} 张</span>
+            {lastScanResult.newCount !== undefined && lastScanResult.newCount > 0 && (
+              <span className="text-green-400">新增 {lastScanResult.newCount} 张</span>
             )}
-            {scanResult.skipped !== undefined && scanResult.skipped > 0 && (
-              <span>跳过 {scanResult.skipped} 张</span>
+            {lastScanResult.skipped !== undefined && lastScanResult.skipped > 0 && (
+              <span>跳过 {lastScanResult.skipped} 张</span>
             )}
-            {scanResult.deletedCount !== undefined && scanResult.deletedCount > 0 && (
-              <span className="text-red-400">删除 {scanResult.deletedCount} 张</span>
+            {lastScanResult.deletedCount !== undefined && lastScanResult.deletedCount > 0 && (
+              <span className="text-red-400">删除 {lastScanResult.deletedCount} 张</span>
             )}
-            {scanResult.newCount === 0 && (scanResult.skipped ?? 0) === scanResult.total && (
+            {lastScanResult.newCount === 0 && (lastScanResult.skipped ?? 0) === lastScanResult.total && (
               <span>未发现新照片</span>
             )}
           </div>

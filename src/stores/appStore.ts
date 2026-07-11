@@ -22,6 +22,7 @@ interface AppState {
   scanProgress: ScanProgress | null;
   isScanning: boolean;
   scanningFolderId: string | null;
+  lastScanResult: ScanProgress | null;
   duplicateProgress: { stage: 'hashing' | 'exact' | 'similar' | 'complete'; current: number; total: number; message: string } | null;
   selectedPhoto: Photo | null;
   currentFilter: PhotoFilter;
@@ -51,6 +52,7 @@ interface AppState {
   setScanProgress: (progress: ScanProgress | null) => void;
   setIsScanning: (isScanning: boolean) => void;
   setScanningFolderId: (folderId: string | null) => void;
+  clearLastScanResult: () => void;
   setDuplicateProgress: (progress: { stage: 'hashing' | 'exact' | 'similar' | 'complete'; current: number; total: number; message: string } | null) => void;
 
   setCurrentFilter: (filter: PhotoFilter) => void;
@@ -105,6 +107,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   scanProgress: null,
   isScanning: false,
   scanningFolderId: null,
+  lastScanResult: null,
   duplicateProgress: null,
   selectedPhoto: null,
   currentFilter: {},
@@ -163,6 +166,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     scanningFolderId: folderId,
     isScanning: folderId !== null,
   }),
+  clearLastScanResult: () => set({ lastScanResult: null }),
   setDuplicateProgress: (progress) => set({ duplicateProgress: progress }),
 
   setCurrentFilter: (filter) => set({ currentFilter: filter }),
@@ -371,5 +375,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 if (typeof window !== 'undefined' && window.api?.aiIndex?.onProgress) {
   window.api.aiIndex.onProgress((progress) => {
     useAppStore.setState({ aiIndexProgress: progress });
+  });
+}
+
+// 全局监听扫描进度：即使离开照片库页面也能正确更新扫描状态和统计数据
+if (typeof window !== 'undefined' && window.api?.scan?.onProgress) {
+  window.api.scan.onProgress((progress) => {
+    useAppStore.setState({ scanProgress: progress });
+    if (progress.status === 'complete' || progress.status === 'idle') {
+      useAppStore.setState({ scanningFolderId: null, isScanning: false });
+    }
+    if (progress.status === 'complete') {
+      useAppStore.setState({ lastScanResult: progress });
+      const { loadPhotosPage, loadTimeline, loadFolders, loadStats } = useAppStore.getState();
+      loadPhotosPage({}).catch((e) => console.error('[ScanProgress] 刷新照片失败:', e));
+      loadTimeline({}).catch((e) => console.error('[ScanProgress] 刷新时间线失败:', e));
+      loadFolders().catch((e) => console.error('[ScanProgress] 刷新文件夹失败:', e));
+      loadStats().catch((e) => console.error('[ScanProgress] 刷新统计失败:', e));
+    }
   });
 }

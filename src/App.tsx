@@ -16,6 +16,7 @@ const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 function DuplicateProgressSubscriber() {
   const setDuplicateProgress = useAppStore(state => state.setDuplicateProgress);
   const loadDuplicates = useAppStore(state => state.loadDuplicates);
+  const loadStats = useAppStore(state => state.loadStats);
 
   useEffect(() => {
     if (!window.api?.duplicate?.onProgress) {
@@ -30,11 +31,14 @@ function DuplicateProgressSubscriber() {
           console.error('[DuplicateProgressSubscriber] 加载去重结果失败:', error);
           toast('error', '去重结果加载失败');
         });
+        loadStats().catch((error) => {
+          console.error('[DuplicateProgressSubscriber] 刷新统计数据失败:', error);
+        });
         toast('success', '去重检测完成');
       }
     });
     return () => unsubscribe();
-  }, [setDuplicateProgress, loadDuplicates]);
+  }, [setDuplicateProgress, loadDuplicates, loadStats]);
 
   return null;
 }
