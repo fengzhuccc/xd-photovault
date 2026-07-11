@@ -53,7 +53,10 @@ export class AiSearchService {
     const config = getAiConfig();
     log.info(`[AI] 语义搜索: "${query}"`);
 
-    const textEmbedding = await this.embeddingService.encodeText(query);
+    const augmentedQuery = augmentQuery(query);
+    log.info(`[AI] 语义搜索原始查询: "${query}" -> 增强查询: "${augmentedQuery}"`);
+
+    const textEmbedding = await this.embeddingService.encodeText(augmentedQuery);
 
     // 加载或复用 embedding 缓存
     if (this.cache === null || this.cacheModel !== config.model) {
@@ -73,6 +76,25 @@ export class AiSearchService {
     results.sort((a, b) => b.similarity - a.similarity);
     return results.slice(0, safeLimit);
   }
+}
+
+/**
+ * 对搜索查询做提示工程增强，让 CLIP 的文本编码更接近训练分布。
+ * 中文查询使用 "{query} 的照片"，其他语言使用 "a photo of {query}"。
+ */
+function augmentQuery(query: string): string {
+  const trimmed = query.trim();
+  // 判断是否存在中文字符
+  const hasChinese = /[\u4e00-\u9fa5]/.test(trimmed);
+  if (hasChinese) {
+    return `${trimmed} 的照片`;
+  }
+  // 英文/其他语言使用 CLIP 训练时更常见的描述句式
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('a photo of') || lower.startsWith('an image of') || lower.startsWith('picture of')) {
+    return trimmed;
+  }
+  return `a photo of ${trimmed}`;
 }
 
 function cosineSimilarity(a: Float32Array, b: Float32Array): number {

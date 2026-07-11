@@ -776,7 +776,11 @@ export class DatabaseService {
       SELECT
         COUNT(*) as total,
         COALESCE(SUM(CASE WHEN latitude IS NOT NULL AND longitude IS NOT NULL THEN 1 ELSE 0 END), 0) as with_location,
-        (SELECT COUNT(*) FROM photo_duplicates) as duplicates,
+        (SELECT COUNT(DISTINCT pd.photo_id) FROM photo_duplicates pd
+         WHERE NOT EXISTS (
+           SELECT 1 FROM duplicate_groups dg
+           WHERE dg.id = pd.group_id AND dg.recommended_photo_id = pd.photo_id
+         )) as duplicates,
         (SELECT COUNT(*) FROM folders) as folders
       FROM photos
     `).get() as { total: number; with_location: number; duplicates: number; folders: number };

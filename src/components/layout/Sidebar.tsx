@@ -30,11 +30,11 @@ export function Sidebar() {
     >
       <div className="h-14 flex items-center justify-between px-4 border-b border-zinc-800">
         {!sidebarCollapsed && (
-          <h1 className="text-lg font-semibold text-amber-500">PhotoVault</h1>
+          <h1 className="text-lg font-semibold text-zinc-100">小呆<span className="text-amber-500">相册</span></h1>
         )}
         <button
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
+          className="icon-btn"
         >
           {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
         </button>
@@ -49,7 +49,7 @@ export function Sidebar() {
               cn(
                 'flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg transition-colors',
                 isActive
-                  ? 'bg-amber-500/10 text-amber-500'
+                  ? 'bg-amber-500 text-zinc-950 shadow-sm'
                   : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
               )
             }
@@ -63,7 +63,7 @@ export function Sidebar() {
       <div className="border-t border-zinc-800">
         {!sidebarCollapsed && stats && (
           <div className="p-4">
-            <div className="text-xs text-zinc-500 space-y-1">
+            <div className="text-xs text-zinc-400 space-y-1">
               <div className="flex justify-between">
                 <span>照片总数</span>
                 <span className="text-zinc-300">{stats.total.toLocaleString()}</span>
@@ -86,7 +86,7 @@ export function Sidebar() {
             cn(
               'flex items-center gap-3 px-4 py-2.5 mx-2 mb-2 rounded-lg transition-colors',
               isActive
-                ? 'bg-amber-500/10 text-amber-500'
+                ? 'bg-amber-500 text-zinc-950 shadow-sm'
                 : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
             )
           }

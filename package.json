@@ -1,10 +1,10 @@
 {
-  "name": "photovault",
+  "name": "xiaodai-album",
   "private": true,
   "version": "1.0.0",
-  "description": "照片管理与去重应用",
+  "description": "小呆相册 - 照片管理与去重应用",
   "main": "dist-electron/main.js",
-  "author": "PhotoVault",
+  "author": "小呆相册",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -90,7 +90,7 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.photovault.app",
+    "appId": "com.xiaodai.album",
     "productName": "PhotoVault",
     "directories": {
       "output": "release"

@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+export interface DuplicateDetectionResult {
+  started: boolean;
+  skipped?: boolean;
+  reason?: 'already-running' | 'scanning';
+  groupCount?: number;
+}
+
 export const api = {
   dialog: {
     openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
@@ -41,6 +48,8 @@ export const api = {
     getStats: () => ipcRenderer.invoke('photo:getStats'),
     updateLocation: (id: string, lat: number, lng: number) => 
       ipcRenderer.invoke('photo:updateLocation', id, lat, lng),
+    updateLocationBatch: (ids: string[], lat: number, lng: number) =>
+      ipcRenderer.invoke('photo:updateLocationBatch', ids, lat, lng),
     updateDate: (id: string, date: string) =>
       ipcRenderer.invoke('photo:updateDate', id, date),
     delete: (photoIds: string[]) => ipcRenderer.invoke('photo:delete', photoIds),
@@ -58,8 +67,8 @@ export const api = {
   
   duplicate: {
     getAll: (limit?: number, offset?: number, reason?: 'exact' | 'similar') => ipcRenderer.invoke('duplicate:getAll', limit, offset, reason),
-    detectExact: (fullRebuild?: boolean) => ipcRenderer.invoke('duplicate:detectExact', fullRebuild),
-    detectSimilar: (fullRebuild?: boolean) => ipcRenderer.invoke('duplicate:detectSimilar', fullRebuild),
+    detectExact: (fullRebuild?: boolean) => ipcRenderer.invoke('duplicate:detectExact', fullRebuild) as Promise<DuplicateDetectionResult>,
+    detectSimilar: (fullRebuild?: boolean) => ipcRenderer.invoke('duplicate:detectSimilar', fullRebuild) as Promise<DuplicateDetectionResult>,
     delete: (photoIds: string[]) => ipcRenderer.invoke('duplicate:delete', photoIds),
     onProgress: (callback: (progress: { stage: 'hashing' | 'exact' | 'similar' | 'complete'; current: number; total: number; message: string }) => void) => {
       const listener = (_event: unknown, progress: { stage: 'hashing' | 'exact' | 'similar' | 'complete'; current: number; total: number; message: string }) => callback(progress);

@@ -43,6 +43,13 @@ export interface ScanProgress {
   deletedCount?: number;
 }
 
+export interface DuplicateDetectionResult {
+  started: boolean;
+  skipped?: boolean;
+  reason?: 'already-running' | 'scanning';
+  groupCount?: number;
+}
+
 export interface DuplicateProgress {
   stage: 'hashing' | 'exact' | 'similar' | 'complete';
   current: number;
@@ -696,9 +703,12 @@ export class ScannerService {
       onProgress({ current: total, total, currentFile: '', status: 'complete', newCount, skipped, deletedCount });
 
       // 扫描完成后异步触发增量精确去重（相似去重需用户手动触发）
+      // 使用 setImmediate 让 finally 先把 this.scanning 置为 false，避免互斥锁把本次检测跳过
       if (newCount > 0 || deletedCount > 0) {
-        this.detectExactDuplicates(false, newHashes, newFrameHashes).catch(err => {
-          log.error('[Scanner] 后台精确去重检测失败:', err);
+        setImmediate(() => {
+          this.detectExactDuplicates(false, newHashes, newFrameHashes).catch(err => {
+            log.error('[Scanner] 后台精确去重检测失败:', err);
+          });
         });
       }
 
@@ -774,11 +784,11 @@ export class ScannerService {
     return migrated;
   }
 
-  async detectExactDuplicates(fullRebuild: boolean = true, newHashes: string[] = [], newFrameHashes: string[] = []): Promise<number> {
+  async detectExactDuplicates(fullRebuild: boolean = true, newHashes: string[] = [], newFrameHashes: string[] = []): Promise<DuplicateDetectionResult> {
     return this.detectDuplicatesWithMode(fullRebuild, 'exact', newHashes, newFrameHashes);
   }
 
-  async detectSimilarDuplicates(fullRebuild: boolean = true): Promise<number> {
+  async detectSimilarDuplicates(fullRebuild: boolean = true): Promise<DuplicateDetectionResult> {
     return this.detectDuplicatesWithMode(fullRebuild, 'similar', [], []);
   }
 
@@ -787,12 +797,19 @@ export class ScannerService {
     mode: 'exact' | 'similar',
     newHashes: string[] = [],
     newFrameHashes: string[] = []
-  ): Promise<number> {
+  ): Promise<DuplicateDetectionResult> {
     // 互斥锁：防止并发去重检测导致重复组数据损坏
     if (this.isDetectingDuplicates) {
       log.info(`[Scanner] 去重检测已在进行中，跳过 (mode=${mode})`);
-      return 0;
+      return { started: false, skipped: true, reason: 'already-running' };
     }
+
+    // 扫描和去重检测也互斥，避免扫描写入与去重读取并发导致数据不一致
+    if (this.scanning) {
+      log.info(`[Scanner] 扫描进行中，跳过去重检测 (mode=${mode})`);
+      return { started: false, skipped: true, reason: 'scanning' };
+    }
+
     this.isDetectingDuplicates = true;
 
     try {
@@ -829,7 +846,7 @@ export class ScannerService {
 
       this.emitDuplicateProgress({ stage: 'complete', current: 1, total: 1, message: '去重检测完成' });
       log.info(`[Scanner] 检测到 ${groupCount} 组重复/相似照片`);
-      return groupCount;
+      return { started: true, groupCount };
     } finally {
       this.isDetectingDuplicates = false;
     }

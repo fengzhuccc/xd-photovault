@@ -22,6 +22,7 @@ interface AppState {
   scanProgress: ScanProgress | null;
   isScanning: boolean;
   scanningFolderId: string | null;
+  lastScanResult: ScanProgress | null;
   duplicateProgress: { stage: 'hashing' | 'exact' | 'similar' | 'complete'; current: number; total: number; message: string } | null;
   selectedPhoto: Photo | null;
   currentFilter: PhotoFilter;
@@ -31,6 +32,7 @@ interface AppState {
   aiIndexProgress: AiIndexProgress | null;
   aiSearchQuery: string;
   aiSearchResults: Photo[];
+  aiSearchSimilarities: Record<string, number>;
   aiSearching: boolean;
   aiGpuEnabled: boolean;
   aiGpuActualProvider: string;
@@ -43,6 +45,7 @@ interface AppState {
 
   setPhotos: (photos: Photo[]) => void;
   setSelectedPhoto: (photo: Photo | null) => void;
+  removePhotos: (ids: string[]) => void;
 
   setStats: (stats: PhotoStats) => void;
   setDuplicates: (duplicates: DuplicateGroup[]) => void;
@@ -50,6 +53,7 @@ interface AppState {
   setScanProgress: (progress: ScanProgress | null) => void;
   setIsScanning: (isScanning: boolean) => void;
   setScanningFolderId: (folderId: string | null) => void;
+  clearLastScanResult: () => void;
   setDuplicateProgress: (progress: { stage: 'hashing' | 'exact' | 'similar' | 'complete'; current: number; total: number; message: string } | null) => void;
 
   setCurrentFilter: (filter: PhotoFilter) => void;
@@ -62,6 +66,7 @@ interface AppState {
   setAiIndexProgress: (progress: AiIndexProgress | null) => void;
   setAiSearchQuery: (query: string) => void;
   setAiSearchResults: (results: Photo[]) => void;
+  setAiSearchSimilarities: (similarities: Record<string, number>) => void;
   setAiSearching: (searching: boolean) => void;
   setAiGpuStatus: (status: { enabled: boolean; actualProvider: string }) => void;
   setAiGpuEnabled: (enabled: boolean) => void;
@@ -104,6 +109,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   scanProgress: null,
   isScanning: false,
   scanningFolderId: null,
+  lastScanResult: null,
   duplicateProgress: null,
   selectedPhoto: null,
   currentFilter: {},
@@ -113,6 +119,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   aiIndexProgress: null,
   aiSearchQuery: '',
   aiSearchResults: [],
+  aiSearchSimilarities: {},
   aiSearching: false,
   aiGpuEnabled: false,
   aiGpuActualProvider: 'cpu',
@@ -138,6 +145,25 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setPhotos: (photos) => set({ photos }),
   setSelectedPhoto: (photo) => set({ selectedPhoto: photo }),
+  removePhotos: (ids) => set((state) => {
+    const idSet = new Set(ids);
+    const newPhotos = state.photos.filter(p => !idSet.has(p.id));
+    const newThumbnails: Record<string, string> = {};
+    for (const [k, v] of Object.entries(state.thumbnails)) {
+      if (!idSet.has(k)) newThumbnails[k] = v;
+    }
+    const newAiSearchResults = state.aiSearchResults.filter(p => !idSet.has(p.id));
+    const newAiSearchSimilarities: Record<string, number> = {};
+    for (const [k, v] of Object.entries(state.aiSearchSimilarities)) {
+      if (!idSet.has(k)) newAiSearchSimilarities[k] = v;
+    }
+    return {
+      photos: newPhotos,
+      thumbnails: newThumbnails,
+      aiSearchResults: newAiSearchResults,
+      aiSearchSimilarities: newAiSearchSimilarities,
+    };
+  }),
 
   setStats: (stats) => set({ stats }),
   setDuplicates: (duplicates) => set({ duplicates }),
@@ -148,6 +174,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     scanningFolderId: folderId,
     isScanning: folderId !== null,
   }),
+  clearLastScanResult: () => set({ lastScanResult: null }),
   setDuplicateProgress: (progress) => set({ duplicateProgress: progress }),
 
   setCurrentFilter: (filter) => set({ currentFilter: filter }),
@@ -160,6 +187,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setAiIndexProgress: (progress) => set({ aiIndexProgress: progress }),
   setAiSearchQuery: (query) => set({ aiSearchQuery: query }),
   setAiSearchResults: (results) => set({ aiSearchResults: results }),
+  setAiSearchSimilarities: (similarities) => set({ aiSearchSimilarities: similarities }),
   setAiSearching: (searching) => set({ aiSearching: searching }),
   setAiGpuStatus: (status) => set({
     aiGpuEnabled: status.enabled,
@@ -203,7 +231,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   aiSearch: async (query) => {
     if (!query.trim()) {
-      set({ aiSearchResults: [], aiSearchQuery: '', aiSearching: false });
+      set({ aiSearchResults: [], aiSearchSimilarities: {}, aiSearchQuery: '', aiSearching: false });
       return;
     }
     // H-17: 使用请求令牌，防止快速连续搜索时过期结果覆盖最新结果
@@ -215,13 +243,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (token !== aiSearchToken) return; // 过期请求，忽略
       if (response.success && response.results) {
         const photos = response.results.map((r: { photo: Photo; similarity: number }) => r.photo);
-        set({ aiSearchResults: photos, aiSearching: false });
+        const similarities: Record<string, number> = {};
+        for (const r of response.results as { photo: Photo; similarity: number }[]) {
+          similarities[r.photo.id] = r.similarity;
+        }
+        set({ aiSearchResults: photos, aiSearchSimilarities: similarities, aiSearching: false });
       } else {
-        set({ aiSearchResults: [], aiSearching: false });
+        set({ aiSearchResults: [], aiSearchSimilarities: {}, aiSearching: false });
       }
     } catch {
       if (token !== aiSearchToken) return;
-      set({ aiSearchResults: [], aiSearching: false });
+      set({ aiSearchResults: [], aiSearchSimilarities: {}, aiSearching: false });
     }
   },
 
@@ -356,5 +388,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 if (typeof window !== 'undefined' && window.api?.aiIndex?.onProgress) {
   window.api.aiIndex.onProgress((progress) => {
     useAppStore.setState({ aiIndexProgress: progress });
+  });
+}
+
+// 全局监听扫描进度：即使离开照片库页面也能正确更新扫描状态和统计数据
+if (typeof window !== 'undefined' && window.api?.scan?.onProgress) {
+  window.api.scan.onProgress((progress) => {
+    useAppStore.setState({ scanProgress: progress });
+    if (progress.status === 'complete' || progress.status === 'idle') {
+      useAppStore.setState({ scanningFolderId: null, isScanning: false });
+    }
+    if (progress.status === 'complete') {
+      useAppStore.setState({ lastScanResult: progress });
+      const { loadPhotosPage, loadTimeline, loadFolders, loadStats } = useAppStore.getState();
+      loadPhotosPage({}).catch((e) => console.error('[ScanProgress] 刷新照片失败:', e));
+      loadTimeline({}).catch((e) => console.error('[ScanProgress] 刷新时间线失败:', e));
+      loadFolders().catch((e) => console.error('[ScanProgress] 刷新文件夹失败:', e));
+      loadStats().catch((e) => console.error('[ScanProgress] 刷新统计失败:', e));
+    }
   });
 }

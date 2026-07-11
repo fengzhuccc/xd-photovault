@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { MapPin, X, Image, Loader2 } from 'lucide-react';
+import { MapPin, X, Image, Loader2, MapPinned } from 'lucide-react';
+import Empty from '@/components/Empty';
 import { useAppStore } from '@/stores/appStore';
 import { PhotoDetailModal } from '@/components/PhotoDetailModal';
 import L from 'leaflet';
@@ -204,15 +205,17 @@ export function MapPage() {
 
   return (
     <div className="h-full flex flex-col" style={{ height: 'calc(100vh - 3rem)' }}>
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold text-zinc-100 mb-1">地图视图</h1>
-        <p className="text-sm text-zinc-400">
-          {stats ? `${stats.withLocation.toLocaleString()} 张照片有位置信息` : '加载中...'}
-          {stats && stats.withoutLocation > 0 && ` · ${stats.withoutLocation.toLocaleString()} 张无位置`}
-        </p>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">地图视图</h1>
+          <p className="page-subtitle">
+            {stats ? `${stats.withLocation.toLocaleString()} 张照片有位置信息` : '加载中...'}
+            {stats && stats.withoutLocation > 0 && ` · ${stats.withoutLocation.toLocaleString()} 张无位置`}
+          </p>
+        </div>
       </div>
 
-      <div className="flex-1 min-h-0 rounded-xl overflow-hidden border border-zinc-800 relative" style={{ minHeight: '400px' }}>
+      <div className="card flex-1 min-h-0 overflow-hidden relative" style={{ minHeight: '400px' }}>
         <LeafletMap
           hasNoPhotos={!hasLocationPhotos}
           transformCoord={transformCoord}
@@ -228,17 +231,23 @@ export function MapPage() {
           <div className="flex items-center gap-2 text-sm text-zinc-400">
             <MapPin size={14} />
             <span>{drawerLocation}</span>
-            <span className="text-zinc-600">·</span>
+            <span className="text-zinc-500">·</span>
             <span>{drawerPhotos.length} 张照片</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="icon-btn"
           >
             <X size={16} />
           </button>
         </div>
-        <div className="px-4 py-3 overflow-x-auto scrollbar-thin">
+        <div
+          className="px-4 py-3 overflow-x-auto scrollbar-thin"
+          onWheel={(e) => {
+            e.preventDefault();
+            e.currentTarget.scrollLeft += e.deltaY;
+          }}
+        >
           <div className="flex gap-3">
             {drawerPhotos.map((photo) => (
               <button
@@ -255,11 +264,11 @@ export function MapPage() {
                     />
                   ) : (
                     <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
-                      <Image size={20} className="text-zinc-600" />
+                      <Image size={20} className="text-zinc-500" />
                     </div>
                   )}
                 </div>
-                <p className="mt-1 text-xs text-zinc-500 truncate w-24 group-hover:text-zinc-300 transition-colors">{photo.filename}</p>
+                <p className="mt-1 text-xs text-zinc-400 truncate w-24 group-hover:text-zinc-300 transition-colors">{photo.filename}</p>
               </button>
             ))}
           </div>
@@ -442,6 +451,19 @@ function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick,
       layerGroup.addLayer(marker);
     }
 
+    // 高亮目标照片时：展示所有照片的分布范围，并打开目标 tooltip
+    if (highlightedMarker && !highlightFitRef.current) {
+      highlightFitRef.current = true;
+      initialFitRef.current = true;
+      const allMarkers = layerGroup.getLayers() as L.Marker[];
+      if (allMarkers.length > 0) {
+        const featureGroup = L.featureGroup(allMarkers);
+        mapInstanceRef.current.fitBounds(featureGroup.getBounds().pad(0.1), { maxZoom: 12, duration: 1 });
+      }
+      highlightedMarker.openTooltip();
+      return;
+    }
+
     // 首次加载时 fit bounds
     if (!initialFitRef.current && clusters.length > 0) {
       initialFitRef.current = true;
@@ -450,15 +472,6 @@ function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick,
         const featureGroup = L.featureGroup(allMarkers);
         mapInstanceRef.current.fitBounds(featureGroup.getBounds().pad(0.1), { maxZoom: 12 });
       }
-    }
-
-    // 高亮目标照片：定位并打开 tooltip
-    if (highlightedMarker && !highlightFitRef.current) {
-      highlightFitRef.current = true;
-      const map = mapInstanceRef.current;
-      const latLng = highlightedMarker.getLatLng();
-      map.flyTo(latLng, 15, { duration: 1 });
-      highlightedMarker.openTooltip();
     }
   }, [clusters, transformCoord, onPhotoClick, onClusterClick, highlightPhotoId]);
 
@@ -469,28 +482,30 @@ function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick,
       <div ref={mapRef} className="w-full h-full" />
       {hasNoPhotos && (
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/80 pointer-events-none z-[1000]">
-          <div className="text-center text-zinc-500">
-            <MapPin size={48} className="mx-auto mb-4 opacity-50" />
-            <p>没有带位置信息的照片</p>
-            <p className="text-sm mt-1">照片需要有GPS数据才能在地图上显示</p>
-          </div>
+          <Empty
+            icon={MapPinned}
+            title="没有带位置信息的照片"
+            description="照片需要有 GPS 数据才能在地图上显示"
+          />
         </div>
       )}
       {showEmpty && (
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/60 pointer-events-none z-[999]">
-          <div className="text-center text-zinc-500">
-            <MapPin size={40} className="mx-auto mb-3 opacity-50" />
-            <p>当前视口没有照片</p>
-            <p className="text-sm mt-1">移动或缩放地图查看更多位置</p>
-          </div>
+          <Empty
+            icon={MapPin}
+            title="当前视口没有照片"
+            description="移动或缩放地图查看更多位置"
+          />
         </div>
       )}
       {viewportLoading && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900/80 text-xs text-zinc-400 z-[1001]">
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 badge-zinc z-[1001]">
           <Loader2 size={14} className="animate-spin" />
-          <span>加载视口照片...</span>
+          加载视口照片...
         </div>
       )}
     </div>
   );
 }
+
+export default MapPage;

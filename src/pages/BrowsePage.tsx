@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
-import { Filter, Grid3X3, MapPin, Camera, Trash2, CheckCircle2, Circle, Loader2, Play, Image, Film, Search, X } from 'lucide-react';
+import { Filter, Grid3X3, MapPin, Camera, Trash2, CheckCircle2, Circle, Loader2, Play, Image, Film, Search, X, FolderOpen, MapPinned } from 'lucide-react';
+import { MapPickerModal } from '@/components/MapPickerModal';
+import Empty from '@/components/Empty';
 import { VirtuosoGrid, type VirtuosoGridHandle } from 'react-virtuoso';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
@@ -12,6 +14,7 @@ import type { Photo } from '@/types';
 interface PhotoGridItemProps {
   photo: Photo;
   thumbnail?: string;
+  similarity?: number;
   isSelected: boolean;
   selectMode: boolean;
   onSelect: (photo: Photo) => void;
@@ -29,6 +32,7 @@ function formatDuration(seconds: number | null): string {
 const PhotoGridItem = React.memo(function PhotoGridItem({
   photo,
   thumbnail,
+  similarity,
   isSelected,
   selectMode,
   onSelect,
@@ -36,6 +40,7 @@ const PhotoGridItem = React.memo(function PhotoGridItem({
   formatDate,
 }: PhotoGridItemProps) {
   const isVideo = photo.media_type === 'video';
+  const showSimilarity = similarity !== undefined && !selectMode;
 
   const handleClick = () => {
     if (selectMode) {
@@ -65,8 +70,13 @@ const PhotoGridItem = React.memo(function PhotoGridItem({
           loading="lazy"
         />
       ) : (
-        <div className="w-full h-full bg-zinc-800 animate-pulse flex items-center justify-center">
+        <div className="w-full h-full skeleton flex items-center justify-center">
           <div className="w-8 h-8 rounded bg-zinc-700/50" />
+        </div>
+      )}
+      {showSimilarity && (
+        <div className="absolute top-2 left-2 z-10 px-1.5 py-0.5 rounded bg-amber-500/90 text-xs text-black font-semibold pointer-events-none shadow-sm">
+          {(similarity * 100).toFixed(1)}%
         </div>
       )}
       {isVideo && !selectMode && (
@@ -77,7 +87,7 @@ const PhotoGridItem = React.memo(function PhotoGridItem({
             </div>
           </div>
           {photo.duration !== null && photo.duration > 0 && (
-            <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white font-medium pointer-events-none">
+            <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/60 text-xs text-white font-medium pointer-events-none">
               {formatDuration(photo.duration)}
             </div>
           )}
@@ -96,7 +106,7 @@ const PhotoGridItem = React.memo(function PhotoGridItem({
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
           <div className="absolute bottom-0 left-0 right-0 p-2">
             <p className="text-xs text-white truncate">{photo.filename}</p>
-            <p className="text-xs text-zinc-400">{formatDate(photo.taken_at)}</p>
+            <p className="text-xs text-zinc-200">{formatDate(photo.taken_at)}</p>
           </div>
         </div>
       )}
@@ -136,9 +146,11 @@ export function BrowsePage() {
     setThumbnails,
     aiSearchQuery,
     aiSearchResults,
+    aiSearchSimilarities,
     aiSearching,
     setAiSearchQuery,
     setAiSearchResults,
+    setAiSearchSimilarities,
     setAiSearching,
     aiSearch,
     browseScrollState,
@@ -149,6 +161,7 @@ export function BrowsePage() {
   const [showFilters, setShowFilters] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showMapPicker, setShowMapPicker] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [activeTimelineKey, setActiveTimelineKey] = useState<string | null>(null);
   const [visibleRange, setVisibleRange] = useState({ startIndex: 0, endIndex: 0 });
@@ -409,8 +422,11 @@ export function BrowsePage() {
 
     // AI 搜索模式下同步更新 aiSearchResults，避免已删除照片仍显示在网格中
     if (isAiSearchMode) {
+      const nextSimilarities = { ...aiSearchSimilarities };
+      delete nextSimilarities[photo.id];
       useAppStore.setState({
         aiSearchResults: aiSearchResults.filter(p => p.id !== photo.id),
+        aiSearchSimilarities: nextSimilarities,
         photosTotal: Math.max(0, photosTotal - 1),
       });
     } else {
@@ -474,8 +490,13 @@ export function BrowsePage() {
       setSelectMode(false);
       // AI 搜索模式下同步更新 aiSearchResults，浏览模式更新 photos
       if (isAiSearchMode) {
+        const nextSimilarities = { ...aiSearchSimilarities };
+        for (const id of selectedIds) {
+          delete nextSimilarities[id];
+        }
         useAppStore.setState({
           aiSearchResults: aiSearchResults.filter(p => !selectedIds.has(p.id)),
+          aiSearchSimilarities: nextSimilarities,
           photosTotal: Math.max(0, photosTotal - count),
         });
       } else {
@@ -491,6 +512,24 @@ export function BrowsePage() {
       loadStats();
     } catch (error) {
       toast('error', '删除失败：' + error);
+    }
+  };
+
+  const handleBatchUpdateLocation = async (lat: number, lng: number) => {
+    const count = selectedIds.size;
+    if (count === 0) return;
+    try {
+      const result = await window.api.photo.updateLocationBatch(Array.from(selectedIds), lat, lng);
+      toast('success', `已为 ${result.updated} 张照片设置位置`);
+      setSelectedIds(new Set());
+      setSelectMode(false);
+      setShowMapPicker(false);
+      // 刷新相关数据
+      loadPhotosPage(currentFilter);
+      loadTimeline(currentFilter);
+      loadStats();
+    } catch (error) {
+      toast('error', '批量设置位置失败：' + error);
     }
   };
 
@@ -599,10 +638,10 @@ export function BrowsePage() {
   return (
     <div className="h-full flex">
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex items-center justify-between mb-6">
+        <div className="page-header">
           <div>
-            <h1 className="text-2xl font-bold text-zinc-100 mb-1">浏览照片</h1>
-            <p className="text-sm text-zinc-400">
+            <h1 className="page-title">浏览照片</h1>
+            <p className="page-subtitle">
               {isAiSearchMode
                 ? `AI 搜索结果：${aiSearchResults.length.toLocaleString()} 张`
                 : `共 ${photosTotal.toLocaleString()} 张照片`}
@@ -621,7 +660,7 @@ export function BrowsePage() {
                   }
                 }}
                 placeholder="AI 语义搜索..."
-                className="w-64 bg-zinc-800 border border-zinc-700 rounded-lg pl-9 pr-8 py-2 text-sm text-zinc-300 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                className="input w-64 pl-9 pr-8"
               />
               {searchInput && (
                 <button
@@ -629,16 +668,17 @@ export function BrowsePage() {
                     setSearchInput('');
                     setAiSearchQuery('');
                     setAiSearchResults([]);
+                    setAiSearchSimilarities({});
                     setAiSearching(false);
                   }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                  className="icon-btn absolute right-1 top-1/2 -translate-y-1/2"
                 >
                   <X size={14} />
                 </button>
               )}
             </div>
             {aiSearching && (
-              <Loader2 size={18} className="text-purple-500 animate-spin" />
+              <Loader2 size={18} className="text-amber-500 animate-spin" />
             )}
             <button
               onClick={() => {
@@ -649,8 +689,7 @@ export function BrowsePage() {
                 }
               }}
               className={cn(
-                'flex items-center gap-2 px-3 py-2 rounded-lg transition-colors',
-                selectMode ? 'bg-amber-500/10 text-amber-500' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                selectMode ? 'btn-secondary-active' : 'btn-secondary'
               )}
             >
               <CheckCircle2 size={16} />
@@ -659,8 +698,7 @@ export function BrowsePage() {
             <button
               onClick={() => setShowFilters(!showFilters)}
               className={cn(
-                'flex items-center gap-2 px-3 py-2 rounded-lg transition-colors',
-                showFilters ? 'bg-amber-500/10 text-amber-500' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                showFilters ? 'btn-secondary-active' : 'btn-secondary'
               )}
             >
               <Filter size={16} />
@@ -670,14 +708,14 @@ export function BrowsePage() {
         </div>
 
         {showFilters && (
-          <div className="mb-6 p-4 bg-zinc-900 rounded-xl border border-zinc-800">
+          <div className="card card-section mb-6">
             <div className="flex flex-wrap gap-4">
               <div className="flex items-center gap-2">
                 <MapPin size={14} className="text-zinc-500" />
                 <select
                   value={currentFilter.hasLocation === undefined ? '' : currentFilter.hasLocation ? 'true' : 'false'}
                   onChange={(e) => handleFilterChange('hasLocation', e.target.value === '' ? undefined : e.target.value === 'true')}
-                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-300"
+                  className="input py-1.5"
                 >
                   <option value="">全部</option>
                   <option value="true">有位置</option>
@@ -690,7 +728,7 @@ export function BrowsePage() {
                   <select
                     value={currentFilter.camera || ''}
                     onChange={(e) => handleFilterChange('camera', e.target.value || undefined)}
-                    className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-300"
+                    className="input py-1.5"
                   >
                     <option value="">全部相机</option>
                     {stats.cameras.map(({ camera }) => (
@@ -708,7 +746,7 @@ export function BrowsePage() {
                 <select
                   value={currentFilter.mediaType || 'all'}
                   onChange={(e) => handleFilterChange('mediaType', e.target.value === 'all' ? undefined : e.target.value)}
-                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-300"
+                  className="input py-1.5"
                 >
                   <option value="all">全部</option>
                   <option value="image">图片</option>
@@ -721,13 +759,15 @@ export function BrowsePage() {
 
         <div className="flex-1 overflow-auto">
           {displayPhotos.length === 0 ? (
-            <div className="text-center py-16 text-zinc-500">
-              <Grid3X3 size={48} className="mx-auto mb-4 opacity-50" />
-              <p>{isAiSearchMode ? '未找到匹配的照片' : '没有找到照片'}</p>
-              <p className="text-sm mt-1">
-                {isAiSearchMode ? '请尝试其他关键词，或确认已完成 AI 索引' : '请先在照片库中添加并扫描文件夹'}
-              </p>
-            </div>
+            <Empty
+              icon={isAiSearchMode ? Search : FolderOpen}
+              title={isAiSearchMode ? '未找到匹配的照片' : '没有找到照片'}
+              description={
+                isAiSearchMode
+                  ? '请尝试其他关键词，或确认已完成 AI 索引'
+                  : '请先在照片库中添加并扫描文件夹'
+              }
+            />
           ) : (
             <VirtuosoGrid
               ref={virtuosoRef}
@@ -740,8 +780,9 @@ export function BrowsePage() {
                 List: GridList,
                 Item: GridItem,
                 Footer: () => loadingMore ? (
-                  <div className="col-span-full flex justify-center py-4">
-                    <Loader2 className="w-6 h-6 text-amber-500 animate-spin" />
+                  <div className="col-span-full flex items-center justify-center gap-2 py-4 text-sm text-zinc-400">
+                    <Loader2 size={18} className="text-amber-500 animate-spin" />
+                    正在加载更多...
                   </div>
                 ) : null,
               }}
@@ -750,6 +791,7 @@ export function BrowsePage() {
                   <PhotoGridItem
                     photo={photo}
                     thumbnail={thumbnails[photo.id]}
+                    similarity={isAiSearchMode ? aiSearchSimilarities[photo.id] : undefined}
                     isSelected={selectedIds.has(photo.id)}
                     selectMode={selectMode}
                     onSelect={handleSelectPhoto}
@@ -787,18 +829,31 @@ export function BrowsePage() {
             <div className="flex items-center gap-2">
               <button
                 onClick={exitSelectMode}
-                className="px-4 py-2 rounded-lg text-sm bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+                className="btn-secondary"
               >
                 完成
+              </button>
+              <button
+                onClick={() => setShowMapPicker(true)}
+                disabled={selectedIds.size === 0}
+                className={cn(
+                  'btn',
+                  selectedIds.size > 0
+                    ? 'btn-secondary-active'
+                    : 'btn-secondary cursor-not-allowed'
+                )}
+              >
+                <MapPinned size={16} />
+                修改位置{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
               </button>
               <button
                 onClick={handleBatchDelete}
                 disabled={selectedIds.size === 0}
                 className={cn(
-                  'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                  'btn',
                   selectedIds.size > 0
-                    ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20'
-                    : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                    ? 'btn-danger'
+                    : 'btn-secondary cursor-not-allowed'
                 )}
               >
                 <Trash2 size={16} />
@@ -811,7 +866,7 @@ export function BrowsePage() {
 
       <div className="w-48 border-l border-zinc-800 hidden lg:block flex-shrink-0">
         <div className="sticky top-0 h-screen p-4 overflow-auto">
-          <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">时间线</h3>
+          <h3 className="info-label mb-3">时间线</h3>
           <div className="space-y-1">
           {timeline.map((group) => (
             <button
@@ -826,7 +881,7 @@ export function BrowsePage() {
             >
               <div className="flex items-center justify-between">
                 <span className="truncate">{group.label}</span>
-                <span className="text-xs text-zinc-600">{group.count}</span>
+                <span className="text-xs text-zinc-500">{group.count}</span>
               </div>
             </button>
           ))}
@@ -842,6 +897,14 @@ export function BrowsePage() {
         onUpdate={handleUpdatePhoto}
         onDelete={handlePhotoDeleted}
       />
+
+      <MapPickerModal
+        isOpen={showMapPicker}
+        onClose={() => setShowMapPicker(false)}
+        onConfirm={handleBatchUpdateLocation}
+      />
     </div>
   );
 }
+
+export default BrowsePage;

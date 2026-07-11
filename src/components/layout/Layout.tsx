@@ -55,7 +55,7 @@ export function Layout() {
         'min-h-screen transition-all duration-300',
         sidebarCollapsed ? 'ml-16' : 'ml-56'
       )}>
-        <div className="h-full p-6">
+        <div className="page-container">
           <Outlet />
         </div>
       </main>

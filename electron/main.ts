@@ -2,7 +2,6 @@ import { app, BrowserWindow, ipcMain, dialog, shell, Menu, globalShortcut } from
 import { join } from 'path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, openSync, readSync, closeSync } from 'fs';
 import log from 'electron-log';
-import { exiftool } from 'exiftool-vendored';
 import { DatabaseService } from './services/database';
 import { ScannerService } from './services/scanner';
 import { HashService } from './services/hash';
@@ -21,6 +20,10 @@ log.transports.console.level = 'debug';
 log.transports.file.maxSize = 10 * 1024 * 1024; // 10MB
 log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}] [{level}] {text}';
 
+// 启动耗时统计：从进程启动到 main.ts 脚本执行完毕
+const startupBaseTime = Date.now();
+log.info(`[Startup] main.ts loaded, process uptime: ${process.uptime() * 1000}ms, script load time: ${startupBaseTime}ms`);
+
 let mainWindow: BrowserWindow | null = null;
 let configService: ConfigService;
 let db: DatabaseService;
@@ -38,12 +41,17 @@ const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 function createWindow() {
   Menu.setApplicationMenu(null);
 
+  const iconPath = isDev
+    ? join(process.cwd(), 'public/icon.png')
+    : join(__dirname, '../dist/icon.png');
+
   const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1400,
     height: 900,
     minWidth: 1280,
     minHeight: 720,
     backgroundColor: '#1a1a1a',
+    icon: iconPath,
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -62,7 +70,12 @@ function createWindow() {
   mainWindow = new BrowserWindow(windowOptions);
 
   mainWindow.once('ready-to-show', () => {
+    log.info(`[Startup] window ready-to-show, elapsed: ${Date.now() - startupBaseTime}ms`);
     mainWindow?.show();
+  });
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    log.info(`[Startup] window did-finish-load, elapsed: ${Date.now() - startupBaseTime}ms`);
   });
 
   if (isDev) {
@@ -308,6 +321,22 @@ function setupIpcHandlers() {
     return { success: true };
   });
 
+  ipcMain.handle('photo:updateLocationBatch', async (_event, ids: string[], lat: number, lng: number) => {
+    let updated = 0;
+    for (const id of ids) {
+      const photo = db.getPhotoById(id);
+      if (!photo) continue;
+      try {
+        await exifService.writeLocation(photo.path, lat, lng);
+      } catch (e) {
+        log.warn('[photo:updateLocationBatch] EXIF 写入失败，仅更新数据库:', e);
+      }
+      db.updatePhotoLocation(id, lat, lng);
+      updated++;
+    }
+    return { success: true, updated };
+  });
+
   ipcMain.handle('photo:updateDate', async (_event, id: string, date: string) => {
     const photo = db.getPhotoById(id);
     if (!photo) throw new Error('照片不存在');
@@ -497,7 +526,26 @@ function setupIpcHandlers() {
   });
 }
 
+// 单实例模式：请求锁，若已有实例运行则退出当前进程
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  log.info('[App] 已有实例在运行，退出当前进程');
+  app.quit();
+} else {
+  app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
+    log.info('[App] 检测到第二次启动请求，聚焦到已有窗口');
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.focus();
+    }
+  });
+}
+
 app.whenReady().then(async () => {
+  log.info(`[Startup] app.whenReady fired, elapsed: ${Date.now() - startupBaseTime}ms`);
   try {
     // 应用自定义日志路径
     const customLogPath = configService?.getConfig?.().logPath;
@@ -508,13 +556,16 @@ app.whenReady().then(async () => {
       log.transports.file.resolvePathFn = () => join(customLogPath, 'photovault.log');
     }
 
+    const serviceStart = Date.now();
     await initializeServices();
+    log.info(`[Startup] initializeServices done, elapsed: ${Date.now() - startupBaseTime}ms, service init cost: ${Date.now() - serviceStart}ms`);
   } catch (err) {
     log.error('Failed to initialize services:', err);
     dialog.showErrorBox('初始化失败', `服务初始化失败，应用将退出:\n${err instanceof Error ? err.message : String(err)}`);
     app.quit();
     return;
   }
+  log.info(`[Startup] creating window, elapsed: ${Date.now() - startupBaseTime}ms`);
   createWindow();
 
   app.on('activate', () => {
@@ -533,7 +584,7 @@ app.on('before-quit', async (event) => {
       scanner['cancelRequested'] = true;
     }
     // 终止 exiftool 子进程池
-    await exiftool.end();
+    await exifService?.dispose();
   } catch (err) {
     log.error('退出清理失败:', err);
   }

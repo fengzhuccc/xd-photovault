@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Calendar, MapPin, X, ChevronLeft, ChevronRight, Pencil, MapPinned, Trash2, Loader2 } from 'lucide-react';
+import { MapPickerModal } from '@/components/MapPickerModal';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
 import { cn } from '@/lib/utils';
@@ -34,6 +35,7 @@ export function PhotoDetailModal({
   const [isSaving, setIsSaving] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [videoError, setVideoError] = useState(false);
+  const [showMapPicker, setShowMapPicker] = useState(false);
 
   const showNavigation = !!onNavigate && photos.length > 0;
   const isVideo = photo?.media_type === 'video';
@@ -84,6 +86,7 @@ export function PhotoDetailModal({
   // 键盘事件
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (showMapPicker) return;
       if (!photo) return;
       if (e.key === 'Escape') {
         if (editingDate || editingLocation) {
@@ -103,7 +106,7 @@ export function PhotoDetailModal({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [photo, editingDate, editingLocation, showNavigation, photos]);
+  }, [photo, editingDate, editingLocation, showNavigation, photos, showMapPicker]);
 
   const navigateByDirection = useCallback((direction: number) => {
     if (!photo || !onNavigate) return;
@@ -267,7 +270,7 @@ export function PhotoDetailModal({
 
           <div className="flex-1 p-4 overflow-auto space-y-3">
             <div>
-              <label className="text-xs text-zinc-500 uppercase tracking-wider">文件信息</label>
+              <label className="text-xs text-zinc-400 uppercase tracking-wider">文件信息</label>
               <div className="mt-1.5 space-y-1 text-sm">
                 <div className="flex justify-between">
                   <span className="text-zinc-400">大小</span>
@@ -291,7 +294,7 @@ export function PhotoDetailModal({
             </div>
 
             <div>
-              <label className="text-xs text-zinc-500 uppercase tracking-wider flex items-center justify-between">
+              <label className="text-xs text-zinc-400 uppercase tracking-wider flex items-center justify-between">
                 拍摄信息
                 <button
                   onClick={() => setEditingDate(!editingDate)}
@@ -315,14 +318,14 @@ export function PhotoDetailModal({
                     <div className="flex gap-2">
                       <button
                         onClick={() => setEditingDate(false)}
-                        className="flex-1 px-2 py-1 rounded bg-zinc-800 text-zinc-400 text-sm hover:bg-zinc-700 transition-colors"
+                        className="flex-1 btn-secondary"
                       >
                         取消
                       </button>
                       <button
                         onClick={handleSaveDate}
                         disabled={isSaving}
-                        className="flex-1 px-2 py-1 rounded bg-amber-500 text-zinc-900 text-sm font-medium hover:bg-amber-400 transition-colors disabled:opacity-50"
+                        className="flex-1 btn-primary"
                       >
                         {isSaving ? '保存中...' : '保存'}
                       </button>
@@ -375,7 +378,7 @@ export function PhotoDetailModal({
             </div>
 
             <div>
-              <label className="text-xs text-zinc-500 uppercase tracking-wider flex items-center justify-between">
+              <label className="text-xs text-zinc-400 uppercase tracking-wider flex items-center justify-between">
                 位置
                 <button
                   onClick={() => setEditingLocation(!editingLocation)}
@@ -386,46 +389,51 @@ export function PhotoDetailModal({
               </label>
               <div className="mt-1.5">
                 {editingLocation ? (
-                  <div className="space-y-1.5">
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-zinc-500 w-8">纬度</span>
-                        <input
-                          type="number"
-                          value={editLatValue}
-                          onChange={(e) => setEditLatValue(e.target.value)}
-                          placeholder="-90 到 90"
-                          min="-90"
-                          max="90"
-                          step="0.0001"
-                          className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 text-sm"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-zinc-500 w-8">经度</span>
-                        <input
-                          type="number"
-                          value={editLngValue}
-                          onChange={(e) => setEditLngValue(e.target.value)}
-                          placeholder="-180 到 180"
-                          min="-180"
-                          max="180"
-                          step="0.0001"
-                          className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 text-sm"
-                        />
-                      </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-zinc-400 w-8">纬度</span>
+                      <input
+                        type="number"
+                        value={editLatValue}
+                        onChange={(e) => setEditLatValue(e.target.value)}
+                        placeholder="-90 到 90"
+                        min="-90"
+                        max="90"
+                        step="0.0001"
+                        className="flex-1 input"
+                      />
                     </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-zinc-400 w-8">经度</span>
+                      <input
+                        type="number"
+                        value={editLngValue}
+                        onChange={(e) => setEditLngValue(e.target.value)}
+                        placeholder="-180 到 180"
+                        min="-180"
+                        max="180"
+                        step="0.0001"
+                        className="flex-1 input"
+                      />
+                    </div>
+                    <button
+                      onClick={() => setShowMapPicker(true)}
+                      className="w-full btn-secondary"
+                    >
+                      <MapPinned size={14} />
+                      在地图上选择
+                    </button>
                     <div className="flex gap-2">
                       <button
                         onClick={() => setEditingLocation(false)}
-                        className="flex-1 px-2 py-1 rounded bg-zinc-800 text-zinc-400 text-sm hover:bg-zinc-700 transition-colors"
+                        className="flex-1 btn-secondary"
                       >
                         取消
                       </button>
                       <button
                         onClick={handleSaveLocation}
                         disabled={isSaving}
-                        className="flex-1 px-2 py-1 rounded bg-amber-500 text-zinc-900 text-sm font-medium hover:bg-amber-400 transition-colors disabled:opacity-50"
+                        className="flex-1 btn-primary"
                       >
                         {isSaving ? '保存中...' : '保存'}
                       </button>
@@ -449,7 +457,7 @@ export function PhotoDetailModal({
                   </div>
                 ) : (
                   <div className="p-2 bg-zinc-800 rounded text-center">
-                    <p className="text-xs text-zinc-500">此照片没有GPS信息</p>
+                    <p className="text-xs text-zinc-400">此照片没有GPS信息</p>
                     <button
                       onClick={() => setEditingLocation(true)}
                       className="mt-1 text-xs text-amber-500 hover:text-amber-400 transition-colors"
@@ -463,6 +471,17 @@ export function PhotoDetailModal({
           </div>
         </div>
       </div>
+
+      <MapPickerModal
+        isOpen={showMapPicker}
+        initialLat={editLatValue ? parseFloat(editLatValue) : null}
+        initialLng={editLngValue ? parseFloat(editLngValue) : null}
+        onClose={() => setShowMapPicker(false)}
+        onConfirm={(lat, lng) => {
+          setEditLatValue(lat.toString());
+          setEditLngValue(lng.toString());
+        }}
+      />
     </div>
   );
 }
