@@ -32,6 +32,7 @@ interface AppState {
   aiIndexProgress: AiIndexProgress | null;
   aiSearchQuery: string;
   aiSearchResults: Photo[];
+  aiSearchSimilarities: Record<string, number>;
   aiSearching: boolean;
   aiGpuEnabled: boolean;
   aiGpuActualProvider: string;
@@ -65,6 +66,7 @@ interface AppState {
   setAiIndexProgress: (progress: AiIndexProgress | null) => void;
   setAiSearchQuery: (query: string) => void;
   setAiSearchResults: (results: Photo[]) => void;
+  setAiSearchSimilarities: (similarities: Record<string, number>) => void;
   setAiSearching: (searching: boolean) => void;
   setAiGpuStatus: (status: { enabled: boolean; actualProvider: string }) => void;
   setAiGpuEnabled: (enabled: boolean) => void;
@@ -117,6 +119,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   aiIndexProgress: null,
   aiSearchQuery: '',
   aiSearchResults: [],
+  aiSearchSimilarities: {},
   aiSearching: false,
   aiGpuEnabled: false,
   aiGpuActualProvider: 'cpu',
@@ -150,10 +153,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!idSet.has(k)) newThumbnails[k] = v;
     }
     const newAiSearchResults = state.aiSearchResults.filter(p => !idSet.has(p.id));
+    const newAiSearchSimilarities: Record<string, number> = {};
+    for (const [k, v] of Object.entries(state.aiSearchSimilarities)) {
+      if (!idSet.has(k)) newAiSearchSimilarities[k] = v;
+    }
     return {
       photos: newPhotos,
       thumbnails: newThumbnails,
       aiSearchResults: newAiSearchResults,
+      aiSearchSimilarities: newAiSearchSimilarities,
     };
   }),
 
@@ -179,6 +187,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setAiIndexProgress: (progress) => set({ aiIndexProgress: progress }),
   setAiSearchQuery: (query) => set({ aiSearchQuery: query }),
   setAiSearchResults: (results) => set({ aiSearchResults: results }),
+  setAiSearchSimilarities: (similarities) => set({ aiSearchSimilarities: similarities }),
   setAiSearching: (searching) => set({ aiSearching: searching }),
   setAiGpuStatus: (status) => set({
     aiGpuEnabled: status.enabled,
@@ -222,7 +231,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   aiSearch: async (query) => {
     if (!query.trim()) {
-      set({ aiSearchResults: [], aiSearchQuery: '', aiSearching: false });
+      set({ aiSearchResults: [], aiSearchSimilarities: {}, aiSearchQuery: '', aiSearching: false });
       return;
     }
     // H-17: 使用请求令牌，防止快速连续搜索时过期结果覆盖最新结果
@@ -234,13 +243,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (token !== aiSearchToken) return; // 过期请求，忽略
       if (response.success && response.results) {
         const photos = response.results.map((r: { photo: Photo; similarity: number }) => r.photo);
-        set({ aiSearchResults: photos, aiSearching: false });
+        const similarities: Record<string, number> = {};
+        for (const r of response.results as { photo: Photo; similarity: number }[]) {
+          similarities[r.photo.id] = r.similarity;
+        }
+        set({ aiSearchResults: photos, aiSearchSimilarities: similarities, aiSearching: false });
       } else {
-        set({ aiSearchResults: [], aiSearching: false });
+        set({ aiSearchResults: [], aiSearchSimilarities: {}, aiSearching: false });
       }
     } catch {
       if (token !== aiSearchToken) return;
-      set({ aiSearchResults: [], aiSearching: false });
+      set({ aiSearchResults: [], aiSearchSimilarities: {}, aiSearching: false });
     }
   },
 

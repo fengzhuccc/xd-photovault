@@ -14,6 +14,7 @@ import type { Photo } from '@/types';
 interface PhotoGridItemProps {
   photo: Photo;
   thumbnail?: string;
+  similarity?: number;
   isSelected: boolean;
   selectMode: boolean;
   onSelect: (photo: Photo) => void;
@@ -31,6 +32,7 @@ function formatDuration(seconds: number | null): string {
 const PhotoGridItem = React.memo(function PhotoGridItem({
   photo,
   thumbnail,
+  similarity,
   isSelected,
   selectMode,
   onSelect,
@@ -38,6 +40,7 @@ const PhotoGridItem = React.memo(function PhotoGridItem({
   formatDate,
 }: PhotoGridItemProps) {
   const isVideo = photo.media_type === 'video';
+  const showSimilarity = similarity !== undefined && !selectMode;
 
   const handleClick = () => {
     if (selectMode) {
@@ -69,6 +72,11 @@ const PhotoGridItem = React.memo(function PhotoGridItem({
       ) : (
         <div className="w-full h-full skeleton flex items-center justify-center">
           <div className="w-8 h-8 rounded bg-zinc-700/50" />
+        </div>
+      )}
+      {showSimilarity && (
+        <div className="absolute top-2 left-2 z-10 px-1.5 py-0.5 rounded bg-amber-500/90 text-xs text-black font-semibold pointer-events-none shadow-sm">
+          {(similarity * 100).toFixed(1)}%
         </div>
       )}
       {isVideo && !selectMode && (
@@ -138,9 +146,11 @@ export function BrowsePage() {
     setThumbnails,
     aiSearchQuery,
     aiSearchResults,
+    aiSearchSimilarities,
     aiSearching,
     setAiSearchQuery,
     setAiSearchResults,
+    setAiSearchSimilarities,
     setAiSearching,
     aiSearch,
     browseScrollState,
@@ -412,8 +422,11 @@ export function BrowsePage() {
 
     // AI 搜索模式下同步更新 aiSearchResults，避免已删除照片仍显示在网格中
     if (isAiSearchMode) {
+      const nextSimilarities = { ...aiSearchSimilarities };
+      delete nextSimilarities[photo.id];
       useAppStore.setState({
         aiSearchResults: aiSearchResults.filter(p => p.id !== photo.id),
+        aiSearchSimilarities: nextSimilarities,
         photosTotal: Math.max(0, photosTotal - 1),
       });
     } else {
@@ -477,8 +490,13 @@ export function BrowsePage() {
       setSelectMode(false);
       // AI 搜索模式下同步更新 aiSearchResults，浏览模式更新 photos
       if (isAiSearchMode) {
+        const nextSimilarities = { ...aiSearchSimilarities };
+        for (const id of selectedIds) {
+          delete nextSimilarities[id];
+        }
         useAppStore.setState({
           aiSearchResults: aiSearchResults.filter(p => !selectedIds.has(p.id)),
+          aiSearchSimilarities: nextSimilarities,
           photosTotal: Math.max(0, photosTotal - count),
         });
       } else {
@@ -650,6 +668,7 @@ export function BrowsePage() {
                     setSearchInput('');
                     setAiSearchQuery('');
                     setAiSearchResults([]);
+                    setAiSearchSimilarities({});
                     setAiSearching(false);
                   }}
                   className="icon-btn absolute right-1 top-1/2 -translate-y-1/2"
@@ -772,6 +791,7 @@ export function BrowsePage() {
                   <PhotoGridItem
                     photo={photo}
                     thumbnail={thumbnails[photo.id]}
+                    similarity={isAiSearchMode ? aiSearchSimilarities[photo.id] : undefined}
                     isSelected={selectedIds.has(photo.id)}
                     selectMode={selectMode}
                     onSelect={handleSelectPhoto}

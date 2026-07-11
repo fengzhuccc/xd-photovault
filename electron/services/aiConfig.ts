@@ -23,7 +23,7 @@ export const DEFAULT_AI_CONFIG: AiModelConfig = {
   indexBatchSize: 8,
   inferenceBatchSize: 1,
   useGpu: false,
-  searchMinSimilarity: 0.2,
+  searchMinSimilarity: 0.28,
 };
 
 /** 中文 CLIP 示例配置（需自行准备 ONNX 权重）。 */
