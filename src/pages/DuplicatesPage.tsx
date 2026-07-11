@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { AlertTriangle, Check, Trash2, Star, MapPin, Calendar, X, ChevronLeft, ChevronRight, RefreshCw, Loader2, Keyboard, CornerDownLeft } from 'lucide-react';
+import { AlertTriangle, Check, Trash2, Star, MapPin, Calendar, X, ChevronLeft, ChevronRight, RefreshCw, Loader2, Keyboard, CornerDownLeft, Images } from 'lucide-react';
+import Empty from '@/components/Empty';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
@@ -515,10 +516,10 @@ export function DuplicatesPage() {
     <div className="h-full flex flex-col">
       {/* 工具栏：sticky 吸顶 */}
       <div className="sticky top-0 z-20 bg-zinc-950/95 backdrop-blur border-b border-zinc-800/50">
-        <div className="flex items-center justify-between py-3">
+        <div className="page-header py-3 mb-0">
           <div>
-            <h1 className="text-2xl font-bold text-zinc-100 mb-1">重复照片</h1>
-            <p className="text-sm text-zinc-400">
+            <h1 className="page-title">重复照片</h1>
+            <p className="page-subtitle">
               发现 {duplicatesTotal.toLocaleString()} 组重复，共 {stats?.duplicates || 0} 张重复照片
             </p>
           </div>
@@ -528,8 +529,7 @@ export function DuplicatesPage() {
               disabled={isDetecting}
               title="Ctrl+E"
               className={cn(
-                'flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors',
-                'bg-zinc-800 hover:bg-zinc-700 text-zinc-300',
+                'btn-secondary',
                 'disabled:opacity-50 disabled:cursor-not-allowed'
               )}
             >
@@ -540,8 +540,8 @@ export function DuplicatesPage() {
               onClick={handleDetectSimilar}
               disabled={isDetecting}
               className={cn(
-                'flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors',
-                'bg-amber-500/10 hover:bg-amber-500/20 text-amber-500',
+                'btn',
+                'bg-amber-500/10 text-amber-500 hover:bg-amber-500/20',
                 'disabled:opacity-50 disabled:cursor-not-allowed'
               )}
             >
@@ -552,21 +552,21 @@ export function DuplicatesPage() {
             <button
               onClick={selectAll}
               title="Ctrl+A"
-              className="px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm transition-colors"
+              className="btn-secondary"
             >
               全选
             </button>
             <button
               onClick={invertSelection}
               title="Ctrl+I"
-              className="px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm transition-colors"
+              className="btn-secondary"
             >
               反选
             </button>
             <button
               onClick={deselectAll}
               title="Esc"
-              className="px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm transition-colors"
+              className="btn-secondary"
             >
               取消全选
             </button>
@@ -575,8 +575,7 @@ export function DuplicatesPage() {
               disabled={isDeleting || deleteStats.count === 0}
               title="Delete"
               className={cn(
-                'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors',
-                'bg-red-500 hover:bg-red-400 text-white',
+                'btn-danger-solid',
                 'disabled:opacity-50 disabled:cursor-not-allowed'
               )}
             >
@@ -588,7 +587,7 @@ export function DuplicatesPage() {
             <button
               onClick={() => setShowShortcuts(true)}
               title="快捷键 (?)"
-              className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors"
+              className="icon-btn"
             >
               <Keyboard size={16} />
             </button>
@@ -606,7 +605,7 @@ export function DuplicatesPage() {
               className={cn(
                 'px-3 py-1.5 rounded-lg text-sm transition-colors',
                 duplicateReason === reason
-                  ? 'bg-zinc-700 text-zinc-100'
+                  ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
                   : 'bg-zinc-800/50 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200',
                 'disabled:opacity-50 disabled:cursor-not-allowed'
               )}
@@ -623,7 +622,7 @@ export function DuplicatesPage() {
       </div>
 
       {isDetecting && detectProgress && (
-        <div className="mb-4 p-4 bg-zinc-900 rounded-xl border border-zinc-800">
+        <div className="card card-section mb-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm text-zinc-300">{detectProgress.message}</span>
             <span className="text-xs text-zinc-400">
@@ -646,11 +645,11 @@ export function DuplicatesPage() {
 
       <div className="flex-1 overflow-auto pt-4">
         {duplicates.length === 0 ? (
-          <div className="text-center py-16 text-zinc-500">
-            <Check size={48} className="mx-auto mb-4 text-green-500 opacity-50" />
-            <p>没有发现重复照片</p>
-            <p className="text-sm mt-1">你的照片库很干净！</p>
-          </div>
+          <Empty
+            icon={Images}
+            title="没有发现重复照片"
+            description="你的照片库很干净！"
+          />
         ) : (
           <div className="space-y-4">
             {duplicates.map((group, index) => (
@@ -677,8 +676,7 @@ export function DuplicatesPage() {
                   onClick={loadMore}
                   disabled={loadingMore}
                   className={cn(
-                    'px-4 py-2 rounded-lg text-sm transition-colors',
-                    'bg-zinc-800 hover:bg-zinc-700 text-zinc-300',
+                    'btn-secondary',
                     'disabled:opacity-50 disabled:cursor-not-allowed'
                   )}
                 >
@@ -702,7 +700,7 @@ export function DuplicatesPage() {
         <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center">
           <button
             onClick={closeDetail}
-            className="absolute top-4 right-4 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors z-10"
+            className="icon-btn absolute top-4 right-4 z-10"
             title="关闭 (Esc)"
           >
             <X size={20} />
@@ -711,7 +709,7 @@ export function DuplicatesPage() {
           <button
             onClick={() => navigatePhoto(-1)}
             disabled={currentGroup.photos.findIndex(p => p.id === selectedPhoto.id) === 0}
-            className="absolute left-4 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="icon-btn absolute left-4 disabled:opacity-30 disabled:cursor-not-allowed"
             title="上一张 (←)"
           >
             <ChevronLeft size={24} />
@@ -720,7 +718,7 @@ export function DuplicatesPage() {
           <button
             onClick={() => navigatePhoto(1)}
             disabled={currentGroup.photos.findIndex(p => p.id === selectedPhoto.id) === currentGroup.photos.length - 1}
-            className="absolute right-4 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="icon-btn absolute right-4 disabled:opacity-30 disabled:cursor-not-allowed"
             title="下一张 (→)"
           >
             <ChevronRight size={24} />
@@ -812,10 +810,10 @@ export function DuplicatesPage() {
                   <button
                     onClick={() => toggleKeep(currentGroup.id, selectedPhoto.id, currentGroup.recommended_photo_id)}
                     className={cn(
-                      'w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+                      'w-full btn',
                       isPhotoKept(currentGroup.id, selectedPhoto.id, currentGroup.recommended_photo_id)
-                        ? 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30'
-                        : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
+                        ? 'bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border border-amber-500/30'
+                        : 'btn-secondary'
                     )}
                   >
                     <Star size={14} className={isPhotoKept(currentGroup.id, selectedPhoto.id, currentGroup.recommended_photo_id) ? 'fill-current' : ''} />
@@ -826,7 +824,7 @@ export function DuplicatesPage() {
                       onClick={handleDeleteCurrentPhoto}
                       disabled={isDeleting}
                       title="Delete"
-                      className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 transition-colors disabled:opacity-50"
+                      className="w-full btn-danger disabled:opacity-50"
                     >
                       <Trash2 size={14} />
                       删除此照片
@@ -846,7 +844,7 @@ export function DuplicatesPage() {
           onClick={() => setShowShortcuts(false)}
         >
           <div
-            className="bg-zinc-900 rounded-xl border border-zinc-800 p-6 max-w-lg w-full mx-4"
+            className="card card-section max-w-lg w-full mx-4"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
@@ -856,7 +854,7 @@ export function DuplicatesPage() {
               </h2>
               <button
                 onClick={() => setShowShortcuts(false)}
-                className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
+                className="icon-btn"
               >
                 <X size={18} />
               </button>
@@ -957,11 +955,11 @@ function DuplicateCard({
       role="button"
       aria-selected={isSelected}
       className={cn(
-        'p-4 rounded-xl border transition-colors cursor-pointer outline-none',
+        'card card-section transition-colors cursor-pointer outline-none',
         isSelected
-          ? 'bg-amber-500/5 border-amber-500/50'
-          : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700',
-        isFocused && 'ring-2 ring-blue-500/60 ring-offset-2 ring-offset-zinc-950'
+          ? 'border-amber-500/50'
+          : 'hover:border-zinc-700',
+        isFocused && 'ring-2 ring-amber-500/40 ring-offset-2 ring-offset-zinc-950'
       )}
       onClick={(e) => onToggle(index, e.shiftKey)}
       onKeyDown={(e) => {
@@ -991,9 +989,8 @@ function DuplicateCard({
             disabled={isDeleting || toDeleteCount === 0}
             title={`删除本组重复照片（${toDeleteCount} 张）`}
             className={cn(
-              'flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors',
-              'bg-zinc-800 hover:bg-red-500/20 hover:text-red-400 text-zinc-400',
-              'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-zinc-800 disabled:hover:text-zinc-400'
+              'btn-danger text-xs px-2 py-1',
+              'disabled:opacity-40 disabled:cursor-not-allowed'
             )}
           >
             <Trash2 size={12} />

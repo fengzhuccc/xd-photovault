@@ -285,17 +285,19 @@ export function SettingsPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="max-w-2xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-zinc-100 mb-1">设置</h1>
-          <p className="text-sm text-zinc-400">管理应用程序设置和数据</p>
+      <div className="max-w-3xl mx-auto">
+        <div className="page-header">
+          <div>
+            <h1 className="page-title">设置</h1>
+            <p className="page-subtitle">管理应用程序设置和数据</p>
+          </div>
         </div>
 
         <div className="space-y-6">
-          <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-6">
+          <div className="card card-section">
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-blue-500/10 rounded-lg">
-                <FolderOpen size={20} className="text-blue-500" />
+              <div className="p-2 bg-amber-500/10 rounded-lg">
+                <FolderOpen size={20} className="text-amber-500" />
               </div>
               <div>
                 <h2 className="text-lg font-medium text-zinc-100">数据存储位置</h2>
@@ -322,9 +324,9 @@ export function SettingsPage() {
                   />
                   <button
                     onClick={handleSelectDataFolder}
-                    className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-200 text-sm transition-colors"
-                  >
-                    浏览...
+                    className="btn-secondary"
+                >
+                  浏览...
                   </button>
                 </div>
                 <p className="text-xs text-zinc-400 mt-2">
@@ -336,11 +338,7 @@ export function SettingsPage() {
                 <button
                   onClick={handleSaveDataPath}
                   disabled={isChanging}
-                  className={cn(
-                    'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-                    'bg-amber-500 text-zinc-900 hover:bg-amber-400',
-                    'disabled:opacity-50 disabled:cursor-not-allowed'
-                  )}
+                  className="btn-primary"
                 >
                   <RefreshCw size={14} className={isChanging ? 'animate-spin' : ''} />
                   保存并重启
@@ -348,11 +346,7 @@ export function SettingsPage() {
                 <button
                   onClick={handleResetDataPath}
                   disabled={isChanging || customPath === null}
-                  className={cn(
-                    'px-4 py-2 rounded-lg text-sm transition-colors',
-                    'bg-zinc-700 text-zinc-300 hover:bg-zinc-600',
-                    'disabled:opacity-50 disabled:cursor-not-allowed'
-                  )}
+                  className="btn-secondary"
                 >
                   恢复默认
                 </button>
@@ -361,10 +355,10 @@ export function SettingsPage() {
           </div>
 
           {/* 日志设置 */}
-          <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-6">
+          <div className="card card-section">
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-purple-500/10 rounded-lg">
-                <FileText size={20} className="text-purple-500" />
+              <div className="p-2 bg-amber-500/10 rounded-lg">
+                <FileText size={20} className="text-amber-500" />
               </div>
               <div>
                 <h2 className="text-lg font-medium text-zinc-100">日志设置</h2>
@@ -391,9 +385,9 @@ export function SettingsPage() {
                   />
                   <button
                     onClick={handleSelectLogFolder}
-                    className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-200 text-sm transition-colors"
-                  >
-                    浏览...
+                    className="btn-secondary"
+                >
+                  浏览...
                   </button>
                 </div>
                 <p className="text-xs text-zinc-400 mt-2">
@@ -404,30 +398,20 @@ export function SettingsPage() {
               <div className="flex gap-2">
                 <button
                   onClick={handleSaveLogPath}
-                  className={cn(
-                    'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-                    'bg-amber-500 text-zinc-900 hover:bg-amber-400'
-                  )}
+                  className="btn-secondary"
                 >
                   保存路径
                 </button>
                 <button
                   onClick={handleResetLogPath}
                   disabled={customLogPath === null}
-                  className={cn(
-                    'px-4 py-2 rounded-lg text-sm transition-colors',
-                    'bg-zinc-700 text-zinc-300 hover:bg-zinc-600',
-                    'disabled:opacity-50 disabled:cursor-not-allowed'
-                  )}
+                  className="btn-secondary"
                 >
                   恢复默认
                 </button>
                 <button
                   onClick={handleOpenLogFolder}
-                  className={cn(
-                    'flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm transition-colors',
-                    'bg-zinc-700 text-zinc-300 hover:bg-zinc-600'
-                  )}
+                  className="btn-secondary"
                 >
                   <ExternalLink size={14} />
                   打开目录
@@ -437,10 +421,7 @@ export function SettingsPage() {
               <div className="flex gap-2">
                 <button
                   onClick={handleViewLog}
-                  className={cn(
-                    'flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm transition-colors',
-                    'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20'
-                  )}
+                  className="btn-secondary"
                 >
                   <Eye size={14} />
                   {showLog ? '隐藏日志' : '查看日志'}
@@ -450,21 +431,14 @@ export function SettingsPage() {
                     <button
                       onClick={handleRefreshLog}
                       disabled={isLogLoading}
-                      className={cn(
-                        'flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm transition-colors',
-                        'bg-zinc-700 text-zinc-300 hover:bg-zinc-600',
-                        'disabled:opacity-50'
-                      )}
+                      className="btn-secondary"
                     >
                       <RefreshCw size={14} className={isLogLoading ? 'animate-spin' : ''} />
                       刷新
                     </button>
                     <button
                       onClick={handleClearLog}
-                      className={cn(
-                        'px-4 py-2 rounded-lg text-sm transition-colors',
-                        'bg-red-500/10 text-red-500 hover:bg-red-500/20'
-                      )}
+                      className="btn-danger"
                     >
                       清除日志
                     </button>
@@ -482,7 +456,7 @@ export function SettingsPage() {
             </div>
           </div>
 
-          <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-6">
+          <div className="card card-section">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 bg-amber-500/10 rounded-lg">
                 <Database size={20} className="text-amber-500" />
@@ -521,7 +495,7 @@ export function SettingsPage() {
             </div>
           </div>
 
-          <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-6">
+          <div className="card card-section">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 bg-red-500/10 rounded-lg">
                 <Trash2 size={20} className="text-red-500" />
@@ -542,11 +516,7 @@ export function SettingsPage() {
                   <button
                     onClick={handleClearThumbnails}
                     disabled={isClearing || isLoadingThumbnailStats}
-                    className={cn(
-                      'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-                      'bg-red-500/10 text-red-500 hover:bg-red-500/20',
-                      'disabled:opacity-50 disabled:cursor-not-allowed'
-                    )}
+                    className="btn-danger"
                   >
                     {isClearing ? '清除中...' : '清除'}
                   </button>
@@ -581,10 +551,7 @@ export function SettingsPage() {
                 </div>
                 <button
                   onClick={handleClearDatabase}
-                  className={cn(
-                    'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-                    'bg-red-500/10 text-red-500 hover:bg-red-500/20'
-                  )}
+                  className="btn-danger"
                 >
                   清除数据库
                 </button>
@@ -592,10 +559,10 @@ export function SettingsPage() {
             </div>
           </div>
 
-          <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-6">
+          <div className="card card-section">
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-emerald-500/10 rounded-lg">
-                <Map size={20} className="text-emerald-500" />
+              <div className="p-2 bg-amber-500/10 rounded-lg">
+                <Map size={20} className="text-amber-500" />
               </div>
               <div>
                 <h2 className="text-lg font-medium text-zinc-100">地图设置</h2>
@@ -649,11 +616,7 @@ export function SettingsPage() {
               <button
                 onClick={handleSaveMapSettings}
                 disabled={isMapSaving}
-                className={cn(
-                  'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-                  'bg-amber-500 text-zinc-900 hover:bg-amber-400',
-                  'disabled:opacity-50 disabled:cursor-not-allowed'
-                )}
+                className="btn-primary"
               >
                 <RefreshCw size={14} className={isMapSaving ? 'animate-spin' : ''} />
                 保存地图设置
@@ -661,10 +624,10 @@ export function SettingsPage() {
             </div>
           </div>
 
-          <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-6">
+          <div className="card card-section">
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-green-500/10 rounded-lg">
-                <Info size={20} className="text-green-500" />
+              <div className="p-2 bg-amber-500/10 rounded-lg">
+                <Info size={20} className="text-amber-500" />
               </div>
               <div>
                 <h2 className="text-lg font-medium text-zinc-100">关于</h2>

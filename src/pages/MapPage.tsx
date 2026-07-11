@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { MapPin, X, Image, Loader2 } from 'lucide-react';
+import { MapPin, X, Image, Loader2, MapPinned } from 'lucide-react';
+import Empty from '@/components/Empty';
 import { useAppStore } from '@/stores/appStore';
 import { PhotoDetailModal } from '@/components/PhotoDetailModal';
 import L from 'leaflet';
@@ -204,15 +205,17 @@ export function MapPage() {
 
   return (
     <div className="h-full flex flex-col" style={{ height: 'calc(100vh - 3rem)' }}>
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold text-zinc-100 mb-1">地图视图</h1>
-        <p className="text-sm text-zinc-400">
-          {stats ? `${stats.withLocation.toLocaleString()} 张照片有位置信息` : '加载中...'}
-          {stats && stats.withoutLocation > 0 && ` · ${stats.withoutLocation.toLocaleString()} 张无位置`}
-        </p>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">地图视图</h1>
+          <p className="page-subtitle">
+            {stats ? `${stats.withLocation.toLocaleString()} 张照片有位置信息` : '加载中...'}
+            {stats && stats.withoutLocation > 0 && ` · ${stats.withoutLocation.toLocaleString()} 张无位置`}
+          </p>
+        </div>
       </div>
 
-      <div className="flex-1 min-h-0 rounded-xl overflow-hidden border border-zinc-800 relative" style={{ minHeight: '400px' }}>
+      <div className="card flex-1 min-h-0 overflow-hidden relative" style={{ minHeight: '400px' }}>
         <LeafletMap
           hasNoPhotos={!hasLocationPhotos}
           transformCoord={transformCoord}
@@ -233,7 +236,7 @@ export function MapPage() {
           </div>
           <button
             onClick={() => setDrawerOpen(false)}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="icon-btn"
           >
             <X size={16} />
           </button>
@@ -469,20 +472,20 @@ function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick,
       <div ref={mapRef} className="w-full h-full" />
       {hasNoPhotos && (
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/80 pointer-events-none z-[1000]">
-          <div className="text-center text-zinc-500">
-            <MapPin size={48} className="mx-auto mb-4 opacity-50" />
-            <p>没有带位置信息的照片</p>
-            <p className="text-sm mt-1">照片需要有GPS数据才能在地图上显示</p>
-          </div>
+          <Empty
+            icon={MapPinned}
+            title="没有带位置信息的照片"
+            description="照片需要有 GPS 数据才能在地图上显示"
+          />
         </div>
       )}
       {showEmpty && (
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/60 pointer-events-none z-[999]">
-          <div className="text-center text-zinc-500">
-            <MapPin size={40} className="mx-auto mb-3 opacity-50" />
-            <p>当前视口没有照片</p>
-            <p className="text-sm mt-1">移动或缩放地图查看更多位置</p>
-          </div>
+          <Empty
+            icon={MapPin}
+            title="当前视口没有照片"
+            description="移动或缩放地图查看更多位置"
+          />
         </div>
       )}
       {viewportLoading && (

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
-import { Filter, Grid3X3, MapPin, Camera, Trash2, CheckCircle2, Circle, Loader2, Play, Image, Film, Search, X } from 'lucide-react';
+import { Filter, Grid3X3, MapPin, Camera, Trash2, CheckCircle2, Circle, Loader2, Play, Image, Film, Search, X, FolderOpen } from 'lucide-react';
+import Empty from '@/components/Empty';
 import { VirtuosoGrid, type VirtuosoGridHandle } from 'react-virtuoso';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
@@ -599,10 +600,10 @@ export function BrowsePage() {
   return (
     <div className="h-full flex">
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex items-center justify-between mb-6">
+        <div className="page-header">
           <div>
-            <h1 className="text-2xl font-bold text-zinc-100 mb-1">浏览照片</h1>
-            <p className="text-sm text-zinc-400">
+            <h1 className="page-title">浏览照片</h1>
+            <p className="page-subtitle">
               {isAiSearchMode
                 ? `AI 搜索结果：${aiSearchResults.length.toLocaleString()} 张`
                 : `共 ${photosTotal.toLocaleString()} 张照片`}
@@ -621,7 +622,7 @@ export function BrowsePage() {
                   }
                 }}
                 placeholder="AI 语义搜索..."
-                className="w-64 bg-zinc-800 border border-zinc-700 rounded-lg pl-9 pr-8 py-2 text-sm text-zinc-300 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                className="input w-64 pl-9 pr-8"
               />
               {searchInput && (
                 <button
@@ -631,14 +632,14 @@ export function BrowsePage() {
                     setAiSearchResults([]);
                     setAiSearching(false);
                   }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                  className="icon-btn absolute right-1 top-1/2 -translate-y-1/2"
                 >
                   <X size={14} />
                 </button>
               )}
             </div>
             {aiSearching && (
-              <Loader2 size={18} className="text-purple-500 animate-spin" />
+              <Loader2 size={18} className="text-amber-500 animate-spin" />
             )}
             <button
               onClick={() => {
@@ -649,8 +650,8 @@ export function BrowsePage() {
                 }
               }}
               className={cn(
-                'flex items-center gap-2 px-3 py-2 rounded-lg transition-colors',
-                selectMode ? 'bg-amber-500/10 text-amber-500' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                'btn',
+                selectMode ? 'bg-amber-500/10 text-amber-500 hover:bg-amber-500/20' : 'btn-secondary'
               )}
             >
               <CheckCircle2 size={16} />
@@ -659,8 +660,8 @@ export function BrowsePage() {
             <button
               onClick={() => setShowFilters(!showFilters)}
               className={cn(
-                'flex items-center gap-2 px-3 py-2 rounded-lg transition-colors',
-                showFilters ? 'bg-amber-500/10 text-amber-500' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                'btn',
+                showFilters ? 'bg-amber-500/10 text-amber-500 hover:bg-amber-500/20' : 'btn-secondary'
               )}
             >
               <Filter size={16} />
@@ -670,14 +671,14 @@ export function BrowsePage() {
         </div>
 
         {showFilters && (
-          <div className="mb-6 p-4 bg-zinc-900 rounded-xl border border-zinc-800">
+          <div className="card card-section mb-6">
             <div className="flex flex-wrap gap-4">
               <div className="flex items-center gap-2">
                 <MapPin size={14} className="text-zinc-500" />
                 <select
                   value={currentFilter.hasLocation === undefined ? '' : currentFilter.hasLocation ? 'true' : 'false'}
                   onChange={(e) => handleFilterChange('hasLocation', e.target.value === '' ? undefined : e.target.value === 'true')}
-                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-300"
+                  className="input py-1.5"
                 >
                   <option value="">全部</option>
                   <option value="true">有位置</option>
@@ -690,7 +691,7 @@ export function BrowsePage() {
                   <select
                     value={currentFilter.camera || ''}
                     onChange={(e) => handleFilterChange('camera', e.target.value || undefined)}
-                    className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-300"
+                    className="input py-1.5"
                   >
                     <option value="">全部相机</option>
                     {stats.cameras.map(({ camera }) => (
@@ -708,7 +709,7 @@ export function BrowsePage() {
                 <select
                   value={currentFilter.mediaType || 'all'}
                   onChange={(e) => handleFilterChange('mediaType', e.target.value === 'all' ? undefined : e.target.value)}
-                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-300"
+                  className="input py-1.5"
                 >
                   <option value="all">全部</option>
                   <option value="image">图片</option>
@@ -721,13 +722,15 @@ export function BrowsePage() {
 
         <div className="flex-1 overflow-auto">
           {displayPhotos.length === 0 ? (
-            <div className="text-center py-16 text-zinc-500">
-              <Grid3X3 size={48} className="mx-auto mb-4 opacity-50" />
-              <p>{isAiSearchMode ? '未找到匹配的照片' : '没有找到照片'}</p>
-              <p className="text-sm mt-1">
-                {isAiSearchMode ? '请尝试其他关键词，或确认已完成 AI 索引' : '请先在照片库中添加并扫描文件夹'}
-              </p>
-            </div>
+            <Empty
+              icon={isAiSearchMode ? Search : FolderOpen}
+              title={isAiSearchMode ? '未找到匹配的照片' : '没有找到照片'}
+              description={
+                isAiSearchMode
+                  ? '请尝试其他关键词，或确认已完成 AI 索引'
+                  : '请先在照片库中添加并扫描文件夹'
+              }
+            />
           ) : (
             <VirtuosoGrid
               ref={virtuosoRef}
@@ -787,7 +790,7 @@ export function BrowsePage() {
             <div className="flex items-center gap-2">
               <button
                 onClick={exitSelectMode}
-                className="px-4 py-2 rounded-lg text-sm bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+                className="btn-secondary"
               >
                 完成
               </button>
@@ -795,10 +798,10 @@ export function BrowsePage() {
                 onClick={handleBatchDelete}
                 disabled={selectedIds.size === 0}
                 className={cn(
-                  'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                  'btn',
                   selectedIds.size > 0
-                    ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20'
-                    : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                    ? 'btn-danger'
+                    : 'btn-secondary cursor-not-allowed'
                 )}
               >
                 <Trash2 size={16} />
@@ -811,7 +814,7 @@ export function BrowsePage() {
 
       <div className="w-48 border-l border-zinc-800 hidden lg:block flex-shrink-0">
         <div className="sticky top-0 h-screen p-4 overflow-auto">
-          <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">时间线</h3>
+          <h3 className="info-label mb-3">时间线</h3>
           <div className="space-y-1">
           {timeline.map((group) => (
             <button
