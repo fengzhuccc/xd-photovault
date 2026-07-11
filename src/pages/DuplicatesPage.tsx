@@ -121,13 +121,20 @@ export function DuplicatesPage() {
       return;
     }
     try {
-      await window.api.duplicate.detectExact(true);
-      await loadDuplicates();
-      toast('success', '精确去重检测完成');
+      const result = await window.api.duplicate.detectExact(true);
+      if (!result.started) {
+        if (result.reason === 'scanning') {
+          toast('info', '扫描进行中，请等待扫描完成后再进行去重检测');
+        } else {
+          toast('info', '去重检测已在进行中，请勿重复点击');
+        }
+        return;
+      }
+      // 检测已实际开始，进度由 duplicate:progress 事件驱动；完成后由订阅器刷新列表
     } catch (error) {
       toast('error', '检测失败：' + error);
     }
-  }, [confirm, loadDuplicates]);
+  }, [confirm]);
 
   const handleDetectSimilar = useCallback(async () => {
     if (!await confirm(
@@ -137,13 +144,20 @@ export function DuplicatesPage() {
       return;
     }
     try {
-      await window.api.duplicate.detectSimilar(true);
-      await loadDuplicates();
-      toast('success', '相似去重检测完成');
+      const result = await window.api.duplicate.detectSimilar(true);
+      if (!result.started) {
+        if (result.reason === 'scanning') {
+          toast('info', '扫描进行中，请等待扫描完成后再进行去重检测');
+        } else {
+          toast('info', '去重检测已在进行中，请勿重复点击');
+        }
+        return;
+      }
+      // 检测已实际开始，进度由 duplicate:progress 事件驱动；完成后由订阅器刷新列表
     } catch (error) {
       toast('error', '检测失败：' + error);
     }
-  }, [confirm, loadDuplicates]);
+  }, [confirm]);
 
   // ===== 选择逻辑 =====
 

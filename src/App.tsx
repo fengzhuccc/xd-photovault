@@ -5,6 +5,7 @@ import { LibraryPage } from '@/pages/LibraryPage';
 import { ToastContainer } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useAppStore } from '@/stores/appStore';
+import { toast } from '@/stores/toastStore';
 
 // 非首屏页面懒加载，减少初始 bundle 体积
 const BrowsePage = lazy(() => import('@/pages/BrowsePage'));
@@ -13,14 +14,21 @@ const MapPage = lazy(() => import('@/pages/MapPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 
 function DuplicateProgressSubscriber() {
-  const setDuplicateProgress = useAppStore(state => state.setDuplicateProgress);
+  const { setDuplicateProgress, loadDuplicates } = useAppStore(state => ({
+    setDuplicateProgress: state.setDuplicateProgress,
+    loadDuplicates: state.loadDuplicates,
+  }));
 
   useEffect(() => {
     const unsubscribe = window.api.duplicate.onProgress((progress) => {
       setDuplicateProgress(progress.stage === 'complete' ? null : progress);
+      if (progress.stage === 'complete') {
+        loadDuplicates();
+        toast('success', '去重检测完成');
+      }
     });
     return () => unsubscribe();
-  }, [setDuplicateProgress]);
+  }, [setDuplicateProgress, loadDuplicates]);
 
   return null;
 }
