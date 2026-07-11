@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Database, Trash2, FolderOpen, Save, FileText, Eye, ExternalLink, Map, Loader2, RefreshCw } from 'lucide-react';
+import { Database, Trash2, FolderOpen, Save, FileText, Eye, ExternalLink, Map, Loader2, RefreshCw, Info } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
@@ -632,6 +632,34 @@ export function SettingsPage() {
               >
                 清除数据库
               </button>
+            </div>
+          </div>
+
+          {/* 关于 */}
+          <div className="card card-section">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-amber-500/10 rounded-lg">
+                <Info size={20} className="text-amber-500" />
+              </div>
+              <div>
+                <h2 className="text-lg font-medium text-zinc-100">关于</h2>
+                <p className="text-sm text-zinc-400">小呆相册 - 简单好用的照片管理工具</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-4 p-4 bg-zinc-800 rounded-lg">
+              <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center flex-shrink-0 shadow-lg">
+                <span className="text-2xl font-bold text-white">小</span>
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-lg font-semibold text-zinc-100">小呆相册</h3>
+                <p className="text-sm text-amber-500 font-medium mt-0.5">版本 v1.0.0</p>
+                <p className="text-sm text-zinc-400 mt-2 leading-relaxed">
+                  专注于本地照片管理、智能去重与地图浏览的桌面应用。
+                  支持时间线浏览、AI 语义搜索、重复照片检测与地理位置可视化，
+                  所有照片数据均存储在本地，保护您的隐私安全。
+                </p>
+              </div>
             </div>
           </div>
         </div>
