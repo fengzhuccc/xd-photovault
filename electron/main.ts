@@ -41,12 +41,17 @@ const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 function createWindow() {
   Menu.setApplicationMenu(null);
 
+  const iconPath = isDev
+    ? join(process.cwd(), 'public/icon.png')
+    : join(__dirname, '../dist/icon.png');
+
   const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1400,
     height: 900,
     minWidth: 1280,
     minHeight: 720,
     backgroundColor: '#1a1a1a',
+    icon: iconPath,
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,

@@ -1,6 +1,6 @@
-# PhotoVault UI 设计规范
+# 小呆相册 UI 设计规范
 
-> 本规范用于约束 PhotoVault 前端界面的一致性。新增页面、组件或交互时，请优先使用本规范定义的工具类与模式，避免引入新的颜色、间距或交互方式。
+> 本规范用于约束小呆相册前端界面的一致性。新增页面、组件或交互时，请优先使用本规范定义的工具类与模式，避免引入新的颜色、间距或交互方式。
 
 ---
 
@@ -139,7 +139,7 @@ font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "DM Sans", -apple
 <Empty
   icon={FolderOpen}
   title="还没有添加任何文件夹"
-  description="添加照片文件夹后，PhotoVault 会扫描并建立索引。"
+  description="添加照片文件夹后，小呆相册会扫描并建立索引。"
   action={<button className="btn-primary">添加文件夹</button>}
 />
 ```
