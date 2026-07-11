@@ -48,6 +48,8 @@ export const api = {
     getStats: () => ipcRenderer.invoke('photo:getStats'),
     updateLocation: (id: string, lat: number, lng: number) => 
       ipcRenderer.invoke('photo:updateLocation', id, lat, lng),
+    updateLocationBatch: (ids: string[], lat: number, lng: number) =>
+      ipcRenderer.invoke('photo:updateLocationBatch', ids, lat, lng),
     updateDate: (id: string, date: string) =>
       ipcRenderer.invoke('photo:updateDate', id, date),
     delete: (photoIds: string[]) => ipcRenderer.invoke('photo:delete', photoIds),

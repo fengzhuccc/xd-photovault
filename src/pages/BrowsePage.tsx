@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
-import { Filter, Grid3X3, MapPin, Camera, Trash2, CheckCircle2, Circle, Loader2, Play, Image, Film, Search, X, FolderOpen } from 'lucide-react';
+import { Filter, Grid3X3, MapPin, Camera, Trash2, CheckCircle2, Circle, Loader2, Play, Image, Film, Search, X, FolderOpen, MapPinned } from 'lucide-react';
+import { MapPickerModal } from '@/components/MapPickerModal';
 import Empty from '@/components/Empty';
 import { VirtuosoGrid, type VirtuosoGridHandle } from 'react-virtuoso';
 import { useAppStore } from '@/stores/appStore';
@@ -150,6 +151,7 @@ export function BrowsePage() {
   const [showFilters, setShowFilters] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showMapPicker, setShowMapPicker] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [activeTimelineKey, setActiveTimelineKey] = useState<string | null>(null);
   const [visibleRange, setVisibleRange] = useState({ startIndex: 0, endIndex: 0 });
@@ -495,6 +497,24 @@ export function BrowsePage() {
     }
   };
 
+  const handleBatchUpdateLocation = async (lat: number, lng: number) => {
+    const count = selectedIds.size;
+    if (count === 0) return;
+    try {
+      const result = await window.api.photo.updateLocationBatch(Array.from(selectedIds), lat, lng);
+      toast('success', `已为 ${result.updated} 张照片设置位置`);
+      setSelectedIds(new Set());
+      setSelectMode(false);
+      setShowMapPicker(false);
+      // 刷新相关数据
+      loadPhotosPage(currentFilter);
+      loadTimeline(currentFilter);
+      loadStats();
+    } catch (error) {
+      toast('error', '批量设置位置失败：' + error);
+    }
+  };
+
   // 浏览页快捷键
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -794,6 +814,19 @@ export function BrowsePage() {
                 完成
               </button>
               <button
+                onClick={() => setShowMapPicker(true)}
+                disabled={selectedIds.size === 0}
+                className={cn(
+                  'btn',
+                  selectedIds.size > 0
+                    ? 'btn-secondary-active'
+                    : 'btn-secondary cursor-not-allowed'
+                )}
+              >
+                <MapPinned size={16} />
+                修改位置{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+              </button>
+              <button
                 onClick={handleBatchDelete}
                 disabled={selectedIds.size === 0}
                 className={cn(
@@ -843,6 +876,12 @@ export function BrowsePage() {
         onNavigate={navigatePhoto}
         onUpdate={handleUpdatePhoto}
         onDelete={handlePhotoDeleted}
+      />
+
+      <MapPickerModal
+        isOpen={showMapPicker}
+        onClose={() => setShowMapPicker(false)}
+        onConfirm={handleBatchUpdateLocation}
       />
     </div>
   );

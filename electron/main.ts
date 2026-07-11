@@ -321,6 +321,22 @@ function setupIpcHandlers() {
     return { success: true };
   });
 
+  ipcMain.handle('photo:updateLocationBatch', async (_event, ids: string[], lat: number, lng: number) => {
+    let updated = 0;
+    for (const id of ids) {
+      const photo = db.getPhotoById(id);
+      if (!photo) continue;
+      try {
+        await exifService.writeLocation(photo.path, lat, lng);
+      } catch (e) {
+        log.warn('[photo:updateLocationBatch] EXIF 写入失败，仅更新数据库:', e);
+      }
+      db.updatePhotoLocation(id, lat, lng);
+      updated++;
+    }
+    return { success: true, updated };
+  });
+
   ipcMain.handle('photo:updateDate', async (_event, id: string, date: string) => {
     const photo = db.getPhotoById(id);
     if (!photo) throw new Error('照片不存在');

@@ -32,6 +32,7 @@ export interface WindowApi {
     getById: (id: string) => Promise<unknown | null>;
     getStats: () => Promise<unknown>;
     updateLocation: (id: string, lat: number, lng: number) => Promise<{ success: boolean }>;
+    updateLocationBatch: (ids: string[], lat: number, lng: number) => Promise<{ success: boolean; updated: number }>;
     updateDate: (id: string, date: string) => Promise<{ success: boolean }>;
     delete: (photoIds: string[]) => Promise<unknown>;
     getWithLocation: () => Promise<unknown[]>;
