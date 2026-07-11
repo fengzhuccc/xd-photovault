@@ -2,9 +2,9 @@
   "name": "xiaodai-album",
   "private": true,
   "version": "1.0.0",
-  "description": "小呆画册 - 照片管理与去重应用",
+  "description": "小呆相册 - 照片管理与去重应用",
   "main": "dist-electron/main.js",
-  "author": "小呆画册",
+  "author": "小呆相册",
   "type": "module",
   "scripts": {
     "dev": "vite",
