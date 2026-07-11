@@ -489,9 +489,9 @@ function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick,
         </div>
       )}
       {viewportLoading && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900/80 text-xs text-zinc-400 z-[1001]">
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 badge-zinc z-[1001]">
           <Loader2 size={14} className="animate-spin" />
-          <span>加载视口照片...</span>
+          加载视口照片...
         </div>
       )}
     </div>

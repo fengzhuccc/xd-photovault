@@ -66,7 +66,7 @@ const PhotoGridItem = React.memo(function PhotoGridItem({
           loading="lazy"
         />
       ) : (
-        <div className="w-full h-full bg-zinc-800 animate-pulse flex items-center justify-center">
+        <div className="w-full h-full skeleton flex items-center justify-center">
           <div className="w-8 h-8 rounded bg-zinc-700/50" />
         </div>
       )}
@@ -743,8 +743,9 @@ export function BrowsePage() {
                 List: GridList,
                 Item: GridItem,
                 Footer: () => loadingMore ? (
-                  <div className="col-span-full flex justify-center py-4">
-                    <Loader2 className="w-6 h-6 text-amber-500 animate-spin" />
+                  <div className="col-span-full flex items-center justify-center gap-2 py-4 text-sm text-zinc-400">
+                    <Loader2 size={18} className="text-amber-500 animate-spin" />
+                    正在加载更多...
                   </div>
                 ) : null,
               }}

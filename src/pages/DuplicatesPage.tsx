@@ -533,7 +533,11 @@ export function DuplicatesPage() {
                 'disabled:opacity-50 disabled:cursor-not-allowed'
               )}
             >
-              <RefreshCw size={16} className={isDetecting && detectStage === 'exact' ? 'animate-spin' : ''} />
+              {isDetecting && detectStage === 'exact' ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <RefreshCw size={16} />
+              )}
               {isDetecting && detectStage === 'exact' ? '检测中...' : '精确去重'}
             </button>
             <button
@@ -545,7 +549,11 @@ export function DuplicatesPage() {
                 'disabled:opacity-50 disabled:cursor-not-allowed'
               )}
             >
-              <RefreshCw size={16} className={isDetecting && (detectStage === 'similar' || detectStage === 'hashing') ? 'animate-spin' : ''} />
+              {isDetecting && (detectStage === 'similar' || detectStage === 'hashing') ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <RefreshCw size={16} />
+              )}
               {isDetecting && (detectStage === 'similar' || detectStage === 'hashing') ? '检测中...' : '相似去重'}
             </button>
             <div className="w-px h-6 bg-zinc-800 mx-1" />
@@ -579,10 +587,16 @@ export function DuplicatesPage() {
                 'disabled:opacity-50 disabled:cursor-not-allowed'
               )}
             >
-              <Trash2 size={16} />
-              {deleteStats.count > 0
-                ? `删除重复 (${selectedGroups.size} 组 · ${deleteStats.count} 张 · ${formatFileSize(deleteStats.size)})`
-                : `删除重复 (${selectedGroups.size})`}
+              {isDeleting ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Trash2 size={16} />
+              )}
+              {isDeleting
+                ? '删除中...'
+                : deleteStats.count > 0
+                  ? `删除重复 (${selectedGroups.size} 组 · ${deleteStats.count} 张 · ${formatFileSize(deleteStats.size)})`
+                  : `删除重复 (${selectedGroups.size})`}
             </button>
             <button
               onClick={() => setShowShortcuts(true)}
@@ -629,11 +643,11 @@ export function DuplicatesPage() {
               {detectProgress.total > 0 ? `${Math.round((detectProgress.current / detectProgress.total) * 100)}%` : ''}
             </span>
           </div>
-          <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+          <div className="progress-bar">
             <div
               className={cn(
-                'h-full transition-all duration-300',
-                detectStage === 'similar' ? 'bg-amber-500' : 'bg-blue-500'
+                'progress-bar-fill',
+                detectStage === 'similar' ? 'progress-bar-fill-amber' : 'progress-bar-fill-blue'
               )}
               style={{
                 width: detectProgress.total > 0 ? `${(detectProgress.current / detectProgress.total) * 100}%` : '0%'
@@ -681,10 +695,10 @@ export function DuplicatesPage() {
                   )}
                 >
                   {loadingMore ? (
-                    <span className="flex items-center gap-2">
-                      <RefreshCw size={14} className="animate-spin" />
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
                       加载中...
-                    </span>
+                    </>
                   ) : (
                     '加载更多'
                   )}
@@ -990,7 +1004,7 @@ function DuplicateCard({
             title={`删除本组重复照片（${toDeleteCount} 张）`}
             className={cn(
               'btn-danger text-xs px-2 py-1',
-              'disabled:opacity-40 disabled:cursor-not-allowed'
+              'disabled:opacity-50 disabled:cursor-not-allowed'
             )}
           >
             <Trash2 size={12} />
@@ -1022,7 +1036,7 @@ function DuplicateCard({
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-zinc-800">
+                  <div className="w-full h-full skeleton flex items-center justify-center">
                     <Loader2 size={20} className="text-zinc-500 animate-spin" />
                   </div>
                 )}

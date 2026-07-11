@@ -208,9 +208,9 @@ export function LibraryPage() {
             <RefreshCw size={18} className="text-amber-500 animate-spin" />
             <span className="text-sm text-zinc-300">正在扫描...</span>
           </div>
-          <div className="w-full bg-zinc-800 rounded-full h-2 mb-2">
+          <div className="progress-bar mb-2">
             <div
-              className="bg-amber-500 h-2 rounded-full transition-all duration-300"
+              className="progress-bar-fill-amber"
               style={{ width: `${scanProgress.total > 0 ? (scanProgress.current / scanProgress.total) * 100 : 0}%` }}
             />
           </div>
@@ -310,13 +310,13 @@ export function LibraryPage() {
         </div>
         {aiIndexProgress && ['loading', 'indexing', 'pausing', 'paused', 'error'].includes(aiIndexProgress.status) && (
           <>
-            <div className="w-full bg-zinc-800 rounded-full h-2 mb-2">
+            <div className="progress-bar mb-2">
               <div
                 className={cn(
-                  'h-2 rounded-full transition-all duration-300',
+                  'progress-bar-fill',
                   aiIndexProgress.status === 'error' ? 'bg-red-500' :
                     aiIndexProgress.status === 'pausing' ? 'bg-amber-500' :
-                      aiIndexProgress.status === 'paused' ? 'bg-zinc-500' : 'bg-amber-500'
+                      aiIndexProgress.status === 'paused' ? 'bg-zinc-500' : 'progress-bar-fill-amber'
                 )}
                 style={{ width: `${aiIndexProgress.total > 0 ? (aiIndexProgress.processed / aiIndexProgress.total) * 100 : 0}%` }}
               />
@@ -412,7 +412,11 @@ export function LibraryPage() {
                             'border-r border-zinc-700'
                           )}
                         >
-                          <RefreshCw size={14} className={isThisScanning ? 'animate-spin' : ''} />
+                          {isThisScanning ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <RefreshCw size={14} />
+                          )}
                           {isThisScanning ? '扫描中' : '扫描新增'}
                         </button>
                         <button

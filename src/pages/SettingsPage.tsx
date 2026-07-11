@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Database, Trash2, FolderOpen, Info, RefreshCw, FileText, Eye, ExternalLink, Map } from 'lucide-react';
+import { Database, Trash2, FolderOpen, Info, RefreshCw, FileText, Eye, ExternalLink, Map, Loader2 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
@@ -340,8 +340,12 @@ export function SettingsPage() {
                   disabled={isChanging}
                   className="btn-primary"
                 >
-                  <RefreshCw size={14} className={isChanging ? 'animate-spin' : ''} />
-                  保存并重启
+                  {isChanging ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <RefreshCw size={14} />
+                  )}
+                  {isChanging ? '保存中...' : '保存并重启'}
                 </button>
                 <button
                   onClick={handleResetDataPath}
@@ -433,8 +437,12 @@ export function SettingsPage() {
                       disabled={isLogLoading}
                       className="btn-secondary"
                     >
-                      <RefreshCw size={14} className={isLogLoading ? 'animate-spin' : ''} />
-                      刷新
+                      {isLogLoading ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <RefreshCw size={14} />
+                      )}
+                      {isLogLoading ? '刷新中...' : '刷新'}
                     </button>
                     <button
                       onClick={handleClearLog}
@@ -518,6 +526,11 @@ export function SettingsPage() {
                     disabled={isClearing || isLoadingThumbnailStats}
                     className="btn-danger"
                   >
+                    {isClearing ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Trash2 size={14} />
+                    )}
                     {isClearing ? '清除中...' : '清除'}
                   </button>
                 </div>
