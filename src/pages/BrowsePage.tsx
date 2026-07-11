@@ -168,6 +168,12 @@ export function BrowsePage() {
   const [searchInput, setSearchInput] = useState('');
   const prevPhotoIdsRef = useRef<string>('');
   const virtuosoRef = useRef<VirtuosoGridHandle>(null);
+
+  // 搜索输入框与 store 中的 aiSearchQuery 保持同步，
+  // 避免从其他页面返回时输入框为空但仍在 AI 搜索模式。
+  useEffect(() => {
+    setSearchInput(aiSearchQuery);
+  }, [aiSearchQuery]);
   const mediumUpgradeVersionRef = useRef(0);
   const upgradedIdsRef = useRef<Set<string>>(new Set());
   const scrollRestoreIndexRef = useRef<number | null>(null);
@@ -396,6 +402,20 @@ export function BrowsePage() {
     });
   };
 
+  const clearAiSearch = useCallback(() => {
+    setSearchInput('');
+    setAiSearchQuery('');
+    setAiSearchResults([]);
+    setAiSearchSimilarities({});
+    setAiSearching(false);
+    // 清空搜索后确保浏览列表已加载，避免从搜索模式切回时空白
+    if (photos.length === 0) {
+      loadPhotosPage(currentFilter);
+      loadTimeline(currentFilter);
+      loadStats();
+    }
+  }, [loadPhotosPage, loadTimeline, loadStats, photos.length, currentFilter, setAiSearchQuery, setAiSearchResults, setAiSearchSimilarities, setAiSearching]);
+
   const handleUpdatePhoto = (updatedPhoto: Photo) => {
     setSelectedPhoto(updatedPhoto);
     useAppStore.setState({
@@ -545,6 +565,9 @@ export function BrowsePage() {
         if (selectMode) {
           e.preventDefault();
           exitSelectMode();
+        } else if (isAiSearchMode) {
+          e.preventDefault();
+          clearAiSearch();
         } else if (showFilters) {
           e.preventDefault();
           setShowFilters(false);
@@ -575,7 +598,7 @@ export function BrowsePage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedPhoto, selectMode, showFilters, selectedIds.size, handleBatchDelete]);
+  }, [selectedPhoto, selectMode, showFilters, selectedIds.size, handleBatchDelete, isAiSearchMode, clearAiSearch]);
 
   const getPhotoMonthKey = useCallback((photo: Photo) => {
     if (!photo.taken_at) return 'unknown';
@@ -657,26 +680,32 @@ export function BrowsePage() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     aiSearch(searchInput);
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    clearAiSearch();
                   }
                 }}
                 placeholder="AI 语义搜索..."
                 className="input w-64 pl-9 pr-8"
               />
-              {searchInput && (
+              {(searchInput || isAiSearchMode) && (
                 <button
-                  onClick={() => {
-                    setSearchInput('');
-                    setAiSearchQuery('');
-                    setAiSearchResults([]);
-                    setAiSearchSimilarities({});
-                    setAiSearching(false);
-                  }}
+                  onClick={clearAiSearch}
                   className="icon-btn absolute right-1 top-1/2 -translate-y-1/2"
+                  title="清除搜索"
                 >
                   <X size={14} />
                 </button>
               )}
             </div>
+            {isAiSearchMode && (
+              <button
+                onClick={clearAiSearch}
+                className="btn-secondary text-xs px-3 py-1.5"
+              >
+                返回全部
+              </button>
+            )}
             {aiSearching && (
               <Loader2 size={18} className="text-amber-500 animate-spin" />
             )}

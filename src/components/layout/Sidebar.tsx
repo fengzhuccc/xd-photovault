@@ -21,6 +21,16 @@ const navItems = [
 export function Sidebar() {
   const { sidebarCollapsed, setSidebarCollapsed, stats } = useAppStore();
 
+  const resetBrowseSearch = () => {
+    // 点击侧边栏「浏览」时重置 AI 搜索状态，确保回到全部照片视图
+    useAppStore.setState({
+      aiSearchQuery: '',
+      aiSearchResults: [],
+      aiSearchSimilarities: {},
+      aiSearching: false,
+    });
+  };
+
   return (
     <aside
       className={cn(
@@ -45,6 +55,7 @@ export function Sidebar() {
           <NavLink
             key={to}
             to={to}
+            onClick={to === '/browse' ? resetBrowseSearch : undefined}
             className={({ isActive }) =>
               cn(
                 'flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg transition-colors',

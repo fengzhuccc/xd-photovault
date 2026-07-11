@@ -54,7 +54,12 @@ export class AiSearchService {
     log.info(`[AI] 语义搜索: "${query}"`);
 
     const augmentedQuery = augmentQuery(query);
-    log.info(`[AI] 语义搜索原始查询: "${query}" -> 增强查询: "${augmentedQuery}"`);
+    const isChinese = hasChinese(query);
+    // 英文 CLIP 对中文查询的相似度分数普遍偏低，适当降低阈值
+    const minSimilarity = isChinese
+      ? Math.min(config.searchMinSimilarity, 0.18)
+      : config.searchMinSimilarity;
+    log.info(`[AI] 语义搜索原始查询: "${query}" -> 增强查询: "${augmentedQuery}" (中文: ${isChinese}, 阈值: ${minSimilarity})`);
 
     const textEmbedding = await this.embeddingService.encodeText(augmentedQuery);
 
@@ -68,7 +73,7 @@ export class AiSearchService {
     const results: AiSearchResult[] = [];
     for (const entry of this.cache) {
       const similarity = cosineSimilarity(textEmbedding, entry.embedding);
-      if (similarity >= config.searchMinSimilarity) {
+      if (similarity >= minSimilarity) {
         results.push({ photo: entry.photo, similarity });
       }
     }
@@ -79,14 +84,20 @@ export class AiSearchService {
 }
 
 /**
+ * 判断查询是否包含中文字符。
+ * 用于中文查询时降低相似度阈值，因为英文 CLIP 对中文的打分普遍偏低。
+ */
+function hasChinese(query: string): boolean {
+  return /[\u4e00-\u9fa5]/.test(query);
+}
+
+/**
  * 对搜索查询做提示工程增强，让 CLIP 的文本编码更接近训练分布。
  * 中文查询使用 "{query} 的照片"，其他语言使用 "a photo of {query}"。
  */
 function augmentQuery(query: string): string {
   const trimmed = query.trim();
-  // 判断是否存在中文字符
-  const hasChinese = /[\u4e00-\u9fa5]/.test(trimmed);
-  if (hasChinese) {
+  if (hasChinese(trimmed)) {
     return `${trimmed} 的照片`;
   }
   // 英文/其他语言使用 CLIP 训练时更常见的描述句式
