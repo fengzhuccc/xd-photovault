@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Calendar, MapPin, X, ChevronLeft, ChevronRight, Pencil, MapPinned, Trash2, Loader2 } from 'lucide-react';
+import { MapPickerModal } from '@/components/MapPickerModal';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
 import { cn } from '@/lib/utils';
@@ -34,6 +35,7 @@ export function PhotoDetailModal({
   const [isSaving, setIsSaving] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [videoError, setVideoError] = useState(false);
+  const [showMapPicker, setShowMapPicker] = useState(false);
 
   const showNavigation = !!onNavigate && photos.length > 0;
   const isVideo = photo?.media_type === 'video';
@@ -84,6 +86,7 @@ export function PhotoDetailModal({
   // 键盘事件
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (showMapPicker) return;
       if (!photo) return;
       if (e.key === 'Escape') {
         if (editingDate || editingLocation) {
@@ -103,7 +106,7 @@ export function PhotoDetailModal({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [photo, editingDate, editingLocation, showNavigation, photos]);
+  }, [photo, editingDate, editingLocation, showNavigation, photos, showMapPicker]);
 
   const navigateByDirection = useCallback((direction: number) => {
     if (!photo || !onNavigate) return;
@@ -386,35 +389,40 @@ export function PhotoDetailModal({
               </label>
               <div className="mt-1.5">
                 {editingLocation ? (
-                  <div className="space-y-1.5">
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-zinc-400 w-8">纬度</span>
-                        <input
-                          type="number"
-                          value={editLatValue}
-                          onChange={(e) => setEditLatValue(e.target.value)}
-                          placeholder="-90 到 90"
-                          min="-90"
-                          max="90"
-                          step="0.0001"
-                          className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 text-sm"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-zinc-400 w-8">经度</span>
-                        <input
-                          type="number"
-                          value={editLngValue}
-                          onChange={(e) => setEditLngValue(e.target.value)}
-                          placeholder="-180 到 180"
-                          min="-180"
-                          max="180"
-                          step="0.0001"
-                          className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 text-sm"
-                        />
-                      </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-zinc-400 w-8">纬度</span>
+                      <input
+                        type="number"
+                        value={editLatValue}
+                        onChange={(e) => setEditLatValue(e.target.value)}
+                        placeholder="-90 到 90"
+                        min="-90"
+                        max="90"
+                        step="0.0001"
+                        className="flex-1 input"
+                      />
                     </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-zinc-400 w-8">经度</span>
+                      <input
+                        type="number"
+                        value={editLngValue}
+                        onChange={(e) => setEditLngValue(e.target.value)}
+                        placeholder="-180 到 180"
+                        min="-180"
+                        max="180"
+                        step="0.0001"
+                        className="flex-1 input"
+                      />
+                    </div>
+                    <button
+                      onClick={() => setShowMapPicker(true)}
+                      className="w-full btn-secondary"
+                    >
+                      <MapPinned size={14} />
+                      在地图上选择
+                    </button>
                     <div className="flex gap-2">
                       <button
                         onClick={() => setEditingLocation(false)}
@@ -463,6 +471,17 @@ export function PhotoDetailModal({
           </div>
         </div>
       </div>
+
+      <MapPickerModal
+        isOpen={showMapPicker}
+        initialLat={editLatValue ? parseFloat(editLatValue) : null}
+        initialLng={editLngValue ? parseFloat(editLngValue) : null}
+        onClose={() => setShowMapPicker(false)}
+        onConfirm={(lat, lng) => {
+          setEditLatValue(lat.toString());
+          setEditLngValue(lng.toString());
+        }}
+      />
     </div>
   );
 }
