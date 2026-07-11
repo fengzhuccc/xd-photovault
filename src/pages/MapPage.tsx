@@ -241,7 +241,13 @@ export function MapPage() {
             <X size={16} />
           </button>
         </div>
-        <div className="px-4 py-3 overflow-x-auto scrollbar-thin">
+        <div
+          className="px-4 py-3 overflow-x-auto scrollbar-thin"
+          onWheel={(e) => {
+            e.preventDefault();
+            e.currentTarget.scrollLeft += e.deltaY;
+          }}
+        >
           <div className="flex gap-3">
             {drawerPhotos.map((photo) => (
               <button
