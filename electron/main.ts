@@ -505,6 +505,24 @@ function setupIpcHandlers() {
   });
 }
 
+// 单实例模式：请求锁，若已有实例运行则退出当前进程
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  log.info('[App] 已有实例在运行，退出当前进程');
+  app.quit();
+} else {
+  app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
+    log.info('[App] 检测到第二次启动请求，聚焦到已有窗口');
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.focus();
+    }
+  });
+}
+
 app.whenReady().then(async () => {
   log.info(`[Startup] app.whenReady fired, elapsed: ${Date.now() - startupBaseTime}ms`);
   try {
