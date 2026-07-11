@@ -16,6 +16,7 @@ export function DuplicatesPage() {
     duplicateReason,
     loadDuplicates,
     loadDuplicatesPage,
+    loadStats,
     setDuplicateReason,
     setDuplicates,
     removePhotos,
@@ -339,13 +340,14 @@ export function DuplicatesPage() {
       await window.api.duplicate.delete(toDelete);
       applyPhotoDeletion(toDelete);
       removePhotos(toDelete);
+      loadStats().catch((e) => console.error('[Duplicates] 删除后刷新统计失败:', e));
       setSelectedGroups(new Set());
     } catch (error) {
       toast('error', '删除失败：' + error);
     } finally {
       setIsDeleting(false);
     }
-  }, [duplicates, selectedGroups, getPhotosToDelete, confirm, applyPhotoDeletion, removePhotos, isDeleting]);
+  }, [duplicates, selectedGroups, getPhotosToDelete, confirm, applyPhotoDeletion, removePhotos, loadStats, isDeleting]);
 
   const handleDeleteGroup = useCallback(async (group: DuplicateGroup) => {
     const toDelete = getPhotosToDelete(group);
@@ -362,6 +364,7 @@ export function DuplicatesPage() {
       await window.api.duplicate.delete(ids);
       applyPhotoDeletion(ids);
       removePhotos(ids);
+      loadStats().catch((e) => console.error('[Duplicates] 删除后刷新统计失败:', e));
       setSelectedGroups(prev => {
         const next = new Set(prev);
         next.delete(group.id);
@@ -372,7 +375,7 @@ export function DuplicatesPage() {
     } finally {
       setIsDeleting(false);
     }
-  }, [getPhotosToDelete, confirm, applyPhotoDeletion, removePhotos]);
+  }, [getPhotosToDelete, confirm, applyPhotoDeletion, removePhotos, loadStats]);
 
   const handleDeleteCurrentPhoto = useCallback(async () => {
     if (!selectedPhoto || !currentGroup) return;
@@ -387,13 +390,14 @@ export function DuplicatesPage() {
       await window.api.duplicate.delete([selectedPhoto.id]);
       applyPhotoDeletion([selectedPhoto.id]);
       removePhotos([selectedPhoto.id]);
+      loadStats().catch((e) => console.error('[Duplicates] 删除后刷新统计失败:', e));
       setSelectedPhoto(null);
       setCurrentGroup(null);
       toast('success', '已删除');
     } catch (error) {
       toast('error', '删除失败：' + error);
     }
-  }, [selectedPhoto, currentGroup, isPhotoKept, confirm, applyPhotoDeletion, removePhotos]);
+  }, [selectedPhoto, currentGroup, isPhotoKept, confirm, applyPhotoDeletion, removePhotos, loadStats]);
 
   // ===== 详情弹窗 =====
 
