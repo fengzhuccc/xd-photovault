@@ -18,6 +18,7 @@ export function DuplicatesPage() {
     loadDuplicatesPage,
     setDuplicateReason,
     setDuplicates,
+    removePhotos,
     stats,
   } = useAppStore();
 
@@ -337,13 +338,14 @@ export function DuplicatesPage() {
     try {
       await window.api.duplicate.delete(toDelete);
       applyPhotoDeletion(toDelete);
+      removePhotos(toDelete);
       setSelectedGroups(new Set());
     } catch (error) {
       toast('error', '删除失败：' + error);
     } finally {
       setIsDeleting(false);
     }
-  }, [duplicates, selectedGroups, getPhotosToDelete, confirm, applyPhotoDeletion, isDeleting]);
+  }, [duplicates, selectedGroups, getPhotosToDelete, confirm, applyPhotoDeletion, removePhotos, isDeleting]);
 
   const handleDeleteGroup = useCallback(async (group: DuplicateGroup) => {
     const toDelete = getPhotosToDelete(group);
@@ -359,6 +361,7 @@ export function DuplicatesPage() {
       const ids = toDelete.map(p => p.id);
       await window.api.duplicate.delete(ids);
       applyPhotoDeletion(ids);
+      removePhotos(ids);
       setSelectedGroups(prev => {
         const next = new Set(prev);
         next.delete(group.id);
@@ -369,7 +372,7 @@ export function DuplicatesPage() {
     } finally {
       setIsDeleting(false);
     }
-  }, [getPhotosToDelete, confirm, applyPhotoDeletion]);
+  }, [getPhotosToDelete, confirm, applyPhotoDeletion, removePhotos]);
 
   const handleDeleteCurrentPhoto = useCallback(async () => {
     if (!selectedPhoto || !currentGroup) return;
@@ -383,13 +386,14 @@ export function DuplicatesPage() {
     try {
       await window.api.duplicate.delete([selectedPhoto.id]);
       applyPhotoDeletion([selectedPhoto.id]);
+      removePhotos([selectedPhoto.id]);
       setSelectedPhoto(null);
       setCurrentGroup(null);
       toast('success', '已删除');
     } catch (error) {
       toast('error', '删除失败：' + error);
     }
-  }, [selectedPhoto, currentGroup, isPhotoKept, confirm, applyPhotoDeletion]);
+  }, [selectedPhoto, currentGroup, isPhotoKept, confirm, applyPhotoDeletion, removePhotos]);
 
   // ===== 详情弹窗 =====
 

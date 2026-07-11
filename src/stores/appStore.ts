@@ -43,6 +43,7 @@ interface AppState {
 
   setPhotos: (photos: Photo[]) => void;
   setSelectedPhoto: (photo: Photo | null) => void;
+  removePhotos: (ids: string[]) => void;
 
   setStats: (stats: PhotoStats) => void;
   setDuplicates: (duplicates: DuplicateGroup[]) => void;
@@ -138,6 +139,20 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setPhotos: (photos) => set({ photos }),
   setSelectedPhoto: (photo) => set({ selectedPhoto: photo }),
+  removePhotos: (ids) => set((state) => {
+    const idSet = new Set(ids);
+    const newPhotos = state.photos.filter(p => !idSet.has(p.id));
+    const newThumbnails: Record<string, string> = {};
+    for (const [k, v] of Object.entries(state.thumbnails)) {
+      if (!idSet.has(k)) newThumbnails[k] = v;
+    }
+    const newAiSearchResults = state.aiSearchResults.filter(p => !idSet.has(p.id));
+    return {
+      photos: newPhotos,
+      thumbnails: newThumbnails,
+      aiSearchResults: newAiSearchResults,
+    };
+  }),
 
   setStats: (stats) => set({ stats }),
   setDuplicates: (duplicates) => set({ duplicates }),
