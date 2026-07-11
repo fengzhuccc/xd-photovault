@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Database, Trash2, FolderOpen, Info, RefreshCw, FileText, Eye, ExternalLink, Map, Loader2 } from 'lucide-react';
+import { Database, Trash2, FolderOpen, Save, FileText, Eye, ExternalLink, Map, Loader2, RefreshCw } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
-import { cn } from '@/lib/utils';
 
 // 瓦片源配置（与 MapPage 保持一致）
 const TILE_PROVIDERS: Record<string, {
@@ -31,7 +30,7 @@ const TILE_PROVIDERS: Record<string, {
 };
 
 export function SettingsPage() {
-  const { stats, loadStats } = useAppStore();
+  const { loadStats } = useAppStore();
   const [isClearing, setIsClearing] = useState(false);
   const [thumbnailStats, setThumbnailStats] = useState<{ count: number; totalSize: number; smallCount: number; mediumCount: number } | null>(null);
   const [isLoadingThumbnailStats, setIsLoadingThumbnailStats] = useState(false);
@@ -56,7 +55,6 @@ export function SettingsPage() {
     loadDataPath();
     loadLogPath();
     loadMapSettings();
-    loadStats();
     loadThumbnailStats();
   }, []);
 
@@ -301,6 +299,7 @@ export function SettingsPage() {
         </div>
 
         <div className="space-y-6">
+          {/* 数据存储位置 */}
           <div className="card card-section">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 bg-amber-500/10 rounded-lg">
@@ -311,7 +310,7 @@ export function SettingsPage() {
                 <p className="text-sm text-zinc-400">设置数据库和缩略图的存储位置</p>
               </div>
             </div>
-            
+
             <div className="space-y-4">
               <div className="p-4 bg-zinc-800 rounded-lg">
                 <label className="form-label">当前位置</label>
@@ -324,7 +323,6 @@ export function SettingsPage() {
                   <input
                     type="text"
                     value={customPath || ''}
-                    onChange={(e) => setCustomPath(e.target.value || null)}
                     placeholder="使用默认位置"
                     className="flex-1 input-readonly"
                     readOnly
@@ -332,8 +330,8 @@ export function SettingsPage() {
                   <button
                     onClick={handleSelectDataFolder}
                     className="btn-secondary"
-                >
-                  浏览...
+                  >
+                    浏览...
                   </button>
                 </div>
                 <p className="text-xs text-zinc-400 mt-2">
@@ -350,7 +348,7 @@ export function SettingsPage() {
                   {isChanging ? (
                     <Loader2 size={14} className="animate-spin" />
                   ) : (
-                    <RefreshCw size={14} />
+                    <Save size={14} />
                   )}
                   {isChanging ? '保存中...' : '保存并重启'}
                 </button>
@@ -373,10 +371,10 @@ export function SettingsPage() {
               </div>
               <div>
                 <h2 className="text-lg font-medium text-zinc-100">日志设置</h2>
-                <p className="text-sm text-zinc-400">配置日志存储位置和查看日志</p>
+                <p className="text-sm text-zinc-400">配置日志存储位置并查看日志</p>
               </div>
             </div>
-            
+
             <div className="space-y-4">
               <div className="p-4 bg-zinc-800 rounded-lg">
                 <label className="form-label">当前日志路径</label>
@@ -389,7 +387,6 @@ export function SettingsPage() {
                   <input
                     type="text"
                     value={customLogPath || ''}
-                    onChange={(e) => setCustomLogPath(e.target.value || null)}
                     placeholder="使用默认位置"
                     className="flex-1 input-readonly"
                     readOnly
@@ -397,8 +394,8 @@ export function SettingsPage() {
                   <button
                     onClick={handleSelectLogFolder}
                     className="btn-secondary"
-                >
-                  浏览...
+                  >
+                    浏览...
                   </button>
                 </div>
                 <p className="text-xs text-zinc-400 mt-2">
@@ -415,7 +412,7 @@ export function SettingsPage() {
                   {isLogSaving ? (
                     <Loader2 size={14} className="animate-spin" />
                   ) : (
-                    <RefreshCw size={14} />
+                    <Save size={14} />
                   )}
                   {isLogSaving ? '保存中...' : '保存路径'}
                 </button>
@@ -436,40 +433,48 @@ export function SettingsPage() {
                 </button>
               </div>
 
-              <div className="flex gap-2">
-                <button
-                  onClick={handleViewLog}
-                  className="btn-secondary"
-                >
-                  <Eye size={14} />
-                  {showLog ? '隐藏日志' : '查看日志'}
-                </button>
-                {showLog && (
-                  <>
+              <div className="p-4 bg-zinc-800 rounded-lg">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div>
+                    <p className="text-sm text-zinc-200">日志查看</p>
+                    <p className="text-xs text-zinc-400 mt-1">查看、刷新或清除应用运行日志</p>
+                  </div>
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={handleRefreshLog}
-                      disabled={isLogLoading}
+                      onClick={handleViewLog}
                       className="btn-secondary"
                     >
-                      {isLogLoading ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <RefreshCw size={14} />
-                      )}
-                      {isLogLoading ? '刷新中...' : '刷新'}
+                      <Eye size={14} />
+                      {showLog ? '隐藏日志' : '查看日志'}
                     </button>
-                    <button
-                      onClick={handleClearLog}
-                      className="btn-danger"
-                    >
-                      清除日志
-                    </button>
-                  </>
-                )}
+                    {showLog && (
+                      <>
+                        <button
+                          onClick={handleRefreshLog}
+                          disabled={isLogLoading}
+                          className="btn-secondary"
+                        >
+                          {isLogLoading ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <RefreshCw size={14} />
+                          )}
+                          {isLogLoading ? '刷新中...' : '刷新'}
+                        </button>
+                        <button
+                          onClick={handleClearLog}
+                          className="btn-danger"
+                        >
+                          清除日志
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {showLog && (
-                <div className="bg-zinc-800 rounded-lg p-4 max-h-96 overflow-auto">
+                <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 max-h-96 overflow-auto">
                   <pre className="text-xs text-zinc-300 whitespace-pre-wrap break-all font-mono">
                     {isLogLoading ? '加载中...' : logContent || '暂无日志'}
                   </pre>
@@ -478,114 +483,7 @@ export function SettingsPage() {
             </div>
           </div>
 
-          <div className="card card-section">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-amber-500/10 rounded-lg">
-                <Database size={20} className="text-amber-500" />
-              </div>
-              <div>
-                <h2 className="text-lg font-medium text-zinc-100">数据统计</h2>
-                <p className="text-sm text-zinc-400">照片库数据概览</p>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-zinc-800 rounded-lg p-4">
-                <p className="text-sm text-zinc-400">照片总数</p>
-                <p className="text-2xl font-bold text-zinc-100 mt-1">
-                  {stats?.total.toLocaleString() || 0}
-                </p>
-              </div>
-              <div className="bg-zinc-800 rounded-lg p-4">
-                <p className="text-sm text-zinc-400">有位置信息</p>
-                <p className="text-2xl font-bold text-zinc-100 mt-1">
-                  {stats?.withLocation.toLocaleString() || 0}
-                </p>
-              </div>
-              <div className="bg-zinc-800 rounded-lg p-4">
-                <p className="text-sm text-zinc-400">重复照片</p>
-                <p className="text-2xl font-bold text-amber-500 mt-1">
-                  {stats?.duplicates.toLocaleString() || 0}
-                </p>
-              </div>
-              <div className="bg-zinc-800 rounded-lg p-4">
-                <p className="text-sm text-zinc-400">文件夹数</p>
-                <p className="text-2xl font-bold text-zinc-100 mt-1">
-                  {stats?.folders || 0}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="card card-section">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-red-500/10 rounded-lg">
-                <Trash2 size={20} className="text-red-500" />
-              </div>
-              <div>
-                <h2 className="text-lg font-medium text-zinc-100">缓存管理</h2>
-                <p className="text-sm text-zinc-400">清除缓存以释放磁盘空间</p>
-              </div>
-            </div>
-            
-            <div className="space-y-3">
-              <div className="p-4 bg-zinc-800 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-zinc-200">缩略图缓存</p>
-                    <p className="text-xs text-zinc-400 mt-1">清除后下次浏览时会重新生成</p>
-                  </div>
-                  <button
-                    onClick={handleClearThumbnails}
-                    disabled={isClearing || isLoadingThumbnailStats}
-                    className="btn-danger"
-                  >
-                    {isClearing ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : (
-                      <Trash2 size={14} />
-                    )}
-                    {isClearing ? '清除中...' : '清除'}
-                  </button>
-                </div>
-                <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-zinc-700/50">
-                  <div>
-                    <p className="text-xs text-zinc-400">文件总数</p>
-                    <p className="text-lg font-semibold text-zinc-200">
-                      {isLoadingThumbnailStats ? '-' : (thumbnailStats?.count ?? 0).toLocaleString()}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-zinc-400">占用空间</p>
-                    <p className="text-lg font-semibold text-zinc-200">
-                      {isLoadingThumbnailStats ? '-' : formatBytes(thumbnailStats?.totalSize ?? 0)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-zinc-400">尺寸分布</p>
-                    <p className="text-sm text-zinc-300 mt-0.5">
-                      {isLoadingThumbnailStats
-                        ? '-'
-                        : `small ${(thumbnailStats?.smallCount ?? 0).toLocaleString()} / medium ${(thumbnailStats?.mediumCount ?? 0).toLocaleString()}`}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center justify-between p-4 bg-zinc-800 rounded-lg">
-                <div>
-                  <p className="text-sm text-zinc-200">清除数据库</p>
-                  <p className="text-xs text-zinc-400 mt-1">删除所有照片记录和文件夹，从零开始</p>
-                </div>
-                <button
-                  onClick={handleClearDatabase}
-                  className="btn-danger"
-                >
-                  清除数据库
-                </button>
-              </div>
-            </div>
-          </div>
-
+          {/* 地图设置 */}
           <div className="card card-section">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 bg-amber-500/10 rounded-lg">
@@ -645,32 +543,95 @@ export function SettingsPage() {
                 disabled={isMapSaving}
                 className="btn-primary"
               >
-                <RefreshCw size={14} className={isMapSaving ? 'animate-spin' : ''} />
-                保存地图设置
+                {isMapSaving ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Save size={14} />
+                )}
+                {isMapSaving ? '保存中...' : '保存地图设置'}
               </button>
             </div>
           </div>
 
+          {/* 缓存管理 */}
           <div className="card card-section">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 bg-amber-500/10 rounded-lg">
-                <Info size={20} className="text-amber-500" />
+                <Database size={20} className="text-amber-500" />
               </div>
               <div>
-                <h2 className="text-lg font-medium text-zinc-100">关于</h2>
-                <p className="text-sm text-zinc-400">应用程序信息</p>
+                <h2 className="text-lg font-medium text-zinc-100">缓存管理</h2>
+                <p className="text-sm text-zinc-400">清除缓存以释放磁盘空间</p>
               </div>
             </div>
-            
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-zinc-400">版本</span>
-                <span className="text-zinc-200">1.0.0</span>
+
+            <div className="p-4 bg-zinc-800 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-zinc-200">缩略图缓存</p>
+                  <p className="text-xs text-zinc-400 mt-1">清除后下次浏览时会重新生成</p>
+                </div>
+                <button
+                  onClick={handleClearThumbnails}
+                  disabled={isClearing || isLoadingThumbnailStats}
+                  className="btn-danger"
+                >
+                  {isClearing ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <Trash2 size={14} />
+                  )}
+                  {isClearing ? '清除中...' : '清除'}
+                </button>
               </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-400">技术栈</span>
-                <span className="text-zinc-200">Electron + React + TypeScript</span>
+              <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-zinc-700/50">
+                <div>
+                  <p className="text-xs text-zinc-400">文件总数</p>
+                  <p className="text-lg font-semibold text-zinc-200">
+                    {isLoadingThumbnailStats ? '-' : (thumbnailStats?.count ?? 0).toLocaleString()}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-zinc-400">占用空间</p>
+                  <p className="text-lg font-semibold text-zinc-200">
+                    {isLoadingThumbnailStats ? '-' : formatBytes(thumbnailStats?.totalSize ?? 0)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-zinc-400">尺寸分布</p>
+                  <p className="text-sm text-zinc-300 mt-0.5">
+                    {isLoadingThumbnailStats
+                      ? '-'
+                      : `small ${(thumbnailStats?.smallCount ?? 0).toLocaleString()} / medium ${(thumbnailStats?.mediumCount ?? 0).toLocaleString()}`}
+                  </p>
+                </div>
               </div>
+            </div>
+          </div>
+
+          {/* 危险操作 */}
+          <div className="card card-section border-red-500/20">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-500/10 rounded-lg">
+                <Trash2 size={20} className="text-red-500" />
+              </div>
+              <div>
+                <h2 className="text-lg font-medium text-zinc-100">危险操作</h2>
+                <p className="text-sm text-zinc-400">这些操作不可逆，请谨慎使用</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between p-4 bg-zinc-800 rounded-lg">
+              <div>
+                <p className="text-sm text-zinc-200">清除数据库</p>
+                <p className="text-xs text-zinc-400 mt-1">删除所有照片记录、文件夹和重复检测结果，需要重新扫描</p>
+              </div>
+              <button
+                onClick={handleClearDatabase}
+                className="btn-danger-solid"
+              >
+                清除数据库
+              </button>
             </div>
           </div>
         </div>

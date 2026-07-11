@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FolderOpen, Plus, Trash2, RefreshCw, HardDrive, Calendar, ChevronDown, RotateCcw, Loader2, Brain, Pause, Play, Square, Zap, CheckCircle2, X } from 'lucide-react';
+import { FolderOpen, Plus, Trash2, RefreshCw, HardDrive, Calendar, ChevronDown, RotateCcw, Loader2, Brain, Pause, Play, Square, Zap, CheckCircle2, X, Images, MapPin, Copy } from 'lucide-react';
 import Empty from '@/components/Empty';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
@@ -16,6 +16,7 @@ export function LibraryPage() {
     aiIndexProgress,
     aiGpuEnabled,
     aiGpuActualProvider,
+    stats,
     loadFolders,
     loadStats,
     loadPhotosPage,
@@ -181,6 +182,56 @@ export function LibraryPage() {
           <Plus size={18} />
           添加文件夹
         </button>
+      </div>
+
+      {/* 统计概览 */}
+      <div className="card card-section mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-zinc-800 rounded-lg">
+              <Images size={18} className="text-amber-500" />
+            </div>
+            <div>
+              <p className="text-xs text-zinc-400">照片总数</p>
+              <p className="text-xl font-bold text-zinc-100">
+                {stats?.total.toLocaleString() || 0}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-zinc-800 rounded-lg">
+              <MapPin size={18} className="text-green-500" />
+            </div>
+            <div>
+              <p className="text-xs text-zinc-400">有位置信息</p>
+              <p className="text-xl font-bold text-zinc-100">
+                {stats?.withLocation.toLocaleString() || 0}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-zinc-800 rounded-lg">
+              <Copy size={18} className="text-amber-500" />
+            </div>
+            <div>
+              <p className="text-xs text-zinc-400">重复照片</p>
+              <p className="text-xl font-bold text-amber-500">
+                {stats?.duplicates.toLocaleString() || 0}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-zinc-800 rounded-lg">
+              <FolderOpen size={18} className="text-blue-500" />
+            </div>
+            <div>
+              <p className="text-xs text-zinc-400">文件夹数</p>
+              <p className="text-xl font-bold text-zinc-100">
+                {stats?.folders || 0}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {scanningFolderId && scanProgress && (
