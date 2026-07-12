@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X, MapPin } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -24,6 +25,7 @@ export function MapPickerModal({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
+  const { t } = useTranslation();
 
   const [latValue, setLatValue] = useState('');
   const [lngValue, setLngValue] = useState('');
@@ -170,7 +172,7 @@ export function MapPickerModal({
         <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
           <div className="flex items-center gap-2">
             <MapPin size={18} className="text-amber-500" />
-            <h3 className="text-base font-medium text-zinc-100">在地图上选择位置</h3>
+            <h3 className="text-base font-medium text-zinc-100">{t('mapPicker.title')}</h3>
           </div>
           <button onClick={onClose} className="icon-btn">
             <X size={18} />
@@ -186,13 +188,13 @@ export function MapPickerModal({
         <div className="border-t border-zinc-800 p-4 space-y-3">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 flex-1">
-              <span className="text-xs text-zinc-400 w-8">纬度</span>
+              <span className="text-xs text-zinc-400 w-8">{t('common.latitude')}</span>
               <input
                 type="number"
                 value={latValue}
                 onChange={(e) => handleLatChange(e.target.value)}
                 onBlur={syncFromInputs}
-                placeholder="-90 到 90"
+                placeholder={t('common.latPlaceholder')}
                 min="-90"
                 max="90"
                 step="0.000001"
@@ -200,13 +202,13 @@ export function MapPickerModal({
               />
             </div>
             <div className="flex items-center gap-2 flex-1">
-              <span className="text-xs text-zinc-400 w-8">经度</span>
+              <span className="text-xs text-zinc-400 w-8">{t('common.longitude')}</span>
               <input
                 type="number"
                 value={lngValue}
                 onChange={(e) => handleLngChange(e.target.value)}
                 onBlur={syncFromInputs}
-                placeholder="-180 到 180"
+                placeholder={t('common.lngPlaceholder')}
                 min="-180"
                 max="180"
                 step="0.000001"
@@ -217,10 +219,10 @@ export function MapPickerModal({
 
           <div className="flex justify-end gap-2">
             <button onClick={onClose} className="btn-secondary">
-              取消
+              {t('common.cancel')}
             </button>
             <button onClick={handleConfirm} disabled={!isValid} className="btn-primary">
-              确认位置
+              {t('mapPicker.confirmLocation')}
             </button>
           </div>
         </div>

@@ -7,6 +7,7 @@ import { PhotoDetailModal } from '@/components/PhotoDetailModal';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Photo } from '@/types';
+import { useTranslation } from 'react-i18next';
 
 // 瓦片源配置
 const TILE_PROVIDER = {
@@ -76,6 +77,7 @@ function clusterPrecision(zoom: number): number {
 }
 
 export function MapPage() {
+  const { t } = useTranslation();
   const { stats, loadStats } = useAppStore();
   const [searchParams] = useSearchParams();
   const highlightPhotoId = searchParams.get('photoId');
@@ -207,10 +209,10 @@ export function MapPage() {
     <div className="h-full flex flex-col" style={{ height: 'calc(100vh - 3rem)' }}>
       <div className="page-header">
         <div>
-          <h1 className="page-title">地图视图</h1>
+          <h1 className="page-title">{t('map.pageTitle')}</h1>
           <p className="page-subtitle">
-            {stats ? `${stats.withLocation.toLocaleString()} 张照片有位置信息` : '加载中...'}
-            {stats && stats.withoutLocation > 0 && ` · ${stats.withoutLocation.toLocaleString()} 张无位置`}
+            {stats ? t('map.subtitleWithLocation', { count: stats.withLocation.toLocaleString() }) : t('map.subtitleLoading')}
+            {stats && stats.withoutLocation > 0 && t('map.subtitleWithoutLocation', { count: stats.withoutLocation.toLocaleString() })}
           </p>
         </div>
       </div>
@@ -232,7 +234,7 @@ export function MapPage() {
             <MapPin size={14} />
             <span>{drawerLocation}</span>
             <span className="text-zinc-500">·</span>
-            <span>{drawerPhotos.length} 张照片</span>
+            <span>{t('map.drawerSummary', { count: drawerPhotos.length })}</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}
@@ -302,6 +304,7 @@ interface LeafletMapProps {
 const MIN_CLUSTER_ZOOM = 16;
 
 function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick, highlightPhotoId }: LeafletMapProps) {
+  const { t } = useTranslation();
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
@@ -440,7 +443,7 @@ function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick,
         marker.bindTooltip(cluster.filename, { direction: 'top', offset: [0, -10] });
         marker.on('click', () => onPhotoClick(cluster.representative_id));
       } else {
-        marker.bindTooltip(`${cluster.count} 张照片`, { direction: 'top', offset: [0, -10] });
+        marker.bindTooltip(t('map.markerTooltip', { count: cluster.count }), { direction: 'top', offset: [0, -10] });
         marker.on('click', () => onClusterClick(cluster, mapInstanceRef.current!.getZoom()));
       }
 
@@ -484,8 +487,8 @@ function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick,
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/80 pointer-events-none z-[1000]">
           <Empty
             icon={MapPinned}
-            title="没有带位置信息的照片"
-            description="照片需要有 GPS 数据才能在地图上显示"
+            title={t('map.emptyNoLocationTitle')}
+            description={t('map.emptyNoLocationDesc')}
           />
         </div>
       )}
@@ -493,15 +496,15 @@ function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick,
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/60 pointer-events-none z-[999]">
           <Empty
             icon={MapPin}
-            title="当前视口没有照片"
-            description="移动或缩放地图查看更多位置"
+            title={t('map.emptyViewportTitle')}
+            description={t('map.emptyViewportDesc')}
           />
         </div>
       )}
       {viewportLoading && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 badge-zinc z-[1001]">
           <Loader2 size={14} className="animate-spin" />
-          加载视口照片...
+          {t('map.viewportLoading')}
         </div>
       )}
     </div>

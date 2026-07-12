@@ -20,6 +20,8 @@ export const api = {
     getDataPath: () => ipcRenderer.invoke('config:getDataPath'),
     setLogPath: (path: string | null) => ipcRenderer.invoke('config:setLogPath', path),
     getLogPath: () => ipcRenderer.invoke('config:getLogPath'),
+    getLanguage: () => ipcRenderer.invoke('config:getLanguage'),
+    setLanguage: (lang: string) => ipcRenderer.invoke('config:setLanguage', lang),
   },
   
   folder: {

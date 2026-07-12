@@ -6,6 +6,8 @@ import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
 import { cn, isTypingTarget } from '@/lib/utils';
 import { confirmFirstTrashMove } from '@/lib/trashPrompt';
+import { useTranslation } from 'react-i18next';
+import { useFormatDate } from '@/lib/useFormatDate';
 import type { DuplicateGroup, Photo } from '@/types';
 
 export function DuplicatesPage() {
@@ -24,6 +26,8 @@ export function DuplicatesPage() {
     removePhotos,
     stats,
   } = useAppStore();
+  const { t } = useTranslation();
+  const formatDate = useFormatDate();
 
   // 组级选择
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
@@ -121,29 +125,29 @@ export function DuplicatesPage() {
   }, [setDuplicateReason]);
 
   const handleDetectExact = useCallback(async () => {
-    if (!await confirm('将重新检测所有完全相同的照片（基于文件内容哈希）。确定继续吗？', { variant: 'info', confirmText: '开始检测' })) {
+    if (!await confirm(t('duplicates.confirm.exactDetect'), { variant: 'info', confirmText: t('duplicates.confirm.exactDetectBtn') })) {
       return;
     }
     try {
       const result = await window.api.duplicate.detectExact(true);
       if (!result.started) {
         if (result.reason === 'scanning') {
-          toast('info', '扫描进行中，请等待扫描完成后再进行去重检测');
+          toast('info', t('duplicates.toast.scanBusy'));
         } else {
-          toast('info', '去重检测已在进行中，请勿重复点击');
+          toast('info', t('duplicates.toast.alreadyRunning'));
         }
         return;
       }
       // 检测已实际开始，进度由 duplicate:progress 事件驱动；完成后由订阅器刷新列表
     } catch (error) {
-      toast('error', '检测失败：' + error);
+      toast('error', t('duplicates.toast.detectFailed') + error);
     }
-  }, [confirm]);
+  }, [confirm, t]);
 
   const handleDetectSimilar = useCallback(async () => {
     if (!await confirm(
-      '相似去重会计算每张照片的感知哈希并比较视觉相似度，照片数量较多时可能需要数小时。\n\n建议在不需要使用应用时进行。确定继续吗？',
-      { variant: 'warning', confirmText: '开始相似去重' }
+      t('duplicates.confirm.similarDetect'),
+      { variant: 'warning', confirmText: t('duplicates.confirm.similarDetectBtn') }
     )) {
       return;
     }
@@ -151,17 +155,17 @@ export function DuplicatesPage() {
       const result = await window.api.duplicate.detectSimilar(true);
       if (!result.started) {
         if (result.reason === 'scanning') {
-          toast('info', '扫描进行中，请等待扫描完成后再进行去重检测');
+          toast('info', t('duplicates.toast.scanBusy'));
         } else {
-          toast('info', '去重检测已在进行中，请勿重复点击');
+          toast('info', t('duplicates.toast.alreadyRunning'));
         }
         return;
       }
       // 检测已实际开始，进度由 duplicate:progress 事件驱动；完成后由订阅器刷新列表
     } catch (error) {
-      toast('error', '检测失败：' + error);
+      toast('error', t('duplicates.toast.detectFailed') + error);
     }
-  }, [confirm]);
+  }, [confirm, t]);
 
   // ===== 选择逻辑 =====
 
@@ -290,7 +294,7 @@ export function DuplicatesPage() {
 
       // 至少需要保留一张照片
       if (isKept && current.size <= 1) {
-        toast('warning', '每组至少需要保留一张照片');
+        toast('warning', t('duplicates.toast.needKeep'));
         return prev;
       }
 
@@ -308,7 +312,7 @@ export function DuplicatesPage() {
       }
       return { ...prev, [groupId]: next };
     });
-  }, []);
+  }, [t]);
 
   const getPhotosToDelete = useCallback((group: DuplicateGroup) => {
     return group.photos.filter(p => !isPhotoKept(group.id, p.id, group.recommended_photo_id));
@@ -344,11 +348,11 @@ export function DuplicatesPage() {
     }
 
     if (toDelete.length === 0) {
-      toast('warning', '请先选择要处理的重复组');
+      toast('warning', t('duplicates.toast.needSelect'));
       return;
     }
 
-    if (!await confirm(`确定要删除 ${toDelete.length} 张重复照片吗？\n文件将被移动到回收站。`, { variant: 'danger', confirmText: '删除' })) {
+    if (!await confirm(t('duplicates.confirm.deleteBatch', { count: toDelete.length }), { variant: 'danger', confirmText: t('common.delete') })) {
       return;
     }
     if (!await confirmFirstTrashMove()) {
@@ -362,29 +366,29 @@ export function DuplicatesPage() {
       const failed = results.filter(r => !r.success);
       applyPhotoDeletion(successIds);
       removePhotos(successIds);
-      loadStats().catch((e) => console.error('[Duplicates] 删除后刷新统计失败:', e));
-      loadTrashCount().catch((e) => console.error('[Duplicates] 删除后刷新回收站数量失败:', e));
+      loadStats().catch((e) => console.error('[Duplicates] Failed to refresh stats after deletion:', e));
+      loadTrashCount().catch((e) => console.error('[Duplicates] Failed to refresh trash count after deletion:', e));
       setSelectedGroups(new Set());
       if (successIds.length > 0) {
-        toast('success', `已移到回收站 ${successIds.length} 张照片`);
+        toast('success', t('duplicates.toast.movedToTrash', { count: successIds.length }));
       }
       if (failed.length > 0) {
-        toast('error', `${failed.length} 张照片处理失败：${failed[0].error}`);
+        toast('error', t('duplicates.toast.partialFailed', { count: failed.length, error: failed[0].error }));
       }
     } catch (error) {
-      toast('error', '删除失败：' + error);
+      toast('error', t('duplicates.toast.deleteFailed') + error);
     } finally {
       setIsDeleting(false);
     }
-  }, [duplicates, selectedGroups, getPhotosToDelete, confirm, applyPhotoDeletion, removePhotos, loadStats, loadTrashCount, isDeleting]);
+  }, [duplicates, selectedGroups, getPhotosToDelete, confirm, applyPhotoDeletion, removePhotos, loadStats, loadTrashCount, isDeleting, t]);
 
   const handleDeleteGroup = useCallback(async (group: DuplicateGroup) => {
     const toDelete = getPhotosToDelete(group);
     if (toDelete.length === 0) {
-      toast('info', '该组没有可删除的照片');
+      toast('info', t('duplicates.toast.noDeletable'));
       return;
     }
-    if (!await confirm(`确定要删除该组中 ${toDelete.length} 张重复照片吗？\n文件将被移动到回收站。`, { variant: 'danger', confirmText: '删除' })) {
+    if (!await confirm(t('duplicates.confirm.deleteGroup', { count: toDelete.length }), { variant: 'danger', confirmText: t('common.delete') })) {
       return;
     }
     if (!await confirmFirstTrashMove()) {
@@ -398,33 +402,33 @@ export function DuplicatesPage() {
       const failed = results.filter(r => !r.success);
       applyPhotoDeletion(successIds);
       removePhotos(successIds);
-      loadStats().catch((e) => console.error('[Duplicates] 删除后刷新统计失败:', e));
-      loadTrashCount().catch((e) => console.error('[Duplicates] 删除后刷新回收站数量失败:', e));
+      loadStats().catch((e) => console.error('[Duplicates] Failed to refresh stats after deletion:', e));
+      loadTrashCount().catch((e) => console.error('[Duplicates] Failed to refresh trash count after deletion:', e));
       setSelectedGroups(prev => {
         const next = new Set(prev);
         next.delete(group.id);
         return next;
       });
       if (successIds.length > 0) {
-        toast('success', `已移到回收站 ${successIds.length} 张照片`);
+        toast('success', t('duplicates.toast.movedToTrash', { count: successIds.length }));
       }
       if (failed.length > 0) {
-        toast('error', `${failed.length} 张照片处理失败：${failed[0].error}`);
+        toast('error', t('duplicates.toast.partialFailed', { count: failed.length, error: failed[0].error }));
       }
     } catch (error) {
-      toast('error', '删除失败：' + error);
+      toast('error', t('duplicates.toast.deleteFailed') + error);
     } finally {
       setIsDeleting(false);
     }
-  }, [getPhotosToDelete, confirm, applyPhotoDeletion, removePhotos, loadStats, loadTrashCount]);
+  }, [getPhotosToDelete, confirm, applyPhotoDeletion, removePhotos, loadStats, loadTrashCount, t]);
 
   const handleDeleteCurrentPhoto = useCallback(async () => {
     if (!selectedPhoto || !currentGroup) return;
     if (isPhotoKept(currentGroup.id, selectedPhoto.id, currentGroup.recommended_photo_id)) {
-      toast('warning', '该照片被标记为保留，无法删除');
+      toast('warning', t('duplicates.toast.keepProtected'));
       return;
     }
-    if (!await confirm(`确定要删除这张照片吗？\n${selectedPhoto.filename}\n文件将被移动到回收站。`, { variant: 'danger', confirmText: '删除' })) {
+    if (!await confirm(t('duplicates.confirm.deleteSingle', { filename: selectedPhoto.filename }), { variant: 'danger', confirmText: t('common.delete') })) {
       return;
     }
     if (!await confirmFirstTrashMove()) {
@@ -436,20 +440,20 @@ export function DuplicatesPage() {
       const failed = results.filter(r => !r.success);
       applyPhotoDeletion(successIds);
       removePhotos(successIds);
-      loadStats().catch((e) => console.error('[Duplicates] 删除后刷新统计失败:', e));
-      loadTrashCount().catch((e) => console.error('[Duplicates] 删除后刷新回收站数量失败:', e));
+      loadStats().catch((e) => console.error('[Duplicates] Failed to refresh stats after deletion:', e));
+      loadTrashCount().catch((e) => console.error('[Duplicates] Failed to refresh trash count after deletion:', e));
       setSelectedPhoto(null);
       setCurrentGroup(null);
       if (successIds.length > 0) {
-        toast('success', '已移到回收站');
+        toast('success', t('duplicates.toast.movedSingle'));
       }
       if (failed.length > 0) {
-        toast('error', `处理失败：${failed[0].error}`);
+        toast('error', t('duplicates.toast.processFailed', { error: failed[0].error }));
       }
     } catch (error) {
-      toast('error', '删除失败：' + error);
+      toast('error', t('duplicates.toast.deleteFailed') + error);
     }
-  }, [selectedPhoto, currentGroup, isPhotoKept, confirm, applyPhotoDeletion, removePhotos, loadStats, loadTrashCount]);
+  }, [selectedPhoto, currentGroup, isPhotoKept, confirm, applyPhotoDeletion, removePhotos, loadStats, loadTrashCount, t]);
 
   // ===== 详情弹窗 =====
 
@@ -574,11 +578,6 @@ export function DuplicatesPage() {
     handleDeleteDuplicates, handleReasonChange, moveFocus, toggleGroup,
   ]);
 
-  const formatDate = useCallback((dateStr: string | null) => {
-    if (!dateStr) return '未知';
-    return new Date(dateStr).toLocaleDateString('zh-CN');
-  }, []);
-
   const formatFileSize = useCallback((bytes: number) => {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -592,9 +591,9 @@ export function DuplicatesPage() {
       <div className="sticky top-0 z-20 bg-zinc-950/95 backdrop-blur border-b border-zinc-800/50">
         <div className="page-header py-3 mb-0">
           <div>
-            <h1 className="page-title">重复照片</h1>
+            <h1 className="page-title">{t('duplicates.pageTitle')}</h1>
             <p className="page-subtitle">
-              发现 {duplicatesTotal.toLocaleString()} 组重复，共 {stats?.duplicates || 0} 张重复照片
+              {t('duplicates.pageSubtitle', { groups: duplicatesTotal.toLocaleString(), count: stats?.duplicates || 0 })}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -611,7 +610,7 @@ export function DuplicatesPage() {
                 ) : (
                   <RefreshCw size={16} />
                 )}
-                {isDetecting && detectStage === 'exact' ? '检测中...' : '精确去重'}
+                {isDetecting && detectStage === 'exact' ? t('duplicates.detecting') : t('duplicates.detectExact')}
               </button>
               <button
                 onClick={handleDetectSimilar}
@@ -623,7 +622,7 @@ export function DuplicatesPage() {
                 ) : (
                   <RefreshCw size={16} />
                 )}
-                {isDetecting && (detectStage === 'similar' || detectStage === 'hashing') ? '检测中...' : '相似去重'}
+                {isDetecting && (detectStage === 'similar' || detectStage === 'hashing') ? t('duplicates.detecting') : t('duplicates.detectSimilar')}
               </button>
             </div>
 
@@ -636,21 +635,21 @@ export function DuplicatesPage() {
                 title="Ctrl+A"
                 className="btn-secondary"
               >
-                全选
+                {t('common.selectAll')}
               </button>
               <button
                 onClick={invertSelection}
                 title="Ctrl+I"
                 className="btn-secondary"
               >
-                反选
+                {t('duplicates.invert')}
               </button>
               <button
                 onClick={deselectAll}
                 title="Esc"
                 className="btn-secondary"
               >
-                取消全选
+                {t('common.deselectAll')}
               </button>
             </div>
 
@@ -669,14 +668,14 @@ export function DuplicatesPage() {
                 <Trash2 size={16} />
               )}
               {isDeleting
-                ? '删除中...'
+                ? t('duplicates.deleting')
                 : deleteStats.count > 0
-                  ? `删除重复 (${selectedGroups.size} 组 · ${deleteStats.count} 张 · ${formatFileSize(deleteStats.size)})`
-                  : `删除重复 (${selectedGroups.size})`}
+                  ? t('duplicates.deleteDuplicates', { groups: selectedGroups.size, count: deleteStats.count, size: formatFileSize(deleteStats.size) })
+                  : t('duplicates.deleteDuplicatesShort', { count: selectedGroups.size })}
             </button>
             <button
               onClick={() => setShowShortcuts(true)}
-              title="快捷键 (?)"
+              title={t('duplicates.shortcutsBtn')}
               className="icon-btn"
             >
               <Keyboard size={16} />
@@ -691,7 +690,7 @@ export function DuplicatesPage() {
               key={reason}
               onClick={() => handleReasonChange(reason)}
               disabled={isDetecting}
-              title={`按 ${idx + 1}`}
+              title={t('duplicates.tabs.' + reason)}
               className={cn(
                 'px-3 py-1.5 rounded-lg text-sm transition-colors',
                 duplicateReason === reason
@@ -700,13 +699,13 @@ export function DuplicatesPage() {
                 'disabled:opacity-50 disabled:cursor-not-allowed'
               )}
             >
-              {reason === 'all' && '全部'}
-              {reason === 'exact' && '精确重复'}
-              {reason === 'similar' && '相似重复'}
+              {reason === 'all' && t('duplicates.tabs.all')}
+              {reason === 'exact' && t('duplicates.tabs.exact')}
+              {reason === 'similar' && t('duplicates.tabs.similar')}
             </button>
           ))}
           <span className="text-xs text-zinc-500 ml-2">
-            提示：点击卡片选择，Shift+点击范围选择，? 查看快捷键
+            {t('duplicates.tip')}
           </span>
         </div>
       </div>
@@ -737,8 +736,8 @@ export function DuplicatesPage() {
         {duplicates.length === 0 ? (
           <Empty
             icon={Images}
-            title="没有发现重复照片"
-            description="你的照片库很干净！"
+            title={t('duplicates.empty.title')}
+            description={t('duplicates.empty.description')}
           />
         ) : (
           <div className="space-y-4">
@@ -773,10 +772,10 @@ export function DuplicatesPage() {
                   {loadingMore ? (
                     <>
                       <Loader2 size={16} className="animate-spin" />
-                      加载中...
+                      {t('common.loading')}
                     </>
                   ) : (
-                    '加载更多'
+                    t('duplicates.loadMore')
                   )}
                 </button>
               </div>
@@ -791,7 +790,7 @@ export function DuplicatesPage() {
           <button
             onClick={closeDetail}
             className="icon-btn absolute top-4 right-4 z-10"
-            title="关闭 (Esc)"
+            title={t('duplicates.detail.closeEsc')}
           >
             <X size={20} />
           </button>
@@ -800,7 +799,7 @@ export function DuplicatesPage() {
             onClick={() => navigatePhoto(-1)}
             disabled={currentGroup.photos.findIndex(p => p.id === selectedPhoto.id) === 0}
             className="icon-btn absolute left-4 disabled:opacity-30 disabled:cursor-not-allowed"
-            title="上一张 (←)"
+            title={t('duplicates.detail.prev')}
           >
             <ChevronLeft size={24} />
           </button>
@@ -809,7 +808,7 @@ export function DuplicatesPage() {
             onClick={() => navigatePhoto(1)}
             disabled={currentGroup.photos.findIndex(p => p.id === selectedPhoto.id) === currentGroup.photos.length - 1}
             className="icon-btn absolute right-4 disabled:opacity-30 disabled:cursor-not-allowed"
-            title="下一张 (→)"
+            title={t('duplicates.detail.next')}
           >
             <ChevronRight size={24} />
           </button>
@@ -828,40 +827,40 @@ export function DuplicatesPage() {
 
               <div className="space-y-3">
                 <div>
-                  <label className="text-xs text-zinc-400 uppercase tracking-wider">文件路径</label>
+                  <label className="text-xs text-zinc-400 uppercase tracking-wider">{t('duplicates.detail.filePath')}</label>
                   <div className="mt-1.5 p-2 bg-zinc-800 rounded text-xs text-zinc-300 break-all">
                     {selectedPhoto.path}
                   </div>
                 </div>
 
                 <div>
-                  <label className="text-xs text-zinc-400 uppercase tracking-wider">文件信息</label>
+                  <label className="text-xs text-zinc-400 uppercase tracking-wider">{t('common.fileInfo')}</label>
                   <div className="mt-1.5 space-y-1 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-zinc-400">大小</span>
+                      <span className="text-zinc-400">{t('common.size')}</span>
                       <span className="text-zinc-200">{formatFileSize(selectedPhoto.file_size)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-zinc-400">分辨率</span>
+                      <span className="text-zinc-400">{t('common.resolution')}</span>
                       <span className="text-zinc-200">{selectedPhoto.width} × {selectedPhoto.height}</span>
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <label className="text-xs text-zinc-400 uppercase tracking-wider">拍摄信息</label>
+                  <label className="text-xs text-zinc-400 uppercase tracking-wider">{t('common.exifInfo')}</label>
                   <div className="mt-1.5 space-y-1 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-zinc-400">日期</span>
+                      <span className="text-zinc-400">{t('common.date')}</span>
                       <span className={cn(
                         selectedPhoto.taken_at ? 'text-zinc-200' : 'text-zinc-500 italic'
                       )}>
-                        {formatDate(selectedPhoto.taken_at)}
+                        {formatDate(selectedPhoto.taken_at, t('common.unknownDate'))}
                       </span>
                     </div>
                     {selectedPhoto.camera && (
                       <div className="flex justify-between">
-                        <span className="text-zinc-400">相机</span>
+                        <span className="text-zinc-400">{t('common.camera')}</span>
                         <span className="text-zinc-200">{selectedPhoto.camera}</span>
                       </div>
                     )}
@@ -869,7 +868,7 @@ export function DuplicatesPage() {
                 </div>
 
                 <div>
-                  <label className="text-xs text-zinc-400 uppercase tracking-wider">位置</label>
+                  <label className="text-xs text-zinc-400 uppercase tracking-wider">{t('common.location')}</label>
                   <div className="mt-1.5">
                     {selectedPhoto.latitude && selectedPhoto.longitude ? (
                       <div className="flex items-center gap-2 text-sm text-zinc-200">
@@ -880,7 +879,7 @@ export function DuplicatesPage() {
                       </div>
                     ) : (
                       <div className="p-2 bg-zinc-800 rounded text-center">
-                        <p className="text-xs text-zinc-400">此照片没有GPS信息</p>
+                        <p className="text-xs text-zinc-400">{t('duplicates.detail.noGps')}</p>
                       </div>
                     )}
                   </div>
@@ -890,7 +889,7 @@ export function DuplicatesPage() {
                   <div className="p-2 bg-amber-500/10 rounded-lg border border-amber-500/30">
                     <div className="flex items-center gap-2 text-amber-500 text-sm">
                       <Star size={14} />
-                      <span>推荐保留</span>
+                      <span>{t('duplicates.recommended')}</span>
                     </div>
                   </div>
                 )}
@@ -907,7 +906,7 @@ export function DuplicatesPage() {
                     )}
                   >
                     <Star size={14} className={isPhotoKept(currentGroup.id, selectedPhoto.id, currentGroup.recommended_photo_id) ? 'fill-current' : ''} />
-                    {isPhotoKept(currentGroup.id, selectedPhoto.id, currentGroup.recommended_photo_id) ? '已标记保留' : '标记为保留'}
+                    {isPhotoKept(currentGroup.id, selectedPhoto.id, currentGroup.recommended_photo_id) ? t('duplicates.markedKeep') : t('duplicates.markKeep')}
                   </button>
                   {!isPhotoKept(currentGroup.id, selectedPhoto.id, currentGroup.recommended_photo_id) && (
                     <button
@@ -917,7 +916,7 @@ export function DuplicatesPage() {
                       className="w-full btn-danger disabled:opacity-50"
                     >
                       <Trash2 size={14} />
-                      删除此照片
+                      {t('duplicates.deleteThisPhoto')}
                     </button>
                   )}
                 </div>
@@ -940,7 +939,7 @@ export function DuplicatesPage() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-zinc-100 flex items-center gap-2">
                 <Keyboard size={18} />
-                键盘快捷键
+                {t('duplicates.shortcuts.title')}
               </h2>
               <button
                 onClick={() => setShowShortcuts(false)}
@@ -951,43 +950,43 @@ export function DuplicatesPage() {
             </div>
             <div className="space-y-4 text-sm">
               <div>
-                <div className="text-xs text-zinc-400 uppercase tracking-wider mb-2">选择</div>
+                <div className="text-xs text-zinc-400 uppercase tracking-wider mb-2">{t('duplicates.shortcuts.sectionSelection')}</div>
                 <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
-                  <Kbd>Ctrl+A</Kbd><span className="text-zinc-300">全选已加载组</span>
-                  <Kbd>Ctrl+I</Kbd><span className="text-zinc-300">反选</span>
-                  <Kbd>Esc</Kbd><span className="text-zinc-300">取消全选</span>
-                  <Kbd>Shift+Click</Kbd><span className="text-zinc-300">范围选择（从上次点击到当前）</span>
-                  <Kbd>↑ / ↓</Kbd><span className="text-zinc-300">移动焦点</span>
-                  <Kbd>Shift+↑/↓</Kbd><span className="text-zinc-300">范围选择（从锚点到焦点）</span>
-                  <Kbd>Space / Enter</Kbd><span className="text-zinc-300">切换焦点组选中态</span>
+                  <Kbd>Ctrl+A</Kbd><span className="text-zinc-300">{t('duplicates.shortcuts.selectAllLoaded')}</span>
+                  <Kbd>Ctrl+I</Kbd><span className="text-zinc-300">{t('duplicates.shortcuts.invert')}</span>
+                  <Kbd>Esc</Kbd><span className="text-zinc-300">{t('duplicates.shortcuts.deselectAll')}</span>
+                  <Kbd>Shift+Click</Kbd><span className="text-zinc-300">{t('duplicates.shortcuts.rangeSelect')}</span>
+                  <Kbd>↑ / ↓</Kbd><span className="text-zinc-300">{t('duplicates.shortcuts.moveFocus')}</span>
+                  <Kbd>Shift+↑/↓</Kbd><span className="text-zinc-300">{t('duplicates.shortcuts.rangeSelectAnchor')}</span>
+                  <Kbd>Space / Enter</Kbd><span className="text-zinc-300">{t('duplicates.shortcuts.toggleFocusGroup')}</span>
                 </div>
               </div>
               <div>
-                <div className="text-xs text-zinc-400 uppercase tracking-wider mb-2">操作</div>
+                <div className="text-xs text-zinc-400 uppercase tracking-wider mb-2">{t('duplicates.shortcuts.sectionActions')}</div>
                 <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
-                  <Kbd>Delete</Kbd><span className="text-zinc-300">删除选中组的重复照片</span>
-                  <Kbd>1 / 2 / 3</Kbd><span className="text-zinc-300">切换 全部 / 精确 / 相似</span>
-                  <Kbd>Ctrl+E</Kbd><span className="text-zinc-300">触发精确检测</span>
+                  <Kbd>Delete</Kbd><span className="text-zinc-300">{t('duplicates.shortcuts.deleteSelected')}</span>
+                  <Kbd>1 / 2 / 3</Kbd><span className="text-zinc-300">{t('duplicates.shortcuts.switchTab')}</span>
+                  <Kbd>Ctrl+E</Kbd><span className="text-zinc-300">{t('duplicates.shortcuts.triggerExact')}</span>
                 </div>
               </div>
               <div>
-                <div className="text-xs text-zinc-400 uppercase tracking-wider mb-2">详情弹窗</div>
+                <div className="text-xs text-zinc-400 uppercase tracking-wider mb-2">{t('duplicates.shortcuts.sectionDetail')}</div>
                 <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
-                  <Kbd>← / →</Kbd><span className="text-zinc-300">上一张 / 下一张</span>
-                  <Kbd>Esc</Kbd><span className="text-zinc-300">关闭弹窗</span>
-                  <Kbd>Delete</Kbd><span className="text-zinc-300">删除当前照片（非保留项）</span>
+                  <Kbd>← / →</Kbd><span className="text-zinc-300">{t('duplicates.shortcuts.prevNext')}</span>
+                  <Kbd>Esc</Kbd><span className="text-zinc-300">{t('duplicates.shortcuts.closeModal')}</span>
+                  <Kbd>Delete</Kbd><span className="text-zinc-300">{t('duplicates.shortcuts.deleteCurrent')}</span>
                 </div>
               </div>
               <div>
-                <div className="text-xs text-zinc-400 uppercase tracking-wider mb-2">其他</div>
+                <div className="text-xs text-zinc-400 uppercase tracking-wider mb-2">{t('duplicates.shortcuts.sectionOther')}</div>
                 <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
-                  <Kbd>?</Kbd><span className="text-zinc-300">显示 / 隐藏本帮助</span>
+                  <Kbd>?</Kbd><span className="text-zinc-300">{t('duplicates.shortcuts.toggleHelp')}</span>
                 </div>
               </div>
             </div>
             <div className="mt-4 pt-4 border-t border-zinc-800 text-xs text-zinc-400 flex items-center gap-2">
               <CornerDownLeft size={12} />
-              <span>点击空白处或按 Esc 关闭</span>
+              <span>{t('duplicates.shortcuts.footer')}</span>
             </div>
           </div>
         </div>
@@ -1011,7 +1010,7 @@ interface DuplicateCardProps {
   isFocused: boolean;
   isDeleting: boolean;
   thumbnails: Record<string, string>;
-  formatDate: (date: string | null) => string;
+  formatDate: (date: string | null, fallback?: string) => string;
   formatFileSize: (bytes: number) => string;
   onToggle: (index: number, shiftKey: boolean) => void;
   onPhotoClick: (photo: Photo, group: DuplicateGroup, e: React.MouseEvent) => void;
@@ -1035,6 +1034,7 @@ function DuplicateCard({
   onToggleKeep,
   onDeleteGroup,
 }: DuplicateCardProps) {
+  const { t } = useTranslation();
   const keptCount = group.photos.filter(p => isPhotoKept(p.id)).length;
   const toDeleteCount = group.photos.length - keptCount;
 
@@ -1071,20 +1071,20 @@ function DuplicateCard({
           {isSelected && <Check size={12} className="text-zinc-900" />}
         </div>
         <span className="text-sm text-zinc-400">
-          {group.reason === 'exact' ? '完全相同' : '相似'} · {group.photos.length} 张 · 保留 {keptCount} / 删除 {toDeleteCount}
+          {t('duplicates.card.' + (group.reason === 'exact' ? 'exact' : 'similar'))} · {t('duplicates.card.photosCount', { count: group.photos.length })} · {t('duplicates.card.keepDelete', { keep: keptCount, delete: toDeleteCount })}
         </span>
         <div className="ml-auto flex items-center gap-1">
           <button
             onClick={(e) => { e.stopPropagation(); onDeleteGroup(); }}
             disabled={isDeleting || toDeleteCount === 0}
-            title={`删除本组重复照片（${toDeleteCount} 张）`}
+            title={t('duplicates.card.deleteGroupTitle', { count: toDeleteCount })}
             className={cn(
               'btn-danger text-xs px-2 py-1',
               'disabled:opacity-50 disabled:cursor-not-allowed'
             )}
           >
             <Trash2 size={12} />
-            删除本组 ({toDeleteCount})
+            {t('duplicates.card.deleteGroup', { count: toDeleteCount })}
           </button>
         </div>
       </div>
@@ -1126,7 +1126,7 @@ function DuplicateCard({
                       ? 'bg-amber-500 text-zinc-900 hover:bg-amber-400'
                       : 'bg-black/50 text-zinc-400 hover:bg-black/70 hover:text-zinc-200 opacity-80 group-hover:opacity-100'
                   )}
-                  title={kept ? '已标记保留（点击取消保留）' : '未保留（点击标记为保留）'}
+                  title={kept ? t('duplicates.card.keepTitle') : t('duplicates.card.unkeepTitle')}
                 >
                   <Star size={12} className={kept ? 'fill-current' : ''} />
                 </button>
@@ -1134,7 +1134,7 @@ function DuplicateCard({
                 {/* 推荐标记：左上角小标签 */}
                 {isRecommended && (
                   <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-amber-500/90 rounded text-xs text-zinc-900 font-medium z-10">
-                    推荐
+                    {t('duplicates.recommendedTag')}
                   </div>
                 )}
 
@@ -1149,12 +1149,12 @@ function DuplicateCard({
                 </p>
                 <div className="mt-1 flex items-center gap-2 text-xs text-zinc-400">
                   <Calendar size={10} />
-                  {formatDate(photo.taken_at)}
+                  {formatDate(photo.taken_at, t('common.unknownDate'))}
                 </div>
                 {photo.latitude && (
                   <div className="mt-1 flex items-center gap-1 text-xs text-green-500">
                     <MapPin size={10} />
-                    有位置
+                    {t('duplicates.card.hasLocation')}
                   </div>
                 )}
               </div>
@@ -1165,7 +1165,7 @@ function DuplicateCard({
 
       <div className="mt-3 text-xs text-zinc-400 flex items-center gap-2">
         <AlertTriangle size={12} className="inline" />
-        <span>精确重复组仅保留一张，相似重复组可保留多张；未保留的照片将被删除。带"推荐"标签为系统推荐保留项。</span>
+        <span>{t('duplicates.card.footerHint')}</span>
       </div>
     </div>
   );

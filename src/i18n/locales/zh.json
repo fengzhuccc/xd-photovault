@@ -1,0 +1,429 @@
+{
+  "common": {
+    "save": "保存",
+    "saving": "保存中...",
+    "cancel": "取消",
+    "confirm": "确认",
+    "replace": "替换",
+    "delete": "删除",
+    "clear": "清除",
+    "clearing": "清除中...",
+    "browse": "浏览...",
+    "restoreDefault": "恢复默认",
+    "loading": "加载中...",
+    "refreshing": "刷新中...",
+    "refresh": "刷新",
+    "openFolder": "打开目录",
+    "selectAll": "全选",
+    "deselectAll": "取消选择",
+    "done": "完成",
+    "multiSelect": "多选",
+    "cancelSelection": "取消选择",
+    "noData": "暂无内容",
+    "unknownDate": "未知日期",
+    "never": "从未",
+    "unknown": "未知",
+    "photos": "{{count}} 张照片",
+    "photos_one": "{{count}} 张照片",
+    "photos_other": "{{count}} 张照片",
+    "size": "大小",
+    "resolution": "分辨率",
+    "type": "类型",
+    "date": "日期",
+    "camera": "相机",
+    "latitude": "纬度",
+    "longitude": "经度",
+    "duration": "时长",
+    "video": "视频",
+    "image": "图片",
+    "location": "位置",
+    "fileInfo": "文件信息",
+    "exifInfo": "拍摄信息",
+    "latPlaceholder": "-90 到 90",
+    "lngPlaceholder": "-180 到 180",
+    "saveFailed": "保存失败：",
+    "useDefault": "使用默认位置"
+  },
+  "nav": {
+    "brand": "小呆相册",
+    "library": "照片库",
+    "browse": "浏览",
+    "duplicates": "去重",
+    "map": "地图",
+    "trash": "回收站",
+    "settings": "设置",
+    "totalPhotos": "照片总数",
+    "withLocation": "有位置",
+    "duplicatesCount": "重复",
+    "badgeOverflow": "99+"
+  },
+  "settings": {
+    "pageTitle": "设置",
+    "pageSubtitle": "管理应用程序设置和数据",
+    "language": {
+      "title": "语言",
+      "subtitle": "切换界面语言",
+      "description": "选择应用界面使用的语言，更改后立即生效。"
+    },
+    "dataStorage": {
+      "title": "数据存储位置",
+      "subtitle": "设置数据库和缩略图的存储位置",
+      "currentLocation": "当前位置",
+      "customLocation": "自定义存储位置",
+      "customPlaceholder": "使用默认位置",
+      "customHint": "数据库和缩略图将存储在此位置。留空则使用默认位置。",
+      "saveAndRestart": "保存并重启",
+      "toastSaved": "设置已保存，请重启应用以使用新的数据存储位置。",
+      "toastReset": "已恢复默认设置，请重启应用。",
+      "confirmChange": "更改数据存储位置后需要重启应用才能生效。\n\n确定要保存吗？",
+      "confirmReset": "确定要恢复默认存储位置吗？\n需要重启应用才能生效。",
+      "toastLoadFailed": "加载数据路径失败"
+    },
+    "trash": {
+      "title": "回收站",
+      "subtitle": "两级回收站的工作方式",
+      "description": "应用在每张原图所在磁盘的根目录下创建隐藏文件夹 <code>{{folder}}</code>，删除的照片会先移动到这里。",
+      "step1": "在应用内点击“删除”：照片移入应用回收站（隐藏文件夹）。",
+      "step2": "在回收站点击“彻底删除”：照片进入系统回收站。",
+      "step3": "清空系统回收站后，照片才真正从磁盘上消失。",
+      "note": "Windows 下该文件夹已设置隐藏属性；macOS/Linux 下以点号开头自动隐藏。"
+    },
+    "log": {
+      "title": "日志设置",
+      "subtitle": "配置日志存储位置并查看日志",
+      "currentPath": "当前日志路径",
+      "customPath": "自定义日志路径",
+      "customHint": "日志文件将存储在此目录下。留空则使用默认位置。",
+      "savePath": "保存路径",
+      "viewLog": "查看日志",
+      "hideLog": "隐藏日志",
+      "logView": "日志查看",
+      "logViewHint": "查看、刷新或清除应用运行日志",
+      "clearLog": "清除日志",
+      "emptyLog": "暂无日志",
+      "toastSaved": "日志路径已更新",
+      "toastReset": "已恢复默认日志路径",
+      "toastCleared": "日志已清除",
+      "confirmClear": "确定要清除所有日志吗？",
+      "readFailed": "读取日志失败：",
+      "toastLoadFailed": "加载日志路径失败",
+      "toastClearFailed": "清除失败："
+    },
+    "map": {
+      "title": "地图设置",
+      "subtitle": "配置地图瓦片源和 API Key",
+      "tileProvider": "地图瓦片源",
+      "apiKey": "API Key",
+      "apiKeyPlaceholder": "输入 API Key",
+      "applyKey": "前往申请 API Key",
+      "coordTransformHint": "此地图源使用 GCJ02 坐标系，照片坐标将自动从 WGS84 转换",
+      "save": "保存地图设置",
+      "toastSaved": "地图设置已保存，切换到地图页面即可生效",
+      "providers": {
+        "amap": "高德地图（自动坐标偏移）",
+        "amap_dark": "高德暗色（自动坐标偏移）",
+        "tianditu": "天地图（需 API Key + 自动坐标偏移）"
+      }
+    },
+    "cache": {
+      "title": "缓存管理",
+      "subtitle": "清除缓存以释放磁盘空间",
+      "thumbnail": "缩略图缓存",
+      "thumbnailHint": "清除后下次浏览时会重新生成",
+      "clear": "清除",
+      "fileCount": "文件总数",
+      "diskUsage": "占用空间",
+      "sizeDistribution": "尺寸分布",
+      "sizeDistributionDetail": "small {{small}} / medium {{medium}}",
+      "toastCleared": "缩略图缓存已清除",
+      "toastStatsFailed": "获取缩略图统计失败：",
+      "toastClearFailed": "清除失败：",
+      "confirmClear": "确定要清除所有缩略图缓存吗？\n下次浏览时会重新生成缩略图。"
+    },
+    "danger": {
+      "title": "危险操作",
+      "subtitle": "这些操作不可逆，请谨慎使用",
+      "clearDatabase": "清除数据库",
+      "clearDatabaseHint": "删除所有照片记录、文件夹和重复检测结果，需要重新扫描",
+      "confirmClear1": "确定要清除所有数据吗？\n\n这将删除所有照片记录、文件夹和重复检测结果。\n此操作不可恢复！",
+      "confirmClear2": "再次确认：这将删除数据库中的所有记录，需要重新扫描文件夹。\n\n确定继续吗？",
+      "confirmClearBtn": "清除",
+      "confirmClear2Btn": "确认清除",
+      "toastCleared": "数据库已清除，请重新添加文件夹并扫描。",
+      "toastFailed": "清除失败："
+    },
+    "about": {
+      "title": "关于",
+      "subtitle": "小呆相册 - 简单好用的照片管理工具",
+      "appName": "小呆相册",
+      "version": "版本 v{{version}}",
+      "description": "专注于本地照片管理、智能去重与地图浏览的桌面应用。支持时间线浏览、AI 语义搜索、重复照片检测与地理位置可视化，所有照片数据均存储在本地，保护您的隐私安全。"
+    }
+  },
+  "library": {
+    "pageTitle": "照片库",
+    "pageSubtitle": "管理你的照片文件夹，扫描并建立索引",
+    "addFolder": "添加文件夹",
+    "stats": {
+      "totalPhotos": "照片总数",
+      "withLocation": "有位置信息",
+      "duplicatePhotos": "重复照片",
+      "folderCount": "文件夹数"
+    },
+    "scan": {
+      "scanning": "正在扫描...",
+      "complete": "扫描完成",
+      "added": "新增 {{count}} 张",
+      "skipped": "跳过 {{count}} 张",
+      "deleted": "删除 {{count}} 张",
+      "noNew": "未发现新照片",
+      "scanNew": "扫描新增",
+      "forceRescan": "强制重新扫描",
+      "toastBusy": "已有文件夹正在扫描，请等待当前扫描完成。",
+      "toastFailed": "扫描失败：",
+      "confirmForceRescan": "强制重新扫描将清除当前目录所有索引并重新扫描，确定继续吗？"
+    },
+    "ai": {
+      "title": "AI 语义索引",
+      "description": "建立索引后，可通过语义搜索照片内容。索引过程在后台运行，可随时暂停。",
+      "build": "建立索引",
+      "pause": "暂停",
+      "pausing": "暂停中",
+      "resume": "继续",
+      "cancel": "取消",
+      "gpuToggle": "GPU 加速索引",
+      "gpuToggleDesc": "开启后使用 DirectML 调用显卡索引，失败会自动回退 CPU",
+      "gpuCurrent": "当前执行器："
+    },
+    "empty": {
+      "title": "还没有添加任何文件夹",
+      "description": "添加照片文件夹后，小呆相册会扫描并建立索引，方便你浏览、搜索和管理照片。"
+    },
+    "folder": {
+      "photos": "{{count}} 张照片",
+      "toastAddFailed": "添加文件夹失败：",
+      "toastRemoveFailed": "移除文件夹失败：",
+      "toastConflictChild": "该文件夹已被包含在 \"{{path}}\" 中，无需重复添加。",
+      "toastTrashFolder": "不能将应用回收站（.xd-photovault-trash）添加为图库文件夹。",
+      "confirmReplaceParent": "该文件夹包含已有的 {{count}} 个子文件夹：\n{{list}}\n\n是否用父目录替换所有子目录？替换后子目录的索引将被删除，父目录将重新扫描。",
+      "confirmRemove": "确定要移除此文件夹吗？照片索引将被删除，但原始文件不会被删除。"
+    }
+  },
+  "browse": {
+    "pageTitle": "浏览照片",
+    "subtitleAll": "共 {{count}} 张照片",
+    "subtitleAiSearch": "AI 搜索结果：{{count}} 张",
+    "searchPlaceholder": "AI 语义搜索...",
+    "clearSearch": "清除搜索",
+    "backToAll": "返回全部",
+    "filter": "筛选",
+    "filters": {
+      "all": "全部",
+      "withLocation": "有位置",
+      "noLocation": "无位置",
+      "allCameras": "全部相机",
+      "image": "图片",
+      "video": "视频"
+    },
+    "timeline": "时间线",
+    "loadingMore": "正在加载更多...",
+    "selected": "已选择 {{count}} 张",
+    "modifyLocation": "修改位置 ({{count}})",
+    "moveToTrash": "移到回收站 ({{count}})",
+    "empty": {
+      "aiTitle": "未找到匹配的照片",
+      "aiDescription": "请尝试其他关键词，或确认已完成 AI 索引",
+      "browseTitle": "没有找到照片",
+      "browseDescription": "请先在照片库中添加并扫描文件夹"
+    },
+    "toast": {
+      "moveToTrashFailed": "移到回收站失败：",
+      "batchLocationSuccess": "已为 {{count}} 张照片设置位置",
+      "batchLocationFailed": "批量设置位置失败：",
+      "confirmMoveToTrash": "确定要将选中的 {{count}} 张照片移到回收站吗？\n\n可在回收站中还原或彻底删除。"
+    }
+  },
+  "duplicates": {
+    "pageTitle": "重复照片",
+    "pageSubtitle": "发现 {{groups}} 组重复，共 {{count}} 张重复照片",
+    "detecting": "检测中...",
+    "detectExact": "精确去重",
+    "detectSimilar": "相似去重",
+    "invert": "反选",
+    "deleteDuplicates": "删除重复 ({{groups}} 组 · {{count}} 张 · {{size}})",
+    "deleteDuplicatesShort": "删除重复 ({{count}})",
+    "deleting": "删除中...",
+    "shortcutsBtn": "快捷键 (?)",
+    "tabs": {
+      "all": "全部",
+      "exact": "精确重复",
+      "similar": "相似重复"
+    },
+    "tip": "提示：点击卡片选择，Shift+点击范围选择，? 查看快捷键",
+    "empty": {
+      "title": "没有发现重复照片",
+      "description": "你的照片库很干净！"
+    },
+    "loadMore": "加载更多",
+    "detail": {
+      "closeEsc": "关闭 (Esc)",
+      "prev": "上一张 (←)",
+      "next": "下一张 (→)",
+      "filePath": "文件路径",
+      "noGps": "此照片没有GPS信息"
+    },
+    "recommended": "推荐保留",
+    "recommendedTag": "推荐",
+    "markedKeep": "已标记保留",
+    "markKeep": "标记为保留",
+    "deleteThisPhoto": "删除此照片",
+    "card": {
+      "exact": "完全相同",
+      "similar": "相似",
+      "photosCount": "{{count}} 张",
+      "keepDelete": "保留 {{keep}} / 删除 {{delete}}",
+      "deleteGroup": "删除本组 ({{count}})",
+      "deleteGroupTitle": "删除本组重复照片（{{count}} 张）",
+      "keepTitle": "已标记保留（点击取消保留）",
+      "unkeepTitle": "未保留（点击标记为保留）",
+      "hasLocation": "有位置",
+      "footerHint": "精确重复组仅保留一张，相似重复组可保留多张；未保留的照片将被删除。带\"推荐\"标签为系统推荐保留项。"
+    },
+    "shortcuts": {
+      "title": "键盘快捷键",
+      "sectionSelection": "选择",
+      "sectionActions": "操作",
+      "sectionDetail": "详情弹窗",
+      "sectionOther": "其他",
+      "selectAllLoaded": "全选已加载组",
+      "invert": "反选",
+      "deselectAll": "取消全选",
+      "rangeSelect": "范围选择（从上次点击到当前）",
+      "moveFocus": "移动焦点",
+      "rangeSelectAnchor": "范围选择（从锚点到焦点）",
+      "toggleFocusGroup": "切换焦点组选中态",
+      "deleteSelected": "删除选中组的重复照片",
+      "switchTab": "切换 全部 / 精确 / 相似",
+      "triggerExact": "触发精确检测",
+      "prevNext": "上一张 / 下一张",
+      "closeModal": "关闭弹窗",
+      "deleteCurrent": "删除当前照片（非保留项）",
+      "toggleHelp": "显示 / 隐藏本帮助",
+      "footer": "点击空白处或按 Esc 关闭"
+    },
+    "toast": {
+      "scanBusy": "扫描进行中，请等待扫描完成后再进行去重检测",
+      "alreadyRunning": "去重检测已在进行中，请勿重复点击",
+      "detectFailed": "检测失败：",
+      "needKeep": "每组至少需要保留一张照片",
+      "needSelect": "请先选择要处理的重复组",
+      "movedToTrash": "已移到回收站 {{count}} 张照片",
+      "partialFailed": "{{count}} 张照片处理失败：{{error}}",
+      "deleteFailed": "删除失败：",
+      "processFailed": "处理失败：{{error}}",
+      "noDeletable": "该组没有可删除的照片",
+      "keepProtected": "该照片被标记为保留，无法删除",
+      "movedSingle": "已移到回收站"
+    },
+    "confirm": {
+      "exactDetect": "将重新检测所有完全相同的照片（基于文件内容哈希）。确定继续吗？",
+      "exactDetectBtn": "开始检测",
+      "similarDetect": "相似去重会计算每张照片的感知哈希并比较视觉相似度，照片数量较多时可能需要数小时。\n\n建议在不需要使用应用时进行。确定继续吗？",
+      "similarDetectBtn": "开始相似去重",
+      "deleteBatch": "确定要删除 {{count}} 张重复照片吗？\n文件将被移动到回收站。",
+      "deleteGroup": "确定要删除该组中 {{count}} 张重复照片吗？\n文件将被移动到回收站。",
+      "deleteSingle": "确定要删除这张照片吗？\n{{filename}}\n文件将被移动到回收站。"
+    }
+  },
+  "map": {
+    "pageTitle": "地图视图",
+    "subtitleWithLocation": "{{count}} 张照片有位置信息",
+    "subtitleLoading": "加载中...",
+    "subtitleWithoutLocation": "· {{count}} 张无位置",
+    "drawerSummary": "{{count}} 张照片",
+    "emptyNoLocationTitle": "没有带位置信息的照片",
+    "emptyNoLocationDesc": "照片需要有 GPS 数据才能在地图上显示",
+    "emptyViewportTitle": "当前视口没有照片",
+    "emptyViewportDesc": "移动或缩放地图查看更多位置",
+    "viewportLoading": "加载视口照片...",
+    "markerTooltip": "{{count}} 张照片",
+    "amapName": "高德地图"
+  },
+  "trash": {
+    "pageTitle": "回收站",
+    "pageSubtitle": "共 {{count}} 张照片，占用 {{size}}",
+    "emptying": "清空中...",
+    "emptyAll": "清空回收站",
+    "empty": {
+      "title": "回收站是空的",
+      "description": "删除的照片会暂时放在这里，清空后才会进入系统回收站。"
+    },
+    "selected": "已选择 {{count}} 张",
+    "restore": "还原 ({{count}})",
+    "permanentDelete": "彻底删除 ({{count}})",
+    "toast": {
+      "loadFailed": "加载回收站失败：",
+      "restored": "已还原 {{count}} 张照片",
+      "restorePartialFailed": "{{count}} 张照片还原失败：{{error}}",
+      "restoreFailed": "还原失败：",
+      "deleted": "已删除 {{count}} 张照片",
+      "deletePartialFailed": "{{count}} 张照片删除失败：{{error}}",
+      "deleteFailed": "删除失败：",
+      "emptied": "已清空回收站，{{count}} 张照片已移动到系统回收站",
+      "emptyPartialFailed": "{{count}} 张照片处理失败",
+      "emptyFailed": "清空回收站失败："
+    },
+    "confirm": {
+      "permanentDelete": "确定要永久删除选中的 {{count}} 张照片吗？\n\n删除后将移动到系统回收站，可在系统回收站中还原。",
+      "permanentDeleteBtn": "永久删除",
+      "emptyAll": "确定要清空回收站吗？\n\n所有照片将被移动到系统回收站，可在系统回收站中还原。",
+      "emptyAllBtn": "清空回收站"
+    }
+  },
+  "photoDetail": {
+    "unknownDate": "未知日期",
+    "videoLoadFailed": "无法加载视频",
+    "imageLoadFailed": "无法加载图片",
+    "loadingExif": "加载 EXIF...",
+    "deletePhoto": "删除照片",
+    "close": "关闭",
+    "aperture": "光圈",
+    "shutter": "快门",
+    "noGps": "此照片没有GPS信息",
+    "addLocation": "点击添加位置",
+    "selectOnMap": "在地图上选择",
+    "viewOnMap": "在地图上查看",
+    "editDate": {
+      "cancel": "取消",
+      "save": "保存",
+      "saving": "保存中..."
+    },
+    "toast": {
+      "saveDateFailed": "保存日期失败：",
+      "invalidCoords": "请输入有效的经纬度坐标",
+      "saveLocationFailed": "保存位置失败：",
+      "moveToTrashFailed": "移到回收站失败："
+    },
+    "confirm": {
+      "moveToTrash": "确定要将这张照片移到回收站吗？\n\n{{filename}}\n\n可在回收站中还原或彻底删除。",
+      "moveToTrashBtn": "移到回收站"
+    }
+  },
+  "mapPicker": {
+    "title": "在地图上选择位置",
+    "confirmLocation": "确认位置"
+  },
+  "confirm": {
+    "defaultTitle": "确认",
+    "defaultConfirm": "确定",
+    "defaultCancel": "取消"
+  },
+  "trashPrompt": {
+    "message": "删除的照片会暂存到应用回收站，您可以随时还原或彻底删除。\n\n在回收站中点击\"彻底删除\"后，照片才会进入系统回收站。\n\n如需更改回收站位置，请前往\"设置\"。",
+    "confirmText": "我知道了"
+  },
+  "toast": {
+    "duplicateLoadFailed": "去重结果加载失败",
+    "duplicateDetectComplete": "去重检测完成"
+  }
+}

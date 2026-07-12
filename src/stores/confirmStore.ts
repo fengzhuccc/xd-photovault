@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import i18next from '@/i18n';
 
 interface ConfirmState {
   open: boolean;
@@ -20,10 +21,10 @@ let resolveRef: ((value: boolean) => void) | null = null;
 
 export const useConfirmStore = create<ConfirmState & ConfirmActions>((set) => ({
   open: false,
-  title: '确认',
+  title: i18next.t('confirm.defaultTitle'),
   message: '',
-  confirmText: '确定',
-  cancelText: '取消',
+  confirmText: i18next.t('confirm.defaultConfirm'),
+  cancelText: i18next.t('confirm.defaultCancel'),
   variant: 'warning',
   onConfirm: null,
   onCancel: null,
@@ -35,10 +36,10 @@ export const useConfirmStore = create<ConfirmState & ConfirmActions>((set) => ({
       resolveRef = resolve;
       set({
         open: true,
-        title: options.title || '确认',
+        title: options.title || i18next.t('confirm.defaultTitle'),
         message: options.message || '',
-        confirmText: options.confirmText || '确定',
-        cancelText: options.cancelText || '取消',
+        confirmText: options.confirmText || i18next.t('confirm.defaultConfirm'),
+        cancelText: options.cancelText || i18next.t('confirm.defaultCancel'),
         variant: options.variant || 'warning',
         onConfirm: null,
         onCancel: null,

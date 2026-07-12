@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Trash2, RotateCcw, AlertTriangle, Loader2, CheckCircle2, Circle, FolderOpen, ImageOff } from 'lucide-react';
 import Empty from '@/components/Empty';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
+import { useFormatDate } from '@/lib/useFormatDate';
 import { cn } from '@/lib/utils';
 import type { Photo } from '@/types';
 
@@ -13,7 +15,7 @@ interface PhotoGridItemProps {
   isSelected: boolean;
   selectMode: boolean;
   onToggleSelect: (photoId: string, e?: React.MouseEvent) => void;
-  formatDate: (date: string | null) => string;
+  formatDate: ReturnType<typeof useFormatDate>;
 }
 
 const PhotoGridItem = function PhotoGridItem({
@@ -24,6 +26,7 @@ const PhotoGridItem = function PhotoGridItem({
   onToggleSelect,
   formatDate,
 }: PhotoGridItemProps) {
+  const { t } = useTranslation();
   const [imageError, setImageError] = useState(false);
   const hasThumbnail = thumbnail && !imageError;
 
@@ -66,7 +69,7 @@ const PhotoGridItem = function PhotoGridItem({
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
           <div className="absolute bottom-0 left-0 right-0 p-2">
             <p className="text-xs text-white truncate">{photo.filename}</p>
-            <p className="text-xs text-zinc-200">{formatDate(photo.taken_at)}</p>
+            <p className="text-xs text-zinc-200">{formatDate(photo.taken_at, t('common.unknownDate'), { year: 'numeric', month: 'long', day: 'numeric' })}</p>
           </div>
         </div>
       )}
@@ -83,6 +86,7 @@ function formatBytes(bytes: number) {
 }
 
 export function TrashPage() {
+  const { t } = useTranslation();
   const { loadTrashStats, trashCount, trashTotalSize } = useAppStore();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
@@ -92,6 +96,7 @@ export function TrashPage() {
   const [isRestoring, setIsRestoring] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isEmptying, setIsEmptying] = useState(false);
+  const formatDate = useFormatDate();
   const thumbnailInFlightRef = useRef<Set<string>>(new Set());
   const photosRef = useRef<Photo[]>(photos);
   const thumbnailsRef = useRef<Record<string, string>>(thumbnails);
@@ -104,7 +109,7 @@ export function TrashPage() {
       const list = await window.api.trash.list();
       setPhotos(list as Photo[]);
     } catch (error) {
-      toast('error', '加载回收站失败：' + error);
+      toast('error', t('trash.toast.loadFailed') + error);
     } finally {
       setIsLoading(false);
     }
@@ -182,14 +187,14 @@ export function TrashPage() {
           for (const id of successIds) next.delete(id);
           return next;
         });
-        toast('success', `已还原 ${successIds.length} 张照片`);
+        toast('success', t('trash.toast.restored', { count: successIds.length }));
       }
       if (failed.length > 0) {
-        toast('error', `${failed.length} 张照片还原失败：${failed[0].error}`);
+        toast('error', t('trash.toast.restorePartialFailed', { count: failed.length, error: failed[0].error }));
       }
       await loadTrashStats();
     } catch (error) {
-      toast('error', '还原失败：' + error);
+      toast('error', t('trash.toast.restoreFailed') + error);
     } finally {
       setIsRestoring(false);
     }
@@ -198,7 +203,7 @@ export function TrashPage() {
   const handlePermanentDelete = async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
-    if (!await confirm(`确定要永久删除选中的 ${ids.length} 张照片吗？\n\n删除后将移动到系统回收站，可在系统回收站中还原。`, { variant: 'danger', confirmText: '永久删除' })) {
+    if (!await confirm(t('trash.confirm.permanentDelete', { count: ids.length }), { variant: 'danger', confirmText: t('trash.confirm.permanentDeleteBtn') })) {
       return;
     }
     setIsDeleting(true);
@@ -213,21 +218,21 @@ export function TrashPage() {
           for (const id of successIds) next.delete(id);
           return next;
         });
-        toast('success', `已删除 ${successIds.length} 张照片`);
+        toast('success', t('trash.toast.deleted', { count: successIds.length }));
       }
       if (failed.length > 0) {
-        toast('error', `${failed.length} 张照片删除失败：${failed[0].error}`);
+        toast('error', t('trash.toast.deletePartialFailed', { count: failed.length, error: failed[0].error }));
       }
       await loadTrashStats();
     } catch (error) {
-      toast('error', '删除失败：' + error);
+      toast('error', t('trash.toast.deleteFailed') + error);
     } finally {
       setIsDeleting(false);
     }
   };
 
   const handleEmptyTrash = async () => {
-    if (!await confirm('确定要清空回收站吗？\n\n所有照片将被移动到系统回收站，可在系统回收站中还原。', { variant: 'danger', confirmText: '清空回收站' })) {
+    if (!await confirm(t('trash.confirm.emptyAll'), { variant: 'danger', confirmText: t('trash.confirm.emptyAllBtn') })) {
       return;
     }
     setIsEmptying(true);
@@ -237,34 +242,25 @@ export function TrashPage() {
       const failed = results.filter(r => !r.success);
       setPhotos([]);
       setSelectedIds(new Set());
-      toast('success', `已清空回收站，${successCount} 张照片已移动到系统回收站`);
+      toast('success', t('trash.toast.emptied', { count: successCount }));
       if (failed.length > 0) {
-        toast('error', `${failed.length} 张照片处理失败`);
+        toast('error', t('trash.toast.emptyPartialFailed', { count: failed.length }));
       }
       await loadTrashStats();
     } catch (error) {
-      toast('error', '清空回收站失败：' + error);
+      toast('error', t('trash.toast.emptyFailed') + error);
     } finally {
       setIsEmptying(false);
     }
-  };
-
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '未知日期';
-    return new Date(dateStr).toLocaleDateString('zh-CN', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
   };
 
   return (
     <div className="h-full flex flex-col">
       <div className="page-header">
         <div>
-          <h1 className="page-title">回收站</h1>
+          <h1 className="page-title">{t('trash.pageTitle')}</h1>
           <p className="page-subtitle">
-            共 {trashCount.toLocaleString()} 张照片，占用 {formatBytes(trashTotalSize)}
+            {t('trash.pageSubtitle', { count: trashCount.toLocaleString(), size: formatBytes(trashTotalSize) })}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -279,7 +275,7 @@ export function TrashPage() {
               ) : (
                 <Trash2 size={16} />
               )}
-              {isEmptying ? '清空中...' : '清空回收站'}
+              {isEmptying ? t('trash.emptying') : t('trash.emptyAll')}
             </button>
           )}
           <button
@@ -295,7 +291,7 @@ export function TrashPage() {
             )}
           >
             <CheckCircle2 size={16} />
-            {selectMode ? '取消选择' : '多选'}
+            {selectMode ? t('common.cancelSelection') : t('common.multiSelect')}
           </button>
         </div>
       </div>
@@ -308,8 +304,8 @@ export function TrashPage() {
         ) : photos.length === 0 ? (
           <Empty
             icon={FolderOpen}
-            title="回收站是空的"
-            description="删除的照片会暂时放在这里，清空后才会进入系统回收站。"
+            title={t('trash.empty.title')}
+            description={t('trash.empty.description')}
           />
         ) : (
           <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-1 p-1">
@@ -332,20 +328,20 @@ export function TrashPage() {
         <div className="sticky bottom-0 left-0 right-0 bg-zinc-900/95 backdrop-blur-sm border-t border-zinc-800 px-4 py-3 flex items-center justify-between z-20">
           <div className="flex items-center gap-4">
             <span className="text-sm text-zinc-300">
-              已选择 <span className="text-amber-500 font-medium">{selectedIds.size}</span> 张
+              {t('trash.selected', { count: selectedIds.size })}
             </span>
             <button
               onClick={selectAll}
               className="text-xs text-amber-500 hover:text-amber-400 transition-colors"
             >
-              全选
+              {t('common.selectAll')}
             </button>
             {selectedIds.size > 0 && (
               <button
                 onClick={clearSelection}
                 className="text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
               >
-                取消选择
+                {t('common.deselectAll')}
               </button>
             )}
           </div>
@@ -354,7 +350,7 @@ export function TrashPage() {
               onClick={exitSelectMode}
               className="btn-secondary"
             >
-              完成
+              {t('common.done')}
             </button>
             <button
               onClick={handleRestore}
@@ -371,7 +367,7 @@ export function TrashPage() {
               ) : (
                 <RotateCcw size={16} />
               )}
-              还原{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+              {t('trash.restore', { count: selectedIds.size })}
             </button>
             <button
               onClick={handlePermanentDelete}
@@ -388,7 +384,7 @@ export function TrashPage() {
               ) : (
                 <AlertTriangle size={16} />
               )}
-              彻底删除{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+              {t('trash.permanentDelete', { count: selectedIds.size })}
             </button>
           </div>
         </div>

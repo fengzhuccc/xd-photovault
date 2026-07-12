@@ -1,10 +1,11 @@
 import { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { 
-  Library, 
-  Images, 
-  Copy, 
-  Map, 
+import { useTranslation } from 'react-i18next';
+import {
+  Library,
+  Images,
+  Copy,
+  Map,
   ChevronLeft,
   ChevronRight,
   Settings,
@@ -14,22 +15,22 @@ import { useAppStore } from '@/stores/appStore';
 import { cn } from '@/lib/utils';
 
 const navItems = [
-  { to: '/', icon: Library, label: '照片库' },
-  { to: '/browse', icon: Images, label: '浏览' },
-  { to: '/duplicates', icon: Copy, label: '去重' },
-  { to: '/map', icon: Map, label: '地图' },
-  { to: '/trash', icon: Trash2, label: '回收站' },
+  { to: '/', icon: Library, labelKey: 'nav.library' },
+  { to: '/browse', icon: Images, labelKey: 'nav.browse' },
+  { to: '/duplicates', icon: Copy, labelKey: 'nav.duplicates' },
+  { to: '/map', icon: Map, labelKey: 'nav.map' },
+  { to: '/trash', icon: Trash2, labelKey: 'nav.trash' },
 ];
 
 export function Sidebar() {
   const { sidebarCollapsed, setSidebarCollapsed, stats, trashCount, loadTrashCount } = useAppStore();
+  const { t } = useTranslation();
 
   useEffect(() => {
     loadTrashCount();
   }, [loadTrashCount]);
 
   const resetBrowseSearch = () => {
-    // 点击侧边栏「浏览」时重置 AI 搜索状态，确保回到全部照片视图
     useAppStore.setState({
       aiSearchQuery: '',
       aiSearchResults: [],
@@ -47,7 +48,7 @@ export function Sidebar() {
     >
       <div className="h-14 flex items-center justify-between px-4 border-b border-zinc-800">
         {!sidebarCollapsed && (
-          <h1 className="text-lg font-semibold text-zinc-100">小呆<span className="text-amber-500">相册</span></h1>
+          <h1 className="text-lg font-semibold text-zinc-100">{t('nav.brand')}</h1>
         )}
         <button
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -58,7 +59,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 py-4">
-        {navItems.map(({ to, icon: Icon, label }) => (
+        {navItems.map(({ to, icon: Icon, labelKey }) => (
           <NavLink
             key={to}
             to={to}
@@ -73,10 +74,10 @@ export function Sidebar() {
             }
           >
             <Icon size={20} />
-            {!sidebarCollapsed && <span className="text-sm font-medium">{label}</span>}
+            {!sidebarCollapsed && <span className="text-sm font-medium">{t(labelKey)}</span>}
             {to === '/trash' && trashCount > 0 && !sidebarCollapsed && (
               <span className="ml-auto text-xs bg-amber-500 text-zinc-950 px-1.5 py-0.5 rounded-full font-semibold">
-                {trashCount > 99 ? '99+' : trashCount}
+                {trashCount > 99 ? t('nav.badgeOverflow') : trashCount}
               </span>
             )}
           </NavLink>
@@ -88,15 +89,15 @@ export function Sidebar() {
           <div className="p-4">
             <div className="text-xs text-zinc-400 space-y-1">
               <div className="flex justify-between">
-                <span>照片总数</span>
+                <span>{t('nav.totalPhotos')}</span>
                 <span className="text-zinc-300">{stats.total.toLocaleString()}</span>
               </div>
               <div className="flex justify-between">
-                <span>有位置</span>
+                <span>{t('nav.withLocation')}</span>
                 <span className="text-zinc-300">{stats.withLocation.toLocaleString()}</span>
               </div>
               <div className="flex justify-between">
-                <span>重复</span>
+                <span>{t('nav.duplicatesCount')}</span>
                 <span className="text-amber-500">{stats.duplicates.toLocaleString()}</span>
               </div>
             </div>
@@ -115,7 +116,7 @@ export function Sidebar() {
           }
         >
           <Settings size={20} />
-          {!sidebarCollapsed && <span className="text-sm font-medium">设置</span>}
+          {!sidebarCollapsed && <span className="text-sm font-medium">{t('nav.settings')}</span>}
         </NavLink>
       </div>
     </aside>

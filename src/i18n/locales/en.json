@@ -1,0 +1,429 @@
+{
+  "common": {
+    "save": "Save",
+    "saving": "Saving...",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "replace": "Replace",
+    "delete": "Delete",
+    "clear": "Clear",
+    "clearing": "Clearing...",
+    "browse": "Browse...",
+    "restoreDefault": "Restore Default",
+    "loading": "Loading...",
+    "refreshing": "Refreshing...",
+    "refresh": "Refresh",
+    "openFolder": "Open Folder",
+    "selectAll": "Select All",
+    "deselectAll": "Deselect",
+    "done": "Done",
+    "multiSelect": "Multi-select",
+    "cancelSelection": "Cancel Selection",
+    "noData": "No content",
+    "unknownDate": "Unknown date",
+    "never": "Never",
+    "unknown": "Unknown",
+    "photos": "{{count}} photos",
+    "photos_one": "{{count}} photo",
+    "photos_other": "{{count}} photos",
+    "size": "Size",
+    "resolution": "Resolution",
+    "type": "Type",
+    "date": "Date",
+    "camera": "Camera",
+    "latitude": "Latitude",
+    "longitude": "Longitude",
+    "duration": "Duration",
+    "video": "Video",
+    "image": "Image",
+    "location": "Location",
+    "fileInfo": "File Info",
+    "exifInfo": "Capture Info",
+    "latPlaceholder": "-90 to 90",
+    "lngPlaceholder": "-180 to 180",
+    "saveFailed": "Save failed: ",
+    "useDefault": "Use default location"
+  },
+  "nav": {
+    "brand": "xd-PhotoVault",
+    "library": "Library",
+    "browse": "Browse",
+    "duplicates": "Duplicates",
+    "map": "Map",
+    "trash": "Trash",
+    "settings": "Settings",
+    "totalPhotos": "Total Photos",
+    "withLocation": "Geotagged",
+    "duplicatesCount": "Duplicates",
+    "badgeOverflow": "99+"
+  },
+  "settings": {
+    "pageTitle": "Settings",
+    "pageSubtitle": "Manage application settings and data",
+    "language": {
+      "title": "Language",
+      "subtitle": "Switch the interface language",
+      "description": "Choose the language used by the application interface. Changes take effect immediately."
+    },
+    "dataStorage": {
+      "title": "Data Storage Location",
+      "subtitle": "Set where the database and thumbnails are stored",
+      "currentLocation": "Current location",
+      "customLocation": "Custom storage location",
+      "customPlaceholder": "Use default location",
+      "customHint": "The database and thumbnails will be stored here. Leave empty to use the default location.",
+      "saveAndRestart": "Save & Restart",
+      "toastSaved": "Settings saved. Please restart the app to use the new storage location.",
+      "toastReset": "Restored to default. Please restart the app.",
+      "confirmChange": "Changing the data storage location requires a restart to take effect.\n\nSave now?",
+      "confirmReset": "Restore the default storage location?\nA restart is required to take effect.",
+      "toastLoadFailed": "Failed to load data path"
+    },
+    "trash": {
+      "title": "Trash",
+      "subtitle": "How the two-level trash works",
+      "description": "The app creates a hidden folder <code>{{folder}}</code> at the root of each disk where the original photos live. Deleted photos are moved here first.",
+      "step1": "Click \"Delete\" in the app: photos move to the app trash (hidden folder).",
+      "step2": "Click \"Delete Permanently\" in the trash: photos move to the system recycle bin.",
+      "step3": "Only after emptying the system recycle bin are photos truly removed from disk.",
+      "note": "On Windows this folder has the hidden attribute; on macOS/Linux it is hidden by the leading dot."
+    },
+    "log": {
+      "title": "Log Settings",
+      "subtitle": "Configure log storage location and view logs",
+      "currentPath": "Current log path",
+      "customPath": "Custom log path",
+      "customHint": "Log files will be stored in this directory. Leave empty to use the default location.",
+      "savePath": "Save Path",
+      "viewLog": "View Log",
+      "hideLog": "Hide Log",
+      "logView": "Log Viewer",
+      "logViewHint": "View, refresh, or clear application logs",
+      "clearLog": "Clear Log",
+      "emptyLog": "No logs yet",
+      "toastSaved": "Log path updated",
+      "toastReset": "Restored default log path",
+      "toastCleared": "Logs cleared",
+      "confirmClear": "Clear all logs?",
+      "readFailed": "Failed to read log: ",
+      "toastLoadFailed": "Failed to load log path",
+      "toastClearFailed": "Clear failed: "
+    },
+    "map": {
+      "title": "Map Settings",
+      "subtitle": "Configure map tile provider and API key",
+      "tileProvider": "Map tile provider",
+      "apiKey": "API Key",
+      "apiKeyPlaceholder": "Enter API Key",
+      "applyKey": "Apply for an API Key",
+      "coordTransformHint": "This provider uses the GCJ02 coordinate system; photo coordinates are automatically converted from WGS84.",
+      "save": "Save Map Settings",
+      "toastSaved": "Map settings saved. Switch to the Map page to take effect.",
+      "providers": {
+        "amap": "Amap (auto coordinate offset)",
+        "amap_dark": "Amap Dark (auto coordinate offset)",
+        "tianditu": "Tianditu (requires API Key + auto coordinate offset)"
+      }
+    },
+    "cache": {
+      "title": "Cache Management",
+      "subtitle": "Clear cache to free up disk space",
+      "thumbnail": "Thumbnail cache",
+      "thumbnailHint": "Thumbnails will be regenerated on next browse after clearing",
+      "clear": "Clear",
+      "fileCount": "Total files",
+      "diskUsage": "Disk usage",
+      "sizeDistribution": "Size distribution",
+      "sizeDistributionDetail": "small {{small}} / medium {{medium}}",
+      "toastCleared": "Thumbnail cache cleared",
+      "toastStatsFailed": "Failed to get thumbnail stats: ",
+      "toastClearFailed": "Clear failed: ",
+      "confirmClear": "Clear all thumbnail cache?\nThumbnails will be regenerated on next browse."
+    },
+    "danger": {
+      "title": "Danger Zone",
+      "subtitle": "These actions are irreversible. Proceed with caution.",
+      "clearDatabase": "Clear Database",
+      "clearDatabaseHint": "Deletes all photo records, folders, and duplicate detection results. Requires re-scanning.",
+      "confirmClear1": "Clear all data?\n\nThis will delete all photo records, folders, and duplicate detection results.\nThis action is irreversible!",
+      "confirmClear2": "Confirm again: this will delete all records in the database and requires re-scanning folders.\n\nContinue?",
+      "confirmClearBtn": "Clear",
+      "confirmClear2Btn": "Confirm Clear",
+      "toastCleared": "Database cleared. Please re-add folders and scan.",
+      "toastFailed": "Clear failed: "
+    },
+    "about": {
+      "title": "About",
+      "subtitle": "xd-PhotoVault - A simple, capable photo management tool",
+      "appName": "xd-PhotoVault",
+      "version": "Version v{{version}}",
+      "description": "A desktop app focused on local photo management, smart deduplication, and map browsing. Supports timeline browsing, AI semantic search, duplicate detection, and geographic visualization. All photo data is stored locally to protect your privacy."
+    }
+  },
+  "library": {
+    "pageTitle": "Library",
+    "pageSubtitle": "Manage your photo folders, scan and build the index",
+    "addFolder": "Add Folder",
+    "stats": {
+      "totalPhotos": "Total Photos",
+      "withLocation": "Geotagged",
+      "duplicatePhotos": "Duplicates",
+      "folderCount": "Folders"
+    },
+    "scan": {
+      "scanning": "Scanning...",
+      "complete": "Scan complete",
+      "added": "{{count}} new",
+      "skipped": "{{count}} skipped",
+      "deleted": "{{count}} deleted",
+      "noNew": "No new photos found",
+      "scanNew": "Scan New",
+      "forceRescan": "Force Re-scan",
+      "toastBusy": "A folder is already scanning. Please wait for it to finish.",
+      "toastFailed": "Scan failed: ",
+      "confirmForceRescan": "Force re-scan will clear all indexes for this folder and scan again. Continue?"
+    },
+    "ai": {
+      "title": "AI Semantic Index",
+      "description": "Once indexed, you can search photo content semantically. Indexing runs in the background and can be paused anytime.",
+      "build": "Build Index",
+      "pause": "Pause",
+      "pausing": "Pausing",
+      "resume": "Resume",
+      "cancel": "Cancel",
+      "gpuToggle": "GPU-accelerated indexing",
+      "gpuToggleDesc": "When enabled, uses DirectML to index via the GPU. Falls back to CPU automatically on failure.",
+      "gpuCurrent": "Current executor: "
+    },
+    "empty": {
+      "title": "No folders added yet",
+      "description": "After adding a photo folder, xd-PhotoVault will scan and build an index so you can browse, search, and manage photos easily."
+    },
+    "folder": {
+      "photos": "{{count}} photos",
+      "toastAddFailed": "Failed to add folder: ",
+      "toastRemoveFailed": "Failed to remove folder: ",
+      "toastConflictChild": "This folder is already included in \"{{path}}\". No need to add it again.",
+      "toastTrashFolder": "Cannot add the app trash folder (.xd-photovault-trash) as a library folder.",
+      "confirmReplaceParent": "This folder contains {{count}} existing subfolders:\n{{list}}\n\nReplace all subfolders with the parent directory? Subfolder indexes will be deleted and the parent directory will be re-scanned.",
+      "confirmRemove": "Remove this folder? Photo indexes will be deleted, but the original files will not be deleted."
+    }
+  },
+  "browse": {
+    "pageTitle": "Browse Photos",
+    "subtitleAll": "{{count}} photos",
+    "subtitleAiSearch": "AI search results: {{count}} photos",
+    "searchPlaceholder": "AI semantic search...",
+    "clearSearch": "Clear search",
+    "backToAll": "Back to All",
+    "filter": "Filter",
+    "filters": {
+      "all": "All",
+      "withLocation": "Has location",
+      "noLocation": "No location",
+      "allCameras": "All cameras",
+      "image": "Images",
+      "video": "Videos"
+    },
+    "timeline": "Timeline",
+    "loadingMore": "Loading more...",
+    "selected": "{{count}} selected",
+    "modifyLocation": "Edit Location ({{count}})",
+    "moveToTrash": "Move to Trash ({{count}})",
+    "empty": {
+      "aiTitle": "No matching photos found",
+      "aiDescription": "Try a different keyword, or make sure AI indexing is complete",
+      "browseTitle": "No photos found",
+      "browseDescription": "Add and scan a folder in the Library first"
+    },
+    "toast": {
+      "moveToTrashFailed": "Failed to move to trash: ",
+      "batchLocationSuccess": "Location set for {{count}} photos",
+      "batchLocationFailed": "Failed to set location in batch: ",
+      "confirmMoveToTrash": "Move {{count}} selected photos to trash?\n\nYou can restore or permanently delete them from the trash."
+    }
+  },
+  "duplicates": {
+    "pageTitle": "Duplicate Photos",
+    "pageSubtitle": "Found {{groups}} duplicate groups, {{count}} duplicate photos",
+    "detecting": "Detecting...",
+    "detectExact": "Exact Duplicates",
+    "detectSimilar": "Similar Duplicates",
+    "invert": "Invert",
+    "deleteDuplicates": "Delete Duplicates ({{groups}} groups · {{count}} photos · {{size}})",
+    "deleteDuplicatesShort": "Delete Duplicates ({{count}})",
+    "deleting": "Deleting...",
+    "shortcutsBtn": "Shortcuts (?)",
+    "tabs": {
+      "all": "All",
+      "exact": "Exact",
+      "similar": "Similar"
+    },
+    "tip": "Tip: click a card to select, Shift+click for range, ? for shortcuts",
+    "empty": {
+      "title": "No duplicate photos found",
+      "description": "Your library is clean!"
+    },
+    "loadMore": "Load More",
+    "detail": {
+      "closeEsc": "Close (Esc)",
+      "prev": "Previous (←)",
+      "next": "Next (→)",
+      "filePath": "File path",
+      "noGps": "This photo has no GPS data"
+    },
+    "recommended": "Recommended to keep",
+    "recommendedTag": "Recommended",
+    "markedKeep": "Marked as keep",
+    "markKeep": "Mark as keep",
+    "deleteThisPhoto": "Delete this photo",
+    "card": {
+      "exact": "Exact match",
+      "similar": "Similar",
+      "photosCount": "{{count}} photos",
+      "keepDelete": "Keep {{keep}} / Delete {{delete}}",
+      "deleteGroup": "Delete Group ({{count}})",
+      "deleteGroupTitle": "Delete this duplicate group ({{count}} photos)",
+      "keepTitle": "Marked as keep (click to unmark)",
+      "unkeepTitle": "Not kept (click to mark as keep)",
+      "hasLocation": "Has location",
+      "footerHint": "Exact duplicate groups keep only one photo; similar duplicate groups can keep multiple. Photos not marked as keep will be deleted. The \"Recommended\" tag indicates the system-recommended photo to keep."
+    },
+    "shortcuts": {
+      "title": "Keyboard Shortcuts",
+      "sectionSelection": "Selection",
+      "sectionActions": "Actions",
+      "sectionDetail": "Detail Dialog",
+      "sectionOther": "Other",
+      "selectAllLoaded": "Select all loaded groups",
+      "invert": "Invert selection",
+      "deselectAll": "Deselect all",
+      "rangeSelect": "Range select (from last click to current)",
+      "moveFocus": "Move focus",
+      "rangeSelectAnchor": "Range select (from anchor to focus)",
+      "toggleFocusGroup": "Toggle focus group selection",
+      "deleteSelected": "Delete duplicates in selected groups",
+      "switchTab": "Switch All / Exact / Similar",
+      "triggerExact": "Trigger exact detection",
+      "prevNext": "Previous / Next",
+      "closeModal": "Close dialog",
+      "deleteCurrent": "Delete current photo (non-keep)",
+      "toggleHelp": "Show / hide this help",
+      "footer": "Click outside or press Esc to close"
+    },
+    "toast": {
+      "scanBusy": "A scan is in progress. Please wait for it to finish before running duplicate detection.",
+      "alreadyRunning": "Duplicate detection is already running. Don't click again.",
+      "detectFailed": "Detection failed: ",
+      "needKeep": "At least one photo must be kept per group",
+      "needSelect": "Please select duplicate groups to process first",
+      "movedToTrash": "Moved {{count}} photos to trash",
+      "partialFailed": "{{count}} photos failed: {{error}}",
+      "deleteFailed": "Delete failed: ",
+      "processFailed": "Process failed: {{error}}",
+      "noDeletable": "No deletable photos in this group",
+      "keepProtected": "This photo is marked as keep and cannot be deleted",
+      "movedSingle": "Moved to trash"
+    },
+    "confirm": {
+      "exactDetect": "This will re-detect all exactly identical photos (based on file content hash). Continue?",
+      "exactDetectBtn": "Start Detection",
+      "similarDetect": "Similar deduplication computes a perceptual hash for each photo and compares visual similarity. With many photos this can take hours.\n\nRecommended to run when you don't need the app. Continue?",
+      "similarDetectBtn": "Start Similar Dedup",
+      "deleteBatch": "Delete {{count}} duplicate photos?\nFiles will be moved to the trash.",
+      "deleteGroup": "Delete {{count}} duplicate photos in this group?\nFiles will be moved to the trash.",
+      "deleteSingle": "Delete this photo?\n{{filename}}\nThe file will be moved to the trash."
+    }
+  },
+  "map": {
+    "pageTitle": "Map View",
+    "subtitleWithLocation": "{{count}} photos have location data",
+    "subtitleLoading": "Loading...",
+    "subtitleWithoutLocation": "· {{count}} without location",
+    "drawerSummary": "{{count}} photos",
+    "emptyNoLocationTitle": "No photos with location data",
+    "emptyNoLocationDesc": "Photos need GPS data to be displayed on the map",
+    "emptyViewportTitle": "No photos in the current viewport",
+    "emptyViewportDesc": "Move or zoom the map to see more locations",
+    "viewportLoading": "Loading viewport photos...",
+    "markerTooltip": "{{count}} photos",
+    "amapName": "Amap"
+  },
+  "trash": {
+    "pageTitle": "Trash",
+    "pageSubtitle": "{{count}} photos, using {{size}}",
+    "emptying": "Emptying...",
+    "emptyAll": "Empty Trash",
+    "empty": {
+      "title": "Trash is empty",
+      "description": "Deleted photos are held here temporarily. Emptying moves them to the system recycle bin."
+    },
+    "selected": "{{count}} selected",
+    "restore": "Restore ({{count}})",
+    "permanentDelete": "Delete Permanently ({{count}})",
+    "toast": {
+      "loadFailed": "Failed to load trash: ",
+      "restored": "Restored {{count}} photos",
+      "restorePartialFailed": "{{count}} photos failed to restore: {{error}}",
+      "restoreFailed": "Restore failed: ",
+      "deleted": "Deleted {{count}} photos",
+      "deletePartialFailed": "{{count}} photos failed to delete: {{error}}",
+      "deleteFailed": "Delete failed: ",
+      "emptied": "Trash emptied. {{count}} photos moved to the system recycle bin.",
+      "emptyPartialFailed": "{{count}} photos failed to process",
+      "emptyFailed": "Failed to empty trash: "
+    },
+    "confirm": {
+      "permanentDelete": "Permanently delete {{count}} selected photos?\n\nThey will be moved to the system recycle bin and can be restored from there.",
+      "permanentDeleteBtn": "Delete Permanently",
+      "emptyAll": "Empty the trash?\n\nAll photos will be moved to the system recycle bin and can be restored from there.",
+      "emptyAllBtn": "Empty Trash"
+    }
+  },
+  "photoDetail": {
+    "unknownDate": "Unknown date",
+    "videoLoadFailed": "Failed to load video",
+    "imageLoadFailed": "Failed to load image",
+    "loadingExif": "Loading EXIF...",
+    "deletePhoto": "Delete photo",
+    "close": "Close",
+    "aperture": "Aperture",
+    "shutter": "Shutter",
+    "noGps": "This photo has no GPS data",
+    "addLocation": "Click to add location",
+    "selectOnMap": "Select on map",
+    "viewOnMap": "View on map",
+    "editDate": {
+      "cancel": "Cancel",
+      "save": "Save",
+      "saving": "Saving..."
+    },
+    "toast": {
+      "saveDateFailed": "Failed to save date: ",
+      "invalidCoords": "Please enter valid latitude and longitude",
+      "saveLocationFailed": "Failed to save location: ",
+      "moveToTrashFailed": "Failed to move to trash: "
+    },
+    "confirm": {
+      "moveToTrash": "Move this photo to trash?\n\n{{filename}}\n\nYou can restore or permanently delete it from the trash.",
+      "moveToTrashBtn": "Move to Trash"
+    }
+  },
+  "mapPicker": {
+    "title": "Select location on map",
+    "confirmLocation": "Confirm Location"
+  },
+  "confirm": {
+    "defaultTitle": "Confirm",
+    "defaultConfirm": "OK",
+    "defaultCancel": "Cancel"
+  },
+  "trashPrompt": {
+    "message": "Deleted photos are held in the app trash. You can restore or permanently delete them anytime.\n\nOnly after clicking \"Delete Permanently\" in the trash will photos move to the system recycle bin.\n\nTo change the trash location, go to \"Settings\".",
+    "confirmText": "Got it"
+  },
+  "toast": {
+    "duplicateLoadFailed": "Failed to load duplicate results",
+    "duplicateDetectComplete": "Duplicate detection complete"
+  }
+}

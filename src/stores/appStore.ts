@@ -141,7 +141,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const count = await window.api.trash.getCount();
       set({ trashCount: count });
     } catch (e) {
-      console.error('[Trash] 加载回收站数量失败:', e);
+      console.error('[Trash] Failed to load trash count:', e);
     }
   },
   loadTrashStats: async () => {
@@ -149,7 +149,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const stats = await window.api.trash.getStats();
       set({ trashCount: stats.count, trashTotalSize: stats.totalSize });
     } catch (e) {
-      console.error('[Trash] 加载回收站统计失败:', e);
+      console.error('[Trash] Failed to load trash stats:', e);
     }
   },
 
@@ -227,7 +227,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const status = await window.api.aiIndex.getGpuStatus();
       get().setAiGpuStatus(status);
     } catch (e) {
-      console.error('[AI] 加载 GPU 状态失败:', e);
+      console.error('[AI] Failed to load GPU status:', e);
     }
   },
   toggleAiGpu: async () => {
@@ -237,10 +237,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (result.success) {
         set({ aiGpuEnabled: next, aiGpuActualProvider: 'cpu' });
       } else {
-        console.error('[AI] 切换 GPU 加速失败:', result.error);
+        console.error('[AI] Failed to toggle GPU acceleration:', result.error);
       }
     } catch (e) {
-      console.error('[AI] 切换 GPU 加速失败:', e);
+      console.error('[AI] Failed to toggle GPU acceleration:', e);
     }
   },
 
@@ -429,10 +429,10 @@ if (typeof window !== 'undefined' && window.api?.scan?.onProgress) {
     if (progress.status === 'complete') {
       useAppStore.setState({ lastScanResult: progress });
       const { loadPhotosPage, loadTimeline, loadFolders, loadStats } = useAppStore.getState();
-      loadPhotosPage({}).catch((e) => console.error('[ScanProgress] 刷新照片失败:', e));
-      loadTimeline({}).catch((e) => console.error('[ScanProgress] 刷新时间线失败:', e));
-      loadFolders().catch((e) => console.error('[ScanProgress] 刷新文件夹失败:', e));
-      loadStats().catch((e) => console.error('[ScanProgress] 刷新统计失败:', e));
+      loadPhotosPage({}).catch((e) => console.error('[ScanProgress] Failed to refresh photos:', e));
+      loadTimeline({}).catch((e) => console.error('[ScanProgress] Failed to refresh timeline:', e));
+      loadFolders().catch((e) => console.error('[ScanProgress] Failed to refresh folders:', e));
+      loadStats().catch((e) => console.error('[ScanProgress] Failed to refresh stats:', e));
     }
   });
 }

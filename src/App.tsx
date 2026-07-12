@@ -1,5 +1,6 @@
 import { useEffect, Suspense, lazy } from 'react';
 import { HashRouter as Router, Routes, Route } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Layout } from '@/components/layout/Layout';
 import { LibraryPage } from '@/pages/LibraryPage';
 import { ToastContainer } from '@/components/Toast';
@@ -18,10 +19,11 @@ function DuplicateProgressSubscriber() {
   const setDuplicateProgress = useAppStore(state => state.setDuplicateProgress);
   const loadDuplicates = useAppStore(state => state.loadDuplicates);
   const loadStats = useAppStore(state => state.loadStats);
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!window.api?.duplicate?.onProgress) {
-      console.warn('[DuplicateProgressSubscriber] window.api.duplicate.onProgress 不可用');
+      console.warn('[DuplicateProgressSubscriber] window.api.duplicate.onProgress not available');
       return;
     }
 
@@ -29,17 +31,17 @@ function DuplicateProgressSubscriber() {
       setDuplicateProgress(progress.stage === 'complete' ? null : progress);
       if (progress.stage === 'complete') {
         loadDuplicates().catch((error) => {
-          console.error('[DuplicateProgressSubscriber] 加载去重结果失败:', error);
-          toast('error', '去重结果加载失败');
+          console.error('[DuplicateProgressSubscriber] Failed to load duplicate results:', error);
+          toast('error', t('toast.duplicateLoadFailed'));
         });
         loadStats().catch((error) => {
-          console.error('[DuplicateProgressSubscriber] 刷新统计数据失败:', error);
+          console.error('[DuplicateProgressSubscriber] Failed to refresh stats:', error);
         });
-        toast('success', '去重检测完成');
+        toast('success', t('toast.duplicateDetectComplete'));
       }
     });
     return () => unsubscribe();
-  }, [setDuplicateProgress, loadDuplicates, loadStats]);
+  }, [setDuplicateProgress, loadDuplicates, loadStats, t]);
 
   return null;
 }

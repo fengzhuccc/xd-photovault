@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FolderOpen, Plus, Trash2, RefreshCw, HardDrive, Calendar, ChevronDown, RotateCcw, Loader2, Brain, Pause, Play, Square, Zap, CheckCircle2, X, Images, MapPin, Copy } from 'lucide-react';
 import Empty from '@/components/Empty';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
 import { cn } from '@/lib/utils';
+import { useFormatDate } from '@/lib/useFormatDate';
 
 export function LibraryPage() {
   const {
@@ -33,6 +35,8 @@ export function LibraryPage() {
     loadAiGpuStatus,
     toggleAiGpu,
   } = useAppStore();
+  const { t } = useTranslation();
+  const formatDate = useFormatDate();
 
   const [isAddingFolder, setIsAddingFolder] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
@@ -65,14 +69,14 @@ export function LibraryPage() {
 
         if (result.conflict) {
           if (result.conflict.type === 'child') {
-            toast('info', `该文件夹已被包含在 "${result.conflict.childFolderPaths[0]}" 中，无需重复添加。`);
+            toast('info', t('library.folder.toastConflictChild', { path: result.conflict.childFolderPaths[0] }));
           } else if (result.conflict.type === 'trash') {
-            toast('warning', '不能将应用回收站（.xd-photovault-trash）添加为图库文件夹。');
+            toast('warning', t('library.folder.toastTrashFolder'));
           } else if (result.conflict.type === 'parent') {
             const folderList = result.conflict.childFolderPaths.join('、');
             const confirmed = await confirm(
-              `该文件夹包含已有的 ${result.conflict.childFolderPaths.length} 个子文件夹：\n${folderList}\n\n是否用父目录替换所有子目录？替换后子目录的索引将被删除，父目录将重新扫描。`,
-              { variant: 'warning', confirmText: '替换' }
+              t('library.folder.confirmReplaceParent', { count: result.conflict.childFolderPaths.length, list: folderList }),
+              { variant: 'warning', confirmText: t('common.replace') }
             );
             if (confirmed) {
               const replaceResult = await window.api.folder.replaceWithParent(result.conflict.childFolderIds, path);
@@ -100,7 +104,7 @@ export function LibraryPage() {
       }
     } catch (error) {
       console.error('Add folder failed:', error);
-      toast('error', `添加文件夹失败：${error instanceof Error ? error.message : String(error)}`);
+      toast('error', t('library.folder.toastAddFailed') + (error instanceof Error ? error.message : String(error)));
     } finally {
       setIsAddingFolder(false);
     }
@@ -109,10 +113,10 @@ export function LibraryPage() {
   const handleScan = async (folderId: string, forceRescan: boolean = false) => {
     // 前端拦截：已有文件夹在扫描时，禁止再发起扫描
     if (scanningFolderId && scanningFolderId !== folderId) {
-      toast('info', '已有文件夹正在扫描，请等待当前扫描完成。');
+      toast('info', t('library.scan.toastBusy'));
       return;
     }
-    if (forceRescan && !await confirm('强制重新扫描将清除当前目录所有索引并重新扫描，确定继续吗？', { variant: 'warning' })) {
+    if (forceRescan && !await confirm(t('library.scan.confirmForceRescan'), { variant: 'warning' })) {
       return;
     }
     setOpenDropdown(null);
@@ -125,22 +129,20 @@ export function LibraryPage() {
       console.error('Scan failed:', error);
       setScanningFolderId(null);
       setScanProgress({ current: 0, total: 0, currentFile: '', status: 'idle' });
-      toast('error', `扫描失败：${error instanceof Error ? error.message : String(error)}`);
+      toast('error', t('library.scan.toastFailed') + (error instanceof Error ? error.message : String(error)));
     }
-    // 不在 finally 中 setScanningFolderId(null)，由 onProgress 的 complete 事件控制
-    // 也不在这里 loadFolders/loadStats，由 onProgress 的 complete 事件处理
   };
 
   const handleRemoveFolder = async (id: string) => {
     if (removingFolderId) return;
-    if (await confirm('确定要移除此文件夹吗？照片索引将被删除，但原始文件不会被删除。', { variant: 'danger', confirmText: '删除' })) {
+    if (await confirm(t('library.folder.confirmRemove'), { variant: 'danger', confirmText: t('common.delete') })) {
       setRemovingFolderId(id);
       try {
         await window.api.folder.remove(id);
         removeFolder(id);
       } catch (error) {
         console.error('Remove folder failed:', error);
-        toast('error', `移除文件夹失败：${error instanceof Error ? error.message : String(error)}`);
+        toast('error', t('library.folder.toastRemoveFailed') + (error instanceof Error ? error.message : String(error)));
       } finally {
         setRemovingFolderId(null);
       }
@@ -148,10 +150,8 @@ export function LibraryPage() {
   };
 
   const formatPath = (path: string) => {
-    // 统一分隔符
     const normalized = path.replace(/\\/g, '/');
     const parts = normalized.split('/').filter(Boolean);
-    // Windows 盘符（如 C:）始终保留
     const drive = parts[0] && /^[a-zA-Z]:$/.test(parts[0]) ? parts[0] : null;
     if (parts.length > 3) {
       const tail = parts.slice(-2).join('/');
@@ -160,21 +160,12 @@ export function LibraryPage() {
     return path;
   };
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '从未';
-    return new Date(dateStr).toLocaleDateString('zh-CN', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
-
   return (
     <div className="max-w-5xl mx-auto">
       <div className="page-header">
         <div>
-          <h1 className="page-title">照片库</h1>
-          <p className="page-subtitle">管理你的照片文件夹，扫描并建立索引</p>
+          <h1 className="page-title">{t('library.pageTitle')}</h1>
+          <p className="page-subtitle">{t('library.pageSubtitle')}</p>
         </div>
         <button
           onClick={handleAddFolder}
@@ -182,7 +173,7 @@ export function LibraryPage() {
           className="btn-primary"
         >
           <Plus size={18} />
-          添加文件夹
+          {t('library.addFolder')}
         </button>
       </div>
 
@@ -194,7 +185,7 @@ export function LibraryPage() {
               <Images size={18} className="text-amber-500" />
             </div>
             <div>
-              <p className="text-xs text-zinc-400">照片总数</p>
+              <p className="text-xs text-zinc-400">{t('library.stats.totalPhotos')}</p>
               <p className="text-xl font-bold text-zinc-100">
                 {stats?.total.toLocaleString() || 0}
               </p>
@@ -205,7 +196,7 @@ export function LibraryPage() {
               <MapPin size={18} className="text-green-500" />
             </div>
             <div>
-              <p className="text-xs text-zinc-400">有位置信息</p>
+              <p className="text-xs text-zinc-400">{t('library.stats.withLocation')}</p>
               <p className="text-xl font-bold text-zinc-100">
                 {stats?.withLocation.toLocaleString() || 0}
               </p>
@@ -216,7 +207,7 @@ export function LibraryPage() {
               <Copy size={18} className="text-amber-500" />
             </div>
             <div>
-              <p className="text-xs text-zinc-400">重复照片</p>
+              <p className="text-xs text-zinc-400">{t('library.stats.duplicatePhotos')}</p>
               <p className="text-xl font-bold text-amber-500">
                 {stats?.duplicates.toLocaleString() || 0}
               </p>
@@ -227,7 +218,7 @@ export function LibraryPage() {
               <FolderOpen size={18} className="text-blue-500" />
             </div>
             <div>
-              <p className="text-xs text-zinc-400">文件夹数</p>
+              <p className="text-xs text-zinc-400">{t('library.stats.folderCount')}</p>
               <p className="text-xl font-bold text-zinc-100">
                 {stats?.folders || 0}
               </p>
@@ -240,7 +231,7 @@ export function LibraryPage() {
         <div className="card card-section mb-6">
           <div className="flex items-center gap-3 mb-3">
             <RefreshCw size={18} className="text-amber-500 animate-spin" />
-            <span className="text-sm text-zinc-300">正在扫描...</span>
+            <span className="text-sm text-zinc-300">{t('library.scan.scanning')}</span>
           </div>
           <div className="progress-bar mb-2">
             <div
@@ -260,7 +251,7 @@ export function LibraryPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <CheckCircle2 size={18} className="text-green-500" />
-              <span className="text-sm text-zinc-300">扫描完成</span>
+              <span className="text-sm text-zinc-300">{t('library.scan.complete')}</span>
             </div>
             <button
               onClick={() => clearLastScanResult()}
@@ -271,16 +262,16 @@ export function LibraryPage() {
           </div>
           <div className="flex gap-4 mt-2 text-xs text-zinc-400">
             {lastScanResult.newCount !== undefined && lastScanResult.newCount > 0 && (
-              <span className="text-green-400">新增 {lastScanResult.newCount} 张</span>
+              <span className="text-green-400">{t('library.scan.added', { count: lastScanResult.newCount })}</span>
             )}
             {lastScanResult.skipped !== undefined && lastScanResult.skipped > 0 && (
-              <span>跳过 {lastScanResult.skipped} 张</span>
+              <span>{t('library.scan.skipped', { count: lastScanResult.skipped })}</span>
             )}
             {lastScanResult.deletedCount !== undefined && lastScanResult.deletedCount > 0 && (
-              <span className="text-red-400">删除 {lastScanResult.deletedCount} 张</span>
+              <span className="text-red-400">{t('library.scan.deleted', { count: lastScanResult.deletedCount })}</span>
             )}
             {lastScanResult.newCount === 0 && (lastScanResult.skipped ?? 0) === lastScanResult.total && (
-              <span>未发现新照片</span>
+              <span>{t('library.scan.noNew')}</span>
             )}
           </div>
         </div>
@@ -291,7 +282,7 @@ export function LibraryPage() {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
             <Brain size={18} className="text-amber-500" />
-            <span className="text-sm text-zinc-300">AI 语义索引</span>
+            <span className="text-sm text-zinc-300">{t('library.ai.title')}</span>
           </div>
           <div className="flex items-center gap-2">
             {(!aiIndexProgress || aiIndexProgress.status === 'idle' || aiIndexProgress.status === 'complete' || aiIndexProgress.status === 'error') && (
@@ -300,7 +291,7 @@ export function LibraryPage() {
                 className="btn-secondary text-xs px-3 py-1.5"
               >
                 <Brain size={14} />
-                建立索引
+                {t('library.ai.build')}
               </button>
             )}
             {(aiIndexProgress?.status === 'indexing' || aiIndexProgress?.status === 'pausing') && (
@@ -311,14 +302,14 @@ export function LibraryPage() {
                   className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-50"
                 >
                   <Pause size={14} />
-                  {aiIndexProgress?.status === 'pausing' ? '暂停中' : '暂停'}
+                  {aiIndexProgress?.status === 'pausing' ? t('library.ai.pausing') : t('library.ai.pause')}
                 </button>
                 <button
                   onClick={cancelAiIndex}
                   className="btn-ghost text-xs px-3 py-1.5"
                 >
                   <Square size={14} />
-                  取消
+                  {t('library.ai.cancel')}
                 </button>
               </>
             )}
@@ -329,14 +320,14 @@ export function LibraryPage() {
                   className="btn-secondary text-xs px-3 py-1.5"
                 >
                   <Play size={14} />
-                  继续
+                  {t('library.ai.resume')}
                 </button>
                 <button
                   onClick={cancelAiIndex}
                   className="btn-ghost text-xs px-3 py-1.5"
                 >
                   <Square size={14} />
-                  取消
+                  {t('library.ai.cancel')}
                 </button>
               </>
             )}
@@ -364,15 +355,15 @@ export function LibraryPage() {
         {(!aiIndexProgress || aiIndexProgress.status === 'idle' || aiIndexProgress.status === 'complete') && (
           <div className="space-y-3">
             <p className="text-xs text-zinc-400">
-              建立索引后，可通过语义搜索照片内容。索引过程在后台运行，可随时暂停。
+              {t('library.ai.description')}
             </p>
             <label className="flex items-center justify-between p-3 bg-zinc-800 rounded-lg cursor-pointer hover:bg-zinc-700 transition-colors">
               <div className="flex items-center gap-2">
                 <Zap size={14} className={cn('transition-colors', aiGpuEnabled ? 'text-amber-500' : 'text-zinc-500')} />
                 <div className="flex flex-col">
-                  <span className="text-xs text-zinc-300">GPU 加速索引</span>
+                  <span className="text-xs text-zinc-300">{t('library.ai.gpuToggle')}</span>
                   <span className="text-xs text-zinc-400">
-                    开启后使用 DirectML 调用显卡索引，失败会自动回退 CPU
+                    {t('library.ai.gpuToggleDesc')}
                   </span>
                 </div>
               </div>
@@ -388,7 +379,7 @@ export function LibraryPage() {
             </label>
             {aiGpuEnabled && (
               <p className="text-xs text-zinc-400">
-                当前执行器：{aiGpuActualProvider === 'dml' ? 'DirectML (GPU)' : 'CPU'}
+                {t('library.ai.gpuCurrent')}{aiGpuActualProvider === 'dml' ? 'DirectML (GPU)' : 'CPU'}
               </p>
             )}
           </div>
@@ -399,12 +390,12 @@ export function LibraryPage() {
         {folders.length === 0 ? (
           <Empty
             icon={FolderOpen}
-            title="还没有添加任何文件夹"
-            description="添加照片文件夹后，小呆相册会扫描并建立索引，方便你浏览、搜索和管理照片。"
+            title={t('library.empty.title')}
+            description={t('library.empty.description')}
             action={
               <button onClick={handleAddFolder} disabled={isAddingFolder} className="btn-primary">
                 <Plus size={18} />
-                添加文件夹
+                {t('library.addFolder')}
               </button>
             }
           />
@@ -426,10 +417,10 @@ export function LibraryPage() {
                       </span>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-zinc-400">
-                      <span>{folder.photo_count.toLocaleString()} 张照片</span>
+                      <span>{t('library.folder.photos', { count: folder.photo_count })}</span>
                       <span className="flex items-center gap-1">
                         <Calendar size={12} />
-                        {formatDate(folder.last_scanned)}
+                        {formatDate(folder.last_scanned, t('common.never'))}
                       </span>
                     </div>
                   </div>
@@ -451,7 +442,7 @@ export function LibraryPage() {
                           ) : (
                             <RefreshCw size={14} />
                           )}
-                          {isThisScanning ? '扫描中' : '扫描新增'}
+                          {isThisScanning ? t('library.scan.scanning') : t('library.scan.scanNew')}
                         </button>
                         <button
                           onClick={() => setOpenDropdown(openDropdown === folder.id ? null : folder.id)}
@@ -474,7 +465,7 @@ export function LibraryPage() {
                               className="flex items-center gap-2 w-full px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 transition-colors"
                             >
                               <RotateCcw size={14} />
-                              强制重新扫描
+                              {t('library.scan.forceRescan')}
                             </button>
                           </div>
                         </>

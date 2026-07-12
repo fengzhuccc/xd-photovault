@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Calendar, MapPin, X, ChevronLeft, ChevronRight, Pencil, MapPinned, Trash2, Loader2 } from 'lucide-react';
 import { MapPickerModal } from '@/components/MapPickerModal';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
 import { cn } from '@/lib/utils';
+import { useFormatDate } from '@/lib/useFormatDate';
 import { confirmFirstTrashMove } from '@/lib/trashPrompt';
 import type { Photo, PhotoDetail } from '@/types';
 
@@ -27,6 +29,8 @@ export function PhotoDetailModal({
   onUpdate,
 }: PhotoDetailModalProps) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
+  const formatDate = useFormatDate();
   const [photoDetail, setPhotoDetail] = useState<PhotoDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [editingDate, setEditingDate] = useState(false);
@@ -119,15 +123,6 @@ export function PhotoDetailModal({
     }
   }, [photo, photos, onNavigate]);
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '未知日期';
-    return new Date(dateStr).toLocaleDateString('zh-CN', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-  };
-
   const formatFileSize = (bytes: number | null) => {
     if (bytes == null) return '-';
     if (bytes < 1024) return bytes + ' B';
@@ -152,7 +147,7 @@ export function PhotoDetailModal({
       onUpdate?.(updatedPhoto);
       setEditingDate(false);
     } catch (e) {
-      toast('error', '保存日期失败：' + String(e));
+      toast('error', t('photoDetail.toast.saveDateFailed') + String(e));
     } finally {
       setIsSaving(false);
     }
@@ -163,7 +158,7 @@ export function PhotoDetailModal({
     const lat = parseFloat(editLatValue);
     const lng = parseFloat(editLngValue);
     if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-      toast('warning', '请输入有效的经纬度坐标');
+      toast('warning', t('photoDetail.toast.invalidCoords'));
       return;
     }
     setIsSaving(true);
@@ -173,7 +168,7 @@ export function PhotoDetailModal({
       onUpdate?.(updatedPhoto);
       setEditingLocation(false);
     } catch (e) {
-      toast('error', '保存位置失败：' + String(e));
+      toast('error', t('photoDetail.toast.saveLocationFailed') + String(e));
     } finally {
       setIsSaving(false);
     }
@@ -181,7 +176,7 @@ export function PhotoDetailModal({
 
   const handleDelete = async () => {
     if (!photo) return;
-    if (!await confirm(`确定要将这张照片移到回收站吗？\n\n${photo.filename}\n\n可在回收站中还原或彻底删除。`, { variant: 'danger', confirmText: '移到回收站' })) {
+    if (!await confirm(t('photoDetail.confirm.moveToTrash', { filename: photo.filename }), { variant: 'danger', confirmText: t('photoDetail.confirm.moveToTrashBtn') })) {
       return;
     }
     if (!await confirmFirstTrashMove()) {
@@ -193,7 +188,7 @@ export function PhotoDetailModal({
       useAppStore.getState().loadTrashCount();
       onClose();
     } catch (error) {
-      toast('error', '移到回收站失败：' + error);
+      toast('error', t('photoDetail.toast.moveToTrashFailed') + error);
     }
   };
 
@@ -225,7 +220,7 @@ export function PhotoDetailModal({
             videoError ? (
               <div className="flex flex-col items-center justify-center text-zinc-500">
                 <Loader2 size={48} className="mb-3 opacity-50" />
-                <p>无法加载视频</p>
+                <p>{t('photoDetail.videoLoadFailed')}</p>
               </div>
             ) : (
               <video
@@ -239,7 +234,7 @@ export function PhotoDetailModal({
           ) : imageError ? (
             <div className="flex flex-col items-center justify-center text-zinc-500">
               <Loader2 size={48} className="mb-3 opacity-50" />
-              <p>无法加载图片</p>
+              <p>{t('photoDetail.imageLoadFailed')}</p>
             </div>
           ) : (
             <img
@@ -260,14 +255,14 @@ export function PhotoDetailModal({
               <button
                 onClick={handleDelete}
                 className="p-2 rounded-lg bg-zinc-800 hover:bg-red-500/20 text-zinc-300 hover:text-red-400 transition-colors"
-                title="删除照片"
+                title={t('photoDetail.deletePhoto')}
               >
                 <Trash2 size={18} />
               </button>
               <button
                 onClick={onClose}
                 className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
-                title="关闭"
+                title={t('photoDetail.close')}
               >
                 <X size={18} />
               </button>
@@ -276,23 +271,23 @@ export function PhotoDetailModal({
 
           <div className="flex-1 p-4 overflow-auto space-y-3">
             <div>
-              <label className="text-xs text-zinc-400 uppercase tracking-wider">文件信息</label>
+              <label className="text-xs text-zinc-400 uppercase tracking-wider">{t('common.fileInfo')}</label>
               <div className="mt-1.5 space-y-1 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">大小</span>
+                  <span className="text-zinc-400">{t('common.size')}</span>
                   <span className="text-zinc-200">{formatFileSize(photo.file_size)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">分辨率</span>
+                  <span className="text-zinc-400">{t('common.resolution')}</span>
                   <span className="text-zinc-200">{photo.width && photo.height ? `${photo.width} × ${photo.height}` : '-'}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">类型</span>
-                  <span className="text-zinc-200">{isVideo ? '视频' : '图片'}</span>
+                  <span className="text-zinc-400">{t('common.type')}</span>
+                  <span className="text-zinc-200">{isVideo ? t('common.video') : t('common.image')}</span>
                 </div>
                 {isVideo && (
                   <div className="flex justify-between">
-                    <span className="text-zinc-400">时长</span>
+                    <span className="text-zinc-400">{t('common.duration')}</span>
                     <span className="text-zinc-200">{formatDuration(photo.duration)}</span>
                   </div>
                 )}
@@ -301,7 +296,7 @@ export function PhotoDetailModal({
 
             <div>
               <label className="text-xs text-zinc-400 uppercase tracking-wider flex items-center justify-between">
-                拍摄信息
+                {t('common.exifInfo')}
                 <button
                   onClick={() => setEditingDate(!editingDate)}
                   className="text-amber-500 hover:text-amber-400 transition-colors"
@@ -326,49 +321,49 @@ export function PhotoDetailModal({
                         onClick={() => setEditingDate(false)}
                         className="flex-1 btn-secondary"
                       >
-                        取消
+                        {t('common.cancel')}
                       </button>
                       <button
                         onClick={handleSaveDate}
                         disabled={isSaving}
                         className="flex-1 btn-primary"
                       >
-                        {isSaving ? '保存中...' : '保存'}
+                        {isSaving ? t('common.saving') : t('common.save')}
                       </button>
                     </div>
                   </div>
                 ) : (
                   <div className="flex justify-between items-center">
-                    <span className="text-zinc-400">日期</span>
+                    <span className="text-zinc-400">{t('common.date')}</span>
                     <span className={cn(
                       photo.taken_at ? 'text-zinc-200' : 'text-zinc-500 italic'
                     )}>
-                      {formatDate(photo.taken_at)}
+                      {formatDate(photo.taken_at, t('photoDetail.unknownDate'), { year: 'numeric', month: 'long', day: 'numeric' })}
                     </span>
                   </div>
                 )}
                 {photo.camera && (
                   <div className="flex justify-between">
-                    <span className="text-zinc-400">相机</span>
+                    <span className="text-zinc-400">{t('common.camera')}</span>
                     <span className="text-zinc-200">{photo.camera}</span>
                   </div>
                 )}
                 {loadingDetail ? (
                   <div className="flex items-center gap-2 text-zinc-500 py-1">
                     <Loader2 size={14} className="animate-spin" />
-                    <span>加载 EXIF...</span>
+                    <span>{t('photoDetail.loadingExif')}</span>
                   </div>
                 ) : (
                   <>
                     {photoDetail?.aperture && (
                       <div className="flex justify-between">
-                        <span className="text-zinc-400">光圈</span>
+                        <span className="text-zinc-400">{t('photoDetail.aperture')}</span>
                         <span className="text-zinc-200">{photoDetail.aperture}</span>
                       </div>
                     )}
                     {photoDetail?.shutter_speed && (
                       <div className="flex justify-between">
-                        <span className="text-zinc-400">快门</span>
+                        <span className="text-zinc-400">{t('photoDetail.shutter')}</span>
                         <span className="text-zinc-200">{photoDetail.shutter_speed}</span>
                       </div>
                     )}
@@ -385,7 +380,7 @@ export function PhotoDetailModal({
 
             <div>
               <label className="text-xs text-zinc-400 uppercase tracking-wider flex items-center justify-between">
-                位置
+                {t('common.location')}
                 <button
                   onClick={() => setEditingLocation(!editingLocation)}
                   className="text-amber-500 hover:text-amber-400 transition-colors"
@@ -397,12 +392,12 @@ export function PhotoDetailModal({
                 {editingLocation ? (
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-zinc-400 w-8">纬度</span>
+                      <span className="text-xs text-zinc-400 w-8">{t('common.latitude')}</span>
                       <input
                         type="number"
                         value={editLatValue}
                         onChange={(e) => setEditLatValue(e.target.value)}
-                        placeholder="-90 到 90"
+                        placeholder={t('common.latPlaceholder')}
                         min="-90"
                         max="90"
                         step="0.0001"
@@ -410,12 +405,12 @@ export function PhotoDetailModal({
                       />
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-zinc-400 w-8">经度</span>
+                      <span className="text-xs text-zinc-400 w-8">{t('common.longitude')}</span>
                       <input
                         type="number"
                         value={editLngValue}
                         onChange={(e) => setEditLngValue(e.target.value)}
-                        placeholder="-180 到 180"
+                        placeholder={t('common.lngPlaceholder')}
                         min="-180"
                         max="180"
                         step="0.0001"
@@ -427,21 +422,21 @@ export function PhotoDetailModal({
                       className="w-full btn-secondary"
                     >
                       <MapPinned size={14} />
-                      在地图上选择
+                      {t('photoDetail.selectOnMap')}
                     </button>
                     <div className="flex gap-2">
                       <button
                         onClick={() => setEditingLocation(false)}
                         className="flex-1 btn-secondary"
                       >
-                        取消
+                        {t('common.cancel')}
                       </button>
                       <button
                         onClick={handleSaveLocation}
                         disabled={isSaving}
                         className="flex-1 btn-primary"
                       >
-                        {isSaving ? '保存中...' : '保存'}
+                        {isSaving ? t('common.saving') : t('common.save')}
                       </button>
                     </div>
                   </div>
@@ -458,17 +453,17 @@ export function PhotoDetailModal({
                       className="flex items-center gap-1 text-xs text-amber-500 hover:text-amber-400 transition-colors"
                     >
                       <MapPinned size={12} />
-                      在地图上查看
+                      {t('photoDetail.viewOnMap')}
                     </button>
                   </div>
                 ) : (
                   <div className="p-2 bg-zinc-800 rounded text-center">
-                    <p className="text-xs text-zinc-400">此照片没有GPS信息</p>
+                    <p className="text-xs text-zinc-400">{t('photoDetail.noGps')}</p>
                     <button
                       onClick={() => setEditingLocation(true)}
                       className="mt-1 text-xs text-amber-500 hover:text-amber-400 transition-colors"
                     >
-                      点击添加位置
+                      {t('photoDetail.addLocation')}
                     </button>
                   </div>
                 )}

@@ -1,28 +1,27 @@
 import { useState, useEffect } from 'react';
-import { Database, Trash2, FolderOpen, Save, FileText, Eye, ExternalLink, Map, Loader2, RefreshCw, Info, FolderInput } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { Database, Trash2, FolderOpen, Save, FileText, Eye, ExternalLink, Map, Loader2, RefreshCw, Info, FolderInput, Languages } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
+import { cn } from '@/lib/utils';
+import { SUPPORTED_LANGUAGES, setStoredLanguage } from '@/lib/language';
 
 // 瓦片源配置（与 MapPage 保持一致）
 const TILE_PROVIDERS: Record<string, {
-  name: string;
   needKey: boolean;
   needCoordTransform: boolean;
   keyApplyUrl?: string;
 }> = {
   amap: {
-    name: '高德地图（自动坐标偏移）',
     needKey: false,
     needCoordTransform: true,
   },
   amap_dark: {
-    name: '高德暗色（自动坐标偏移）',
     needKey: false,
     needCoordTransform: true,
   },
   tianditu: {
-    name: '天地图（需 API Key + 自动坐标偏移）',
     needKey: true,
     needCoordTransform: true,
     keyApplyUrl: 'https://console.tianditu.gov.cn/api/key',
@@ -31,6 +30,7 @@ const TILE_PROVIDERS: Record<string, {
 
 export function SettingsPage() {
   const { loadStats } = useAppStore();
+  const { t, i18n } = useTranslation();
   const [isClearing, setIsClearing] = useState(false);
   const [thumbnailStats, setThumbnailStats] = useState<{ count: number; totalSize: number; smallCount: number; mediumCount: number } | null>(null);
   const [isLoadingThumbnailStats, setIsLoadingThumbnailStats] = useState(false);
@@ -64,7 +64,7 @@ export function SettingsPage() {
       const stats = await window.api.thumbnail.stats();
       setThumbnailStats(stats);
     } catch (error) {
-      toast('error', '获取缩略图统计失败：' + error);
+      toast('error', t('settings.cache.toastStatsFailed') + error);
     } finally {
       setIsLoadingThumbnailStats(false);
     }
@@ -101,9 +101,9 @@ export function SettingsPage() {
         // 清除空 key
         await window.api.mapSetting.set('apiKey', '');
       }
-      toast('success', '地图设置已保存，切换到地图页面即可生效');
+      toast('success', t('settings.map.toastSaved'));
     } catch (error) {
-      toast('error', '保存失败：' + error);
+      toast('error', t('common.saveFailed') + error);
     } finally {
       setIsMapSaving(false);
     }
@@ -116,8 +116,8 @@ export function SettingsPage() {
       const config = await window.api.config.get();
       setCustomPath(config.dataPath);
     } catch (error) {
-      console.error('加载数据路径失败:', error);
-      toast('error', '加载数据路径失败');
+      console.error('Failed to load data path:', error);
+      toast('error', t('settings.dataStorage.toastLoadFailed'));
     }
   };
 
@@ -128,45 +128,45 @@ export function SettingsPage() {
       const config = await window.api.config.get();
       setCustomLogPath(config.logPath);
     } catch (error) {
-      console.error('加载日志路径失败:', error);
-      toast('error', '加载日志路径失败');
+      console.error('Failed to load log path:', error);
+      toast('error', t('settings.log.toastLoadFailed'));
     }
   };
 
   const handleClearThumbnails = async () => {
-    if (!await confirm('确定要清除所有缩略图缓存吗？\n下次浏览时会重新生成缩略图。', { variant: 'warning' })) {
+    if (!await confirm(t('settings.cache.confirmClear'), { variant: 'warning' })) {
       return;
     }
     setIsClearing(true);
     try {
       await window.api.thumbnail.clear();
-      toast('success', '缩略图缓存已清除');
+      toast('success', t('settings.cache.toastCleared'));
       await loadThumbnailStats();
     } catch (error) {
-      toast('error', '清除失败：' + error);
+      toast('error', t('settings.cache.toastClearFailed') + error);
     } finally {
       setIsClearing(false);
     }
   };
 
   const handleClearDatabase = async () => {
-    if (!await confirm('确定要清除所有数据吗？\n\n这将删除所有照片记录、文件夹和重复检测结果。\n此操作不可恢复！', { variant: 'danger', confirmText: '清除' })) {
+    if (!await confirm(t('settings.danger.confirmClear1'), { variant: 'danger', confirmText: t('settings.danger.confirmClearBtn') })) {
       return;
     }
-    if (!await confirm('再次确认：这将删除数据库中的所有记录，需要重新扫描文件夹。\n\n确定继续吗？', { variant: 'danger', confirmText: '确认清除' })) {
+    if (!await confirm(t('settings.danger.confirmClear2'), { variant: 'danger', confirmText: t('settings.danger.confirmClear2Btn') })) {
       return;
     }
     try {
       const result = await window.api.database.clear();
       if (result.success) {
         await window.api.thumbnail.clear();
-        toast('success', '数据库已清除，请重新添加文件夹并扫描。');
+        toast('success', t('settings.danger.toastCleared'));
         loadStats();
       } else {
-        toast('error', '清除失败：' + (result.error || '未知错误'));
+        toast('error', t('settings.danger.toastFailed') + (result.error || t('common.unknown')));
       }
     } catch (error) {
-      toast('error', '清除失败：' + error);
+      toast('error', t('settings.danger.toastFailed') + error);
     }
   };
 
@@ -178,31 +178,31 @@ export function SettingsPage() {
   };
 
   const handleSaveDataPath = async () => {
-    if (!await confirm('更改数据存储位置后需要重启应用才能生效。\n\n确定要保存吗？', { variant: 'info' })) {
+    if (!await confirm(t('settings.dataStorage.confirmChange'), { variant: 'info' })) {
       return;
     }
     setIsChanging(true);
     try {
       await window.api.config.setDataPath(customPath);
-      toast('success', '设置已保存，请重启应用以使用新的数据存储位置。');
+      toast('success', t('settings.dataStorage.toastSaved'));
     } catch (error) {
-      toast('error', '保存失败：' + error);
+      toast('error', t('common.saveFailed') + error);
     } finally {
       setIsChanging(false);
     }
   };
 
   const handleResetDataPath = async () => {
-    if (!await confirm('确定要恢复默认存储位置吗？\n需要重启应用才能生效。', { variant: 'info' })) {
+    if (!await confirm(t('settings.dataStorage.confirmReset'), { variant: 'info' })) {
       return;
     }
     setCustomPath(null);
     setIsChanging(true);
     try {
       await window.api.config.setDataPath(null);
-      toast('success', '已恢复默认设置，请重启应用。');
+      toast('success', t('settings.dataStorage.toastReset'));
     } catch (error) {
-      toast('error', '保存失败：' + error);
+      toast('error', t('common.saveFailed') + error);
     } finally {
       setIsChanging(false);
     }
@@ -221,9 +221,9 @@ export function SettingsPage() {
       await window.api.config.setLogPath(customLogPath);
       const newPath = await window.api.config.getLogPath();
       setLogPath(newPath);
-      toast('success', '日志路径已更新');
+      toast('success', t('settings.log.toastSaved'));
     } catch (error) {
-      toast('error', '保存失败：' + error);
+      toast('error', t('common.saveFailed') + error);
     } finally {
       setIsLogSaving(false);
     }
@@ -236,9 +236,9 @@ export function SettingsPage() {
       await window.api.config.setLogPath(null);
       const newPath = await window.api.config.getLogPath();
       setLogPath(newPath);
-      toast('success', '已恢复默认日志路径');
+      toast('success', t('settings.log.toastReset'));
     } catch (error) {
-      toast('error', '保存失败：' + error);
+      toast('error', t('common.saveFailed') + error);
     } finally {
       setIsLogSaving(false);
     }
@@ -252,7 +252,7 @@ export function SettingsPage() {
         const content = await window.api.log.read(500);
         setLogContent(content);
       } catch (error) {
-        setLogContent('读取日志失败：' + error);
+        setLogContent(t('settings.log.readFailed') + error);
       } finally {
         setIsLogLoading(false);
       }
@@ -265,22 +265,22 @@ export function SettingsPage() {
       const content = await window.api.log.read(500);
       setLogContent(content);
     } catch (error) {
-      setLogContent('读取日志失败：' + error);
+      setLogContent(t('settings.log.readFailed') + error);
     } finally {
       setIsLogLoading(false);
     }
   };
 
   const handleClearLog = async () => {
-    if (!await confirm('确定要清除所有日志吗？', { variant: 'warning' })) {
+    if (!await confirm(t('settings.log.confirmClear'), { variant: 'warning' })) {
       return;
     }
     try {
       await window.api.log.clear();
       setLogContent('');
-      toast('success', '日志已清除');
+      toast('success', t('settings.log.toastCleared'));
     } catch (error) {
-      toast('error', '清除失败：' + error);
+      toast('error', t('settings.log.toastClearFailed') + error);
     }
   };
 
@@ -293,12 +293,42 @@ export function SettingsPage() {
       <div className="max-w-3xl mx-auto">
         <div className="page-header">
           <div>
-            <h1 className="page-title">设置</h1>
-            <p className="page-subtitle">管理应用程序设置和数据</p>
+            <h1 className="page-title">{t('settings.pageTitle')}</h1>
+            <p className="page-subtitle">{t('settings.pageSubtitle')}</p>
           </div>
         </div>
 
         <div className="space-y-6">
+          {/* 语言 / Language */}
+          <div className="card card-section">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-amber-500/10 rounded-lg">
+                <Languages size={20} className="text-amber-500" />
+              </div>
+              <div>
+                <h2 className="text-lg font-medium text-zinc-100">{t('settings.language.title')}</h2>
+                <p className="text-sm text-zinc-400">{t('settings.language.subtitle')}</p>
+              </div>
+            </div>
+            <p className="text-sm text-zinc-400 mb-3">{t('settings.language.description')}</p>
+            <div className="flex gap-2">
+              {SUPPORTED_LANGUAGES.map((lang) => (
+                <button
+                  key={lang.code}
+                  onClick={() => setStoredLanguage(lang.code)}
+                  className={cn(
+                    'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                    i18n.language === lang.code
+                      ? 'bg-amber-500 text-zinc-900'
+                      : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                  )}
+                >
+                  {lang.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* 数据存储位置 */}
           <div className="card card-section">
             <div className="flex items-center gap-3 mb-4">
@@ -306,24 +336,24 @@ export function SettingsPage() {
                 <FolderOpen size={20} className="text-amber-500" />
               </div>
               <div>
-                <h2 className="text-lg font-medium text-zinc-100">数据存储位置</h2>
-                <p className="text-sm text-zinc-400">设置数据库和缩略图的存储位置</p>
+                <h2 className="text-lg font-medium text-zinc-100">{t('settings.dataStorage.title')}</h2>
+                <p className="text-sm text-zinc-400">{t('settings.dataStorage.subtitle')}</p>
               </div>
             </div>
 
             <div className="space-y-4">
               <div className="p-4 bg-zinc-800 rounded-lg">
-                <label className="form-label">当前位置</label>
+                <label className="form-label">{t('settings.dataStorage.currentLocation')}</label>
                 <p className="text-sm text-zinc-200 break-all">{dataPath}</p>
               </div>
 
               <div className="p-4 bg-zinc-800 rounded-lg">
-                <label className="form-label">自定义存储位置</label>
+                <label className="form-label">{t('settings.dataStorage.customLocation')}</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
                     value={customPath || ''}
-                    placeholder="使用默认位置"
+                    placeholder={t('common.useDefault')}
                     className="flex-1 input-readonly"
                     readOnly
                   />
@@ -331,11 +361,11 @@ export function SettingsPage() {
                     onClick={handleSelectDataFolder}
                     className="btn-secondary"
                   >
-                    浏览...
+                    {t('common.browse')}
                   </button>
                 </div>
                 <p className="text-xs text-zinc-400 mt-2">
-                  数据库和缩略图将存储在此位置。留空则使用默认位置。
+                  {t('settings.dataStorage.customHint')}
                 </p>
               </div>
 
@@ -350,14 +380,14 @@ export function SettingsPage() {
                   ) : (
                     <Save size={14} />
                   )}
-                  {isChanging ? '保存中...' : '保存并重启'}
+                  {isChanging ? t('common.saving') : t('settings.dataStorage.saveAndRestart')}
                 </button>
                 <button
                   onClick={handleResetDataPath}
                   disabled={isChanging || customPath === null}
                   className="btn-secondary"
                 >
-                  恢复默认
+                  {t('common.restoreDefault')}
                 </button>
               </div>
             </div>
@@ -370,22 +400,27 @@ export function SettingsPage() {
                 <FolderInput size={20} className="text-amber-500" />
               </div>
               <div>
-                <h2 className="text-lg font-medium text-zinc-100">回收站</h2>
-                <p className="text-sm text-zinc-400">两级回收站的工作方式</p>
+                <h2 className="text-lg font-medium text-zinc-100">{t('settings.trash.title')}</h2>
+                <p className="text-sm text-zinc-400">{t('settings.trash.subtitle')}</p>
               </div>
             </div>
 
             <div className="space-y-3 text-sm text-zinc-300">
-              <p>
-                应用在每张原图所在磁盘的根目录下创建隐藏文件夹 <code className="px-1.5 py-0.5 bg-zinc-800 rounded text-amber-400">.xd-photovault-trash</code>，删除的照片会先移动到这里。
-              </p>
+              <p
+                className="text-sm text-zinc-400"
+                dangerouslySetInnerHTML={{
+                  __html: t('settings.trash.description', {
+                    folder: '<code class="px-1.5 py-0.5 bg-zinc-800 rounded text-amber-400">.xd-photovault-trash</code>',
+                  }),
+                }}
+              />
               <ul className="list-disc list-inside space-y-1 text-zinc-400">
-                <li>在应用内点击“删除”：照片移入应用回收站（隐藏文件夹）。</li>
-                <li>在回收站点击“彻底删除”：照片进入系统回收站。</li>
-                <li>清空系统回收站后，照片才真正从磁盘上消失。</li>
+                <li>{t('settings.trash.step1')}</li>
+                <li>{t('settings.trash.step2')}</li>
+                <li>{t('settings.trash.step3')}</li>
               </ul>
               <p className="text-xs text-zinc-500">
-                Windows 下该文件夹已设置隐藏属性；macOS/Linux 下以点号开头自动隐藏。
+                {t('settings.trash.note')}
               </p>
             </div>
           </div>
@@ -397,24 +432,24 @@ export function SettingsPage() {
                 <FileText size={20} className="text-amber-500" />
               </div>
               <div>
-                <h2 className="text-lg font-medium text-zinc-100">日志设置</h2>
-                <p className="text-sm text-zinc-400">配置日志存储位置并查看日志</p>
+                <h2 className="text-lg font-medium text-zinc-100">{t('settings.log.title')}</h2>
+                <p className="text-sm text-zinc-400">{t('settings.log.subtitle')}</p>
               </div>
             </div>
 
             <div className="space-y-4">
               <div className="p-4 bg-zinc-800 rounded-lg">
-                <label className="form-label">当前日志路径</label>
+                <label className="form-label">{t('settings.log.currentPath')}</label>
                 <p className="text-sm text-zinc-200 break-all">{logPath}</p>
               </div>
 
               <div className="p-4 bg-zinc-800 rounded-lg">
-                <label className="form-label">自定义日志路径</label>
+                <label className="form-label">{t('settings.log.customPath')}</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
                     value={customLogPath || ''}
-                    placeholder="使用默认位置"
+                    placeholder={t('common.useDefault')}
                     className="flex-1 input-readonly"
                     readOnly
                   />
@@ -422,11 +457,11 @@ export function SettingsPage() {
                     onClick={handleSelectLogFolder}
                     className="btn-secondary"
                   >
-                    浏览...
+                    {t('common.browse')}
                   </button>
                 </div>
                 <p className="text-xs text-zinc-400 mt-2">
-                  日志文件将存储在此目录下。留空则使用默认位置。
+                  {t('settings.log.customHint')}
                 </p>
               </div>
 
@@ -441,14 +476,14 @@ export function SettingsPage() {
                   ) : (
                     <Save size={14} />
                   )}
-                  {isLogSaving ? '保存中...' : '保存路径'}
+                  {isLogSaving ? t('common.saving') : t('settings.log.savePath')}
                 </button>
                 <button
                   onClick={handleResetLogPath}
                   disabled={isLogSaving || customLogPath === null}
                   className="btn-secondary"
                 >
-                  恢复默认
+                  {t('common.restoreDefault')}
                 </button>
                 <button
                   onClick={handleOpenLogFolder}
@@ -456,15 +491,15 @@ export function SettingsPage() {
                   disabled={isLogSaving}
                 >
                   <ExternalLink size={14} />
-                  打开目录
+                  {t('common.openFolder')}
                 </button>
               </div>
 
               <div className="p-4 bg-zinc-800 rounded-lg">
                 <div className="flex items-center justify-between flex-wrap gap-3">
                   <div>
-                    <p className="text-sm text-zinc-200">日志查看</p>
-                    <p className="text-xs text-zinc-400 mt-1">查看、刷新或清除应用运行日志</p>
+                    <p className="text-sm text-zinc-200">{t('settings.log.logView')}</p>
+                    <p className="text-xs text-zinc-400 mt-1">{t('settings.log.logViewHint')}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -472,7 +507,7 @@ export function SettingsPage() {
                       className="btn-secondary"
                     >
                       <Eye size={14} />
-                      {showLog ? '隐藏日志' : '查看日志'}
+                      {showLog ? t('settings.log.hideLog') : t('settings.log.viewLog')}
                     </button>
                     {showLog && (
                       <>
@@ -486,13 +521,13 @@ export function SettingsPage() {
                           ) : (
                             <RefreshCw size={14} />
                           )}
-                          {isLogLoading ? '刷新中...' : '刷新'}
+                          {isLogLoading ? t('common.refreshing') : t('common.refresh')}
                         </button>
                         <button
                           onClick={handleClearLog}
                           className="btn-danger"
                         >
-                          清除日志
+                          {t('settings.log.clearLog')}
                         </button>
                       </>
                     )}
@@ -503,7 +538,7 @@ export function SettingsPage() {
               {showLog && (
                 <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 max-h-96 overflow-auto">
                   <pre className="text-xs text-zinc-300 whitespace-pre-wrap break-all font-mono">
-                    {isLogLoading ? '加载中...' : logContent || '暂无日志'}
+                    {isLogLoading ? t('common.loading') : (logContent || t('settings.log.emptyLog'))}
                   </pre>
                 </div>
               )}
@@ -517,38 +552,38 @@ export function SettingsPage() {
                 <Map size={20} className="text-amber-500" />
               </div>
               <div>
-                <h2 className="text-lg font-medium text-zinc-100">地图设置</h2>
-                <p className="text-sm text-zinc-400">配置地图瓦片源和 API Key</p>
+                <h2 className="text-lg font-medium text-zinc-100">{t('settings.map.title')}</h2>
+                <p className="text-sm text-zinc-400">{t('settings.map.subtitle')}</p>
               </div>
             </div>
 
             <div className="space-y-4">
               <div className="p-4 bg-zinc-800 rounded-lg">
-                <label className="form-label">地图瓦片源</label>
+                <label className="form-label">{t('settings.map.tileProvider')}</label>
                 <select
                   value={mapTileProvider}
                   onChange={(e) => setMapTileProvider(e.target.value)}
                   className="w-full input appearance-none cursor-pointer"
                 >
-                  {Object.entries(TILE_PROVIDERS).map(([key, provider]) => (
-                    <option key={key} value={key}>{provider.name}</option>
+                  {Object.entries(TILE_PROVIDERS).map(([key]) => (
+                    <option key={key} value={key}>{t('settings.map.providers.' + key)}</option>
                   ))}
                 </select>
                 {TILE_PROVIDERS[mapTileProvider]?.needCoordTransform && (
                   <p className="text-xs text-amber-500/80 mt-2">
-                    此地图源使用 GCJ02 坐标系，照片坐标将自动从 WGS84 转换
+                    {t('settings.map.coordTransformHint')}
                   </p>
                 )}
               </div>
 
               {TILE_PROVIDERS[mapTileProvider]?.needKey && (
                 <div className="p-4 bg-zinc-800 rounded-lg">
-                  <label className="form-label">API Key</label>
+                  <label className="form-label">{t('settings.map.apiKey')}</label>
                   <input
                     type="text"
                     value={mapApiKey}
                     onChange={(e) => setMapApiKey(e.target.value)}
-                    placeholder="输入 API Key"
+                    placeholder={t('settings.map.apiKeyPlaceholder')}
                     className="w-full input"
                   />
                   {TILE_PROVIDERS[mapTileProvider]?.keyApplyUrl && (
@@ -559,7 +594,7 @@ export function SettingsPage() {
                       className="inline-flex items-center gap-1 text-xs text-amber-500 hover:text-amber-400 mt-2"
                     >
                       <ExternalLink size={12} />
-                      前往申请 API Key
+                      {t('settings.map.applyKey')}
                     </a>
                   )}
                 </div>
@@ -575,7 +610,7 @@ export function SettingsPage() {
                 ) : (
                   <Save size={14} />
                 )}
-                {isMapSaving ? '保存中...' : '保存地图设置'}
+                {isMapSaving ? t('common.saving') : t('settings.map.save')}
               </button>
             </div>
           </div>
@@ -587,16 +622,16 @@ export function SettingsPage() {
                 <Database size={20} className="text-amber-500" />
               </div>
               <div>
-                <h2 className="text-lg font-medium text-zinc-100">缓存管理</h2>
-                <p className="text-sm text-zinc-400">清除缓存以释放磁盘空间</p>
+                <h2 className="text-lg font-medium text-zinc-100">{t('settings.cache.title')}</h2>
+                <p className="text-sm text-zinc-400">{t('settings.cache.subtitle')}</p>
               </div>
             </div>
 
             <div className="p-4 bg-zinc-800 rounded-lg">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-zinc-200">缩略图缓存</p>
-                  <p className="text-xs text-zinc-400 mt-1">清除后下次浏览时会重新生成</p>
+                  <p className="text-sm text-zinc-200">{t('settings.cache.thumbnail')}</p>
+                  <p className="text-xs text-zinc-400 mt-1">{t('settings.cache.thumbnailHint')}</p>
                 </div>
                 <button
                   onClick={handleClearThumbnails}
@@ -608,28 +643,31 @@ export function SettingsPage() {
                   ) : (
                     <Trash2 size={14} />
                   )}
-                  {isClearing ? '清除中...' : '清除'}
+                  {isClearing ? t('common.clearing') : t('common.clear')}
                 </button>
               </div>
               <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-zinc-700/50">
                 <div>
-                  <p className="text-xs text-zinc-400">文件总数</p>
+                  <p className="text-xs text-zinc-400">{t('settings.cache.fileCount')}</p>
                   <p className="text-lg font-semibold text-zinc-200">
                     {isLoadingThumbnailStats ? '-' : (thumbnailStats?.count ?? 0).toLocaleString()}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-zinc-400">占用空间</p>
+                  <p className="text-xs text-zinc-400">{t('settings.cache.diskUsage')}</p>
                   <p className="text-lg font-semibold text-zinc-200">
                     {isLoadingThumbnailStats ? '-' : formatBytes(thumbnailStats?.totalSize ?? 0)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-zinc-400">尺寸分布</p>
+                  <p className="text-xs text-zinc-400">{t('settings.cache.sizeDistribution')}</p>
                   <p className="text-sm text-zinc-300 mt-0.5">
                     {isLoadingThumbnailStats
                       ? '-'
-                      : `small ${(thumbnailStats?.smallCount ?? 0).toLocaleString()} / medium ${(thumbnailStats?.mediumCount ?? 0).toLocaleString()}`}
+                      : t('settings.cache.sizeDistributionDetail', {
+                          small: (thumbnailStats?.smallCount ?? 0).toLocaleString(),
+                          medium: (thumbnailStats?.mediumCount ?? 0).toLocaleString(),
+                        })}
                   </p>
                 </div>
               </div>
@@ -643,21 +681,21 @@ export function SettingsPage() {
                 <Trash2 size={20} className="text-red-500" />
               </div>
               <div>
-                <h2 className="text-lg font-medium text-zinc-100">危险操作</h2>
-                <p className="text-sm text-zinc-400">这些操作不可逆，请谨慎使用</p>
+                <h2 className="text-lg font-medium text-zinc-100">{t('settings.danger.title')}</h2>
+                <p className="text-sm text-zinc-400">{t('settings.danger.subtitle')}</p>
               </div>
             </div>
 
             <div className="flex items-center justify-between p-4 bg-zinc-800 rounded-lg">
               <div>
-                <p className="text-sm text-zinc-200">清除数据库</p>
-                <p className="text-xs text-zinc-400 mt-1">删除所有照片记录、文件夹和重复检测结果，需要重新扫描</p>
+                <p className="text-sm text-zinc-200">{t('settings.danger.clearDatabase')}</p>
+                <p className="text-xs text-zinc-400 mt-1">{t('settings.danger.clearDatabaseHint')}</p>
               </div>
               <button
                 onClick={handleClearDatabase}
                 className="btn-danger-solid"
               >
-                清除数据库
+                {t('settings.danger.clearDatabase')}
               </button>
             </div>
           </div>
@@ -669,22 +707,20 @@ export function SettingsPage() {
                 <Info size={20} className="text-amber-500" />
               </div>
               <div>
-                <h2 className="text-lg font-medium text-zinc-100">关于</h2>
-                <p className="text-sm text-zinc-400">小呆相册 - 简单好用的照片管理工具</p>
+                <h2 className="text-lg font-medium text-zinc-100">{t('settings.about.title')}</h2>
+                <p className="text-sm text-zinc-400">{t('settings.about.subtitle')}</p>
               </div>
             </div>
 
             <div className="flex items-start gap-4 p-4 bg-zinc-800 rounded-lg">
               <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center flex-shrink-0 shadow-lg">
-                <span className="text-2xl font-bold text-white">小</span>
+                <span className="text-2xl font-bold text-white">{t('settings.about.appName').charAt(0)}</span>
               </div>
               <div className="min-w-0">
-                <h3 className="text-lg font-semibold text-zinc-100">小呆相册</h3>
-                <p className="text-sm text-amber-500 font-medium mt-0.5">版本 v{__APP_VERSION__}</p>
+                <h3 className="text-lg font-semibold text-zinc-100">{t('settings.about.appName')}</h3>
+                <p className="text-sm text-amber-500 font-medium mt-0.5">{t('settings.about.version', { version: __APP_VERSION__ })}</p>
                 <p className="text-sm text-zinc-400 mt-2 leading-relaxed">
-                  专注于本地照片管理、智能去重与地图浏览的桌面应用。
-                  支持时间线浏览、AI 语义搜索、重复照片检测与地理位置可视化，
-                  所有照片数据均存储在本地，保护您的隐私安全。
+                  {t('settings.about.description')}
                 </p>
               </div>
             </div>

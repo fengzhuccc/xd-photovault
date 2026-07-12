@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Filter, Grid3X3, MapPin, Camera, Trash2, CheckCircle2, Circle, Loader2, Play, Image, Film, Search, X, FolderOpen, MapPinned } from 'lucide-react';
 import { MapPickerModal } from '@/components/MapPickerModal';
@@ -8,6 +9,7 @@ import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
 import { cn, isTypingTarget } from '@/lib/utils';
+import { useFormatDate } from '@/lib/useFormatDate';
 import { confirmFirstTrashMove } from '@/lib/trashPrompt';
 import { PhotoDetailModal } from '@/components/PhotoDetailModal';
 import type { Photo } from '@/types';
@@ -20,7 +22,7 @@ interface PhotoGridItemProps {
   selectMode: boolean;
   onSelect: (photo: Photo) => void;
   onToggleSelect: (photoId: string, e?: React.MouseEvent) => void;
-  formatDate: (date: string | null) => string;
+  formatDate: (date: string | Date | null | undefined, fallback?: string, options?: Intl.DateTimeFormatOptions) => string;
 }
 
 function formatDuration(seconds: number | null): string {
@@ -40,6 +42,7 @@ const PhotoGridItem = React.memo(function PhotoGridItem({
   onToggleSelect,
   formatDate,
 }: PhotoGridItemProps) {
+  const { t } = useTranslation();
   const isVideo = photo.media_type === 'video';
   const showSimilarity = similarity !== undefined && !selectMode;
 
@@ -107,7 +110,7 @@ const PhotoGridItem = React.memo(function PhotoGridItem({
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
           <div className="absolute bottom-0 left-0 right-0 p-2">
             <p className="text-xs text-white truncate">{photo.filename}</p>
-            <p className="text-xs text-zinc-200">{formatDate(photo.taken_at)}</p>
+            <p className="text-xs text-zinc-200">{formatDate(photo.taken_at, t('common.unknownDate'), { year: 'numeric', month: 'long', day: 'numeric' })}</p>
           </div>
         </div>
       )}
@@ -158,6 +161,8 @@ export function BrowsePage() {
     browseScrollState,
     setBrowseScrollState,
   } = useAppStore();
+  const { t } = useTranslation();
+  const formatDate = useFormatDate();
   const get = useAppStore.getState;
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [showFilters, setShowFilters] = useState(false);
@@ -395,15 +400,6 @@ export function BrowsePage() {
     setBrowseScrollState(null);
   };
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '未知日期';
-    return new Date(dateStr).toLocaleDateString('zh-CN', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-  };
-
   const clearAiSearch = useCallback(() => {
     setSearchInput('');
     setAiSearchQuery('');
@@ -497,7 +493,7 @@ export function BrowsePage() {
   const handleBatchDelete = async () => {
     const count = selectedIds.size;
     if (count === 0) return;
-    if (!await confirm(`确定要将选中的 ${count} 张照片移到回收站吗？\n\n可在回收站中还原或彻底删除。`, { variant: 'danger', confirmText: '移到回收站' })) {
+    if (!await confirm(t('browse.toast.confirmMoveToTrash', { count }), { variant: 'danger', confirmText: t('photoDetail.confirm.moveToTrashBtn') })) {
       return;
     }
     if (!await confirmFirstTrashMove()) {
@@ -537,7 +533,7 @@ export function BrowsePage() {
       loadStats();
       loadTrashCount();
     } catch (error) {
-      toast('error', '移到回收站失败：' + error);
+      toast('error', t('browse.toast.moveToTrashFailed') + error);
     }
   };
 
@@ -546,7 +542,7 @@ export function BrowsePage() {
     if (count === 0) return;
     try {
       const result = await window.api.photo.updateLocationBatch(Array.from(selectedIds), lat, lng);
-      toast('success', `已为 ${result.updated} 张照片设置位置`);
+      toast('success', t('browse.toast.batchLocationSuccess', { count: result.updated }));
       setSelectedIds(new Set());
       setSelectMode(false);
       setShowMapPicker(false);
@@ -555,7 +551,7 @@ export function BrowsePage() {
       loadTimeline(currentFilter);
       loadStats();
     } catch (error) {
-      toast('error', '批量设置位置失败：' + error);
+      toast('error', t('browse.toast.batchLocationFailed') + error);
     }
   };
 
@@ -669,11 +665,11 @@ export function BrowsePage() {
       <div className="flex-1 flex flex-col min-w-0">
         <div className="page-header">
           <div>
-            <h1 className="page-title">浏览照片</h1>
+            <h1 className="page-title">{t('browse.pageTitle')}</h1>
             <p className="page-subtitle">
               {isAiSearchMode
-                ? `AI 搜索结果：${aiSearchResults.length.toLocaleString()} 张`
-                : `共 ${photosTotal.toLocaleString()} 张照片`}
+                ? t('browse.subtitleAiSearch', { count: aiSearchResults.length.toLocaleString() })
+                : t('browse.subtitleAll', { count: photosTotal.toLocaleString() })}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -691,14 +687,14 @@ export function BrowsePage() {
                     clearAiSearch();
                   }
                 }}
-                placeholder="AI 语义搜索..."
+                placeholder={t('browse.searchPlaceholder')}
                 className="input w-64 pl-9 pr-8"
               />
               {(searchInput || isAiSearchMode) && (
                 <button
                   onClick={clearAiSearch}
                   className="icon-btn absolute right-1 top-1/2 -translate-y-1/2"
-                  title="清除搜索"
+                  title={t('browse.clearSearch')}
                 >
                   <X size={14} />
                 </button>
@@ -709,7 +705,7 @@ export function BrowsePage() {
                 onClick={clearAiSearch}
                 className="btn-secondary text-xs px-3 py-1.5"
               >
-                返回全部
+                {t('browse.backToAll')}
               </button>
             )}
             {aiSearching && (
@@ -728,7 +724,7 @@ export function BrowsePage() {
               )}
             >
               <CheckCircle2 size={16} />
-              {selectMode ? '取消选择' : '多选'}
+              {selectMode ? t('common.cancelSelection') : t('common.multiSelect')}
             </button>
             <button
               onClick={() => setShowFilters(!showFilters)}
@@ -737,7 +733,7 @@ export function BrowsePage() {
               )}
             >
               <Filter size={16} />
-              筛选
+              {t('browse.filter')}
             </button>
           </div>
         </div>
@@ -752,9 +748,9 @@ export function BrowsePage() {
                   onChange={(e) => handleFilterChange('hasLocation', e.target.value === '' ? undefined : e.target.value === 'true')}
                   className="input py-1.5"
                 >
-                  <option value="">全部</option>
-                  <option value="true">有位置</option>
-                  <option value="false">无位置</option>
+                  <option value="">{t('browse.filters.all')}</option>
+                  <option value="true">{t('browse.filters.withLocation')}</option>
+                  <option value="false">{t('browse.filters.noLocation')}</option>
                 </select>
               </div>
               {stats?.cameras && stats.cameras.length > 0 && (
@@ -765,7 +761,7 @@ export function BrowsePage() {
                     onChange={(e) => handleFilterChange('camera', e.target.value || undefined)}
                     className="input py-1.5"
                   >
-                    <option value="">全部相机</option>
+                    <option value="">{t('browse.filters.allCameras')}</option>
                     {stats.cameras.map(({ camera }) => (
                       <option key={camera} value={camera}>{camera}</option>
                     ))}
@@ -783,9 +779,9 @@ export function BrowsePage() {
                   onChange={(e) => handleFilterChange('mediaType', e.target.value === 'all' ? undefined : e.target.value)}
                   className="input py-1.5"
                 >
-                  <option value="all">全部</option>
-                  <option value="image">图片</option>
-                  <option value="video">视频</option>
+                  <option value="all">{t('browse.filters.all')}</option>
+                  <option value="image">{t('browse.filters.image')}</option>
+                  <option value="video">{t('browse.filters.video')}</option>
                 </select>
               </div>
             </div>
@@ -796,11 +792,11 @@ export function BrowsePage() {
           {displayPhotos.length === 0 ? (
             <Empty
               icon={isAiSearchMode ? Search : FolderOpen}
-              title={isAiSearchMode ? '未找到匹配的照片' : '没有找到照片'}
+              title={isAiSearchMode ? t('browse.empty.aiTitle') : t('browse.empty.browseTitle')}
               description={
                 isAiSearchMode
-                  ? '请尝试其他关键词，或确认已完成 AI 索引'
-                  : '请先在照片库中添加并扫描文件夹'
+                  ? t('browse.empty.aiDescription')
+                  : t('browse.empty.browseDescription')
               }
             />
           ) : (
@@ -817,7 +813,7 @@ export function BrowsePage() {
                 Footer: () => loadingMore ? (
                   <div className="col-span-full flex items-center justify-center gap-2 py-4 text-sm text-zinc-400">
                     <Loader2 size={18} className="text-amber-500 animate-spin" />
-                    正在加载更多...
+                    {t('browse.loadingMore')}
                   </div>
                 ) : null,
               }}
@@ -844,20 +840,20 @@ export function BrowsePage() {
           <div className="sticky bottom-0 left-0 right-0 bg-zinc-900/95 backdrop-blur-sm border-t border-zinc-800 px-4 py-3 flex items-center justify-between z-20">
             <div className="flex items-center gap-4">
               <span className="text-sm text-zinc-300">
-                已选择 <span className="text-amber-500 font-medium">{selectedIds.size}</span> 张
+                {t('browse.selected', { count: selectedIds.size })}
               </span>
               <button
                 onClick={selectAll}
                 className="text-xs text-amber-500 hover:text-amber-400 transition-colors"
               >
-                全选
+                {t('common.selectAll')}
               </button>
               {selectedIds.size > 0 && (
                 <button
                   onClick={clearSelection}
                   className="text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
                 >
-                  取消选择
+                  {t('common.deselectAll')}
                 </button>
               )}
             </div>
@@ -866,7 +862,7 @@ export function BrowsePage() {
                 onClick={exitSelectMode}
                 className="btn-secondary"
               >
-                完成
+                {t('common.done')}
               </button>
               <button
                 onClick={() => setShowMapPicker(true)}
@@ -879,7 +875,7 @@ export function BrowsePage() {
                 )}
               >
                 <MapPinned size={16} />
-                修改位置{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+                {t('browse.modifyLocation', { count: selectedIds.size })}
               </button>
               <button
                 onClick={handleBatchDelete}
@@ -892,7 +888,7 @@ export function BrowsePage() {
                 )}
               >
                 <Trash2 size={16} />
-                移到回收站{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+                {t('browse.moveToTrash', { count: selectedIds.size })}
               </button>
             </div>
           </div>
@@ -901,7 +897,7 @@ export function BrowsePage() {
 
       <div className="w-48 border-l border-zinc-800 hidden lg:block flex-shrink-0">
         <div className="sticky top-0 h-screen p-4 overflow-auto">
-          <h3 className="info-label mb-3">时间线</h3>
+          <h3 className="info-label mb-3">{t('browse.timeline')}</h3>
           <div className="space-y-1">
           {timeline.map((group) => (
             <button

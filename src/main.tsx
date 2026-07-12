@@ -2,6 +2,9 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import './index.css'
+import './i18n'
+import i18next from './i18n'
+import { getStoredLanguage } from '@/lib/language'
 
 declare global {
   interface Window {
@@ -25,14 +28,21 @@ window.addEventListener('DOMContentLoaded', () => {
 const app = <App />;
 const root = createRoot(rootEl);
 
-if (import.meta.env.DEV) {
-  root.render(
-    <StrictMode>
-      {app}
-    </StrictMode>,
-  );
-} else {
-  root.render(app);
-}
+void (async () => {
+  const stored = await getStoredLanguage();
+  if (stored !== i18next.language) {
+    await i18next.changeLanguage(stored);
+  }
 
-logTiming('React root rendered');
+  if (import.meta.env.DEV) {
+    root.render(
+      <StrictMode>
+        {app}
+      </StrictMode>,
+    );
+  } else {
+    root.render(app);
+  }
+
+  logTiming('React root rendered');
+})();

@@ -234,6 +234,15 @@ function setupIpcHandlers() {
     return getLogPath();
   });
 
+  ipcMain.handle('config:getLanguage', async () => {
+    return configService.getLanguage();
+  });
+
+  ipcMain.handle('config:setLanguage', async (_event, lang: string) => {
+    configService.setLanguage(lang);
+    return { success: true };
+  });
+
   ipcMain.handle('folder:add', async (_event, path: string) => {
     return await scanner.addFolder(path);
   });

@@ -6,11 +6,13 @@ import log from 'electron-log';
 export interface AppConfig {
   dataPath: string | null;
   logPath: string | null;
+  language: string | null;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
   dataPath: null,
   logPath: null,
+  language: null,
 };
 
 export class ConfigService {
@@ -81,6 +83,15 @@ export class ConfigService {
 
   setDataPath(path: string | null): void {
     this.config.dataPath = path;
+    this.saveConfig();
+  }
+
+  getLanguage(): string | null {
+    return this.config.language;
+  }
+
+  setLanguage(lang: string | null): void {
+    this.config.language = lang;
     this.saveConfig();
   }
 
