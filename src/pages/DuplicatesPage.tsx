@@ -283,15 +283,30 @@ export function DuplicatesPage() {
     return photoId === recommendedPhotoId;
   }, [manualKeep]);
 
-  const toggleKeep = useCallback((groupId: string, photoId: string, recommendedPhotoId: string) => {
+  const toggleKeep = useCallback((groupId: string, photoId: string, recommendedPhotoId: string, reason: 'exact' | 'similar') => {
     setManualKeep(prev => {
       const current = prev[groupId] ?? new Set([recommendedPhotoId]);
-      // 重复组内只能保留一张照片，再次点击已保留项时禁止取消
-      if (current.has(photoId) && current.size <= 1) {
+      const isKept = current.has(photoId);
+
+      // 至少需要保留一张照片
+      if (isKept && current.size <= 1) {
         toast('warning', '每组至少需要保留一张照片');
         return prev;
       }
-      return { ...prev, [groupId]: new Set([photoId]) };
+
+      if (reason === 'exact') {
+        // 精确去重：只能保留一张，点击另一张时替换
+        return { ...prev, [groupId]: new Set([photoId]) };
+      }
+
+      // 相似去重：可保留多张
+      const next = new Set(current);
+      if (isKept) {
+        next.delete(photoId);
+      } else {
+        next.add(photoId);
+      }
+      return { ...prev, [groupId]: next };
     });
   }, []);
 
@@ -741,7 +756,7 @@ export function DuplicatesPage() {
                 onToggle={(idx, shift) => toggleGroup(idx, shift)}
                 onPhotoClick={handlePhotoClick}
                 isPhotoKept={(photoId) => isPhotoKept(group.id, photoId, group.recommended_photo_id)}
-                onToggleKeep={(photoId) => toggleKeep(group.id, photoId, group.recommended_photo_id)}
+                onToggleKeep={(photoId) => toggleKeep(group.id, photoId, group.recommended_photo_id, group.reason)}
                 onDeleteGroup={() => handleDeleteGroup(group)}
               />
             ))}
@@ -883,7 +898,7 @@ export function DuplicatesPage() {
                 {/* 保留/删除操作 */}
                 <div className="pt-2 space-y-2">
                   <button
-                    onClick={() => toggleKeep(currentGroup.id, selectedPhoto.id, currentGroup.recommended_photo_id)}
+                    onClick={() => toggleKeep(currentGroup.id, selectedPhoto.id, currentGroup.recommended_photo_id, currentGroup.reason)}
                     className={cn(
                       'w-full btn',
                       isPhotoKept(currentGroup.id, selectedPhoto.id, currentGroup.recommended_photo_id)
@@ -1150,7 +1165,7 @@ function DuplicateCard({
 
       <div className="mt-3 text-xs text-zinc-400 flex items-center gap-2">
         <AlertTriangle size={12} className="inline" />
-        <span>点击右上角星标选择要保留的照片，每组仅保留一张，未选中的照片将被删除。带"推荐"标签为系统推荐保留项。</span>
+        <span>精确重复组仅保留一张，相似重复组可保留多张；未保留的照片将被删除。带"推荐"标签为系统推荐保留项。</span>
       </div>
     </div>
   );
