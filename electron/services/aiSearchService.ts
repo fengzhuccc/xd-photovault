@@ -1,6 +1,7 @@
 import log from 'electron-log';
 import type { DatabaseService, PhotoRow } from './database';
 import { AiEmbeddingService } from './aiEmbedding';
+import type { TranslateService } from './translateService';
 import { getAiConfig } from './aiConfig';
 
 export interface AiSearchResult {
@@ -13,16 +14,31 @@ interface CacheEntry {
   embedding: Float32Array;
 }
 
+/** 单条查询及其对应的相似度阈值 */
+interface QueryPlan {
+  text: string;
+  threshold: number;
+  /** 标记来源，用于日志 */
+  label: string;
+}
+
 export class AiSearchService {
   private db: DatabaseService;
   private embeddingService: AiEmbeddingService;
+  private translateService?: TranslateService;
   // embedding 内存缓存，避免每次搜索都全表加载
   private cache: CacheEntry[] | null = null;
   private cacheModel: string | null = null;
 
-  constructor(db: DatabaseService, dataPath: string, embeddingService?: AiEmbeddingService) {
+  constructor(
+    db: DatabaseService,
+    dataPath: string,
+    embeddingService?: AiEmbeddingService,
+    translateService?: TranslateService,
+  ) {
     this.db = db;
     this.embeddingService = embeddingService ?? new AiEmbeddingService(dataPath);
+    this.translateService = translateService;
   }
 
   async init(): Promise<void> {
@@ -53,15 +69,43 @@ export class AiSearchService {
     const config = getAiConfig();
     log.info(`[AI] 语义搜索: "${query}"`);
 
-    const augmentedQuery = augmentQuery(query);
     const isChinese = hasChinese(query);
-    // 英文 CLIP 对中文查询的相似度分数普遍偏低，适当降低阈值
-    const minSimilarity = isChinese
-      ? Math.min(config.searchMinSimilarity, 0.18)
-      : config.searchMinSimilarity;
-    log.info(`[AI] 语义搜索原始查询: "${query}" -> 增强查询: "${augmentedQuery}" (中文: ${isChinese}, 阈值: ${minSimilarity})`);
+    const augmentedQuery = augmentQuery(query);
 
-    const textEmbedding = await this.embeddingService.encodeText(augmentedQuery);
+    // 构建查询计划：中文查询时尝试翻译成英文，双语并行查询取 max 相似度
+    const plans: QueryPlan[] = [{
+      text: augmentedQuery,
+      // 中文查询的英文 CLIP 打分普遍偏低，用低阈值保证召回
+      threshold: isChinese ? Math.min(config.searchMinSimilarity, 0.18) : config.searchMinSimilarity,
+      label: isChinese ? 'zh' : 'en',
+    }];
+
+    let translatedText: string | null = null;
+    if (isChinese && config.enableTranslation && this.translateService) {
+      try {
+        translatedText = await this.translateService.translate(query);
+      } catch (error) {
+        log.warn('[AI] 翻译异常，仅用中文查询:', error);
+      }
+      if (translatedText) {
+        plans.push({
+          text: `a photo of ${translatedText}`,
+          threshold: config.searchMinSimilarity,
+          label: 'translated-en',
+        });
+      }
+    }
+
+    log.info(
+      `[AI] 查询计划: 原始="${query}", 翻译="${translatedText ?? 'N/A'}', ` +
+      `查询数=${plans.length}, ` +
+      plans.map(p => `${p.label}(阈值${p.threshold})`).join(' | ')
+    );
+
+    // 对每个查询编码向量（encodeText 内部有互斥锁，会串行执行）
+    const textEmbeddings = await Promise.all(
+      plans.map(p => this.embeddingService.encodeText(p.text))
+    );
 
     // 加载或复用 embedding 缓存
     if (this.cache === null || this.cacheModel !== config.model) {
@@ -72,9 +116,16 @@ export class AiSearchService {
 
     const results: AiSearchResult[] = [];
     for (const entry of this.cache) {
-      const similarity = cosineSimilarity(textEmbedding, entry.embedding);
-      if (similarity >= minSimilarity) {
-        results.push({ photo: entry.photo, similarity });
+      // 多查询并行：任一查询超过其阈值即命中，相似度取最大值用于排序
+      let maxSim = -Infinity;
+      let hit = false;
+      for (let i = 0; i < textEmbeddings.length; i++) {
+        const sim = cosineSimilarity(textEmbeddings[i], entry.embedding);
+        if (sim > maxSim) maxSim = sim;
+        if (sim >= plans[i].threshold) hit = true;
+      }
+      if (hit) {
+        results.push({ photo: entry.photo, similarity: maxSim });
       }
     }
 

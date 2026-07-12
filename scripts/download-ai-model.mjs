@@ -3,26 +3,38 @@ import { dirname, join } from 'path';
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
 
-const MODEL_ID = 'Xenova/clip-vit-base-patch16';
-const REVISION = 'main';
-const TARGET_DIR = join(process.cwd(), 'resources', 'ai-models', MODEL_ID);
 const HF_ENDPOINT = (process.env.HF_ENDPOINT || 'https://huggingface.co').replace(/\/$/, '');
+const TARGET_BASE_DIR = join(process.cwd(), 'resources', 'ai-models');
 const DOWNLOAD_ALL = process.env.AI_DOWNLOAD_ALL === '1' || process.env.AI_DOWNLOAD_ALL === 'true';
+const REVISION = 'main';
 
-// 默认只保留量化版 ONNX 模型，删除其他精度变体以减小打包体积
-const SKIP_BY_DEFAULT = [
-  /^onnx\/model\.onnx$/,
-  /^onnx\/model_fp16\.onnx$/,
-  /^onnx\/model_quantized\.onnx$/,
-  /^onnx\/text_model\.onnx$/,
-  /^onnx\/text_model_fp16\.onnx$/,
-  /^onnx\/vision_model\.onnx$/,
-  /^onnx\/vision_model_fp16\.onnx$/,
+// 需要下载的模型列表
+const MODELS = [
+  {
+    id: 'Xenova/clip-vit-base-patch16',
+    comment: 'CLIP 视觉-文本嵌入模型（语义搜索主模型）',
+    // 白名单方式：只保留 *_quantized.onnx，跳过所有其他精度变体（fp16/int8/bnb4/q4/uint8 等）
+    skipByDefault: [
+      /^onnx\/(?!.*_quantized\.onnx$).*\.onnx$/,
+    ],
+  },
+  {
+    id: 'Xenova/opus-mt-zh-en',
+    comment: '中英翻译模型（中文查询翻译为英文以提升搜索效果）',
+    // 只保留 encoder + decoder_merged（merged 已包含 decoder + decoder_with_past 两种模式）
+    skipByDefault: [
+      // 跳过所有非 quantized 的 onnx 变体
+      /^onnx\/(?!.*_quantized\.onnx$).*\.onnx$/,
+      // merged 已覆盖，跳过单独的 decoder 和 decoder_with_past
+      /^onnx\/decoder_model_quantized\.onnx$/,
+      /^onnx\/decoder_with_past_model_quantized\.onnx$/,
+    ],
+  },
 ];
 
-function shouldSkip(filePath) {
+function shouldSkip(filePath, skipPatterns) {
   if (DOWNLOAD_ALL) return false;
-  return SKIP_BY_DEFAULT.some((pattern) => pattern.test(filePath));
+  return skipPatterns.some((pattern) => pattern.test(filePath));
 }
 
 async function fetchFileList(modelId, revision = 'main') {
@@ -52,33 +64,34 @@ function formatBytes(bytes) {
   return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`;
 }
 
-async function main() {
-  console.log(`[download-ai-model] 模型: ${MODEL_ID}`);
-  console.log(`[download-ai-model] 下载源: ${HF_ENDPOINT}`);
-  console.log(`[download-ai-model] 目标目录: ${TARGET_DIR}`);
+async function downloadModel(modelConfig) {
+  const { id: modelId, skipByDefault, comment } = modelConfig;
+  const targetDir = join(TARGET_BASE_DIR, modelId);
+
+  console.log(`\n[download-ai-model] ========== ${modelId} ==========`);
+  console.log(`[download-ai-model] ${comment}`);
+  console.log(`[download-ai-model] 目标目录: ${targetDir}`);
   console.log('[download-ai-model] 正在获取文件列表...');
 
-  const files = await fetchFileList(MODEL_ID, REVISION);
+  const files = await fetchFileList(modelId, REVISION);
   const fileEntries = files.filter((f) => f.type === 'file');
-  const totalBytes = fileEntries.reduce((sum, f) => sum + (f.size || 0), 0);
 
-  const filesToDownload = fileEntries.filter((f) => !shouldSkip(f.path));
-  const skippedFiles = fileEntries.filter((f) => shouldSkip(f.path));
+  const filesToDownload = fileEntries.filter((f) => !shouldSkip(f.path, skipByDefault));
+  const skippedFiles = fileEntries.filter((f) => shouldSkip(f.path, skipByDefault));
   const downloadTotalBytes = filesToDownload.reduce((sum, f) => sum + (f.size || 0), 0);
   const skippedTotalBytes = skippedFiles.reduce((sum, f) => sum + (f.size || 0), 0);
 
   console.log(`[download-ai-model] 将下载 ${filesToDownload.length} 个文件，总计约 ${formatBytes(downloadTotalBytes)}`);
   if (skippedFiles.length > 0) {
     console.log(`[download-ai-model] 跳过 ${skippedFiles.length} 个非量化文件，总计约 ${formatBytes(skippedTotalBytes)}`);
-    console.log('[download-ai-model] 如需下载全部版本，请设置 AI_DOWNLOAD_ALL=1');
   }
-  console.log('[download-ai-model] 开始下载，请耐心等待（模型较大，可能需要几分钟）...\n');
+  console.log('[download-ai-model] 开始下载...');
 
   let downloadedBytes = 0;
   for (let i = 0; i < filesToDownload.length; i++) {
     const { path: filePath, size } = filesToDownload[i];
-    const url = `${HF_ENDPOINT}/${MODEL_ID}/resolve/${REVISION}/${filePath}`;
-    const targetPath = join(TARGET_DIR, filePath);
+    const url = `${HF_ENDPOINT}/${modelId}/resolve/${REVISION}/${filePath}`;
+    const targetPath = join(targetDir, filePath);
 
     if (existsSync(targetPath)) {
       console.log(`[${i + 1}/${filesToDownload.length}] 已存在，跳过: ${filePath}`);
@@ -93,8 +106,23 @@ async function main() {
     downloadedBytes += size || 0;
   }
 
-  console.log('\n[download-ai-model] 模型下载完成');
-  console.log(`[download-ai-model] 本地路径: ${TARGET_DIR}`);
+  console.log(`[download-ai-model] ${modelId} 下载完成`);
+}
+
+async function main() {
+  console.log(`[download-ai-model] 下载源: ${HF_ENDPOINT}`);
+  console.log(`[download-ai-model] 模型列表:`);
+  for (const m of MODELS) {
+    console.log(`  - ${m.id} (${m.comment})`);
+  }
+  console.log(`[download-ai-model] 如需下载全部精度版本，设置 AI_DOWNLOAD_ALL=1\n`);
+
+  for (const modelConfig of MODELS) {
+    await downloadModel(modelConfig);
+  }
+
+  console.log('\n[download-ai-model] 所有模型下载完成');
+  console.log(`[download-ai-model] 本地路径: ${TARGET_BASE_DIR}`);
   console.log('[download-ai-model] 打包时该目录会被自动包含进应用');
 }
 

@@ -14,6 +14,8 @@ export interface AiModelConfig {
   useGpu: boolean;
   /** 语义搜索最小相似度阈值，低于此值的结果不返回 */
   searchMinSimilarity: number;
+  /** 是否启用查询翻译（中文→英文，弥补英文 CLIP 对中文查询的不足） */
+  enableTranslation: boolean;
 }
 
 /** 默认模型：OpenAI CLIP ViT-B/16 的 ONNX 版本，支持简单中文查询。 */
@@ -24,6 +26,7 @@ export const DEFAULT_AI_CONFIG: AiModelConfig = {
   inferenceBatchSize: 1,
   useGpu: false,
   searchMinSimilarity: 0.28,
+  enableTranslation: true,
 };
 
 /** 中文 CLIP 示例配置（需自行准备 ONNX 权重）。 */
@@ -34,6 +37,7 @@ export const CHINESE_CLIP_CONFIG: AiModelConfig = {
   inferenceBatchSize: 1,
   useGpu: false,
   searchMinSimilarity: 0.2,
+  enableTranslation: false,
 };
 
 let activeConfig: AiModelConfig = { ...DEFAULT_AI_CONFIG };

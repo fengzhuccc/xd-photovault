@@ -12,6 +12,7 @@ import { ConfigService } from './services/config';
 import { AiIndexService } from './services/aiIndexService';
 import { AiSearchService } from './services/aiSearchService';
 import { AiEmbeddingService } from './services/aiEmbedding';
+import { TranslateService } from './services/translateService';
 import { setAiConfig } from './services/aiConfig';
 import { TrashService } from './services/trashService';
 
@@ -36,6 +37,7 @@ let videoService: VideoService;
 let aiIndexService: AiIndexService;
 let aiSearchService: AiSearchService;
 let aiEmbeddingService: AiEmbeddingService;
+let translateService: TranslateService;
 let trashService: TrashService;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -141,6 +143,7 @@ async function initializeServices() {
   log.info('[Main] AI GPU 加速:', aiUseGpu ? '已开启' : '已关闭');
 
   aiEmbeddingService = new AiEmbeddingService(dataPath, bundledModelPath, { useGpu: aiUseGpu });
+  translateService = new TranslateService(dataPath, bundledModelPath);
   aiIndexService = new AiIndexService(db, dataPath, aiEmbeddingService);
   aiIndexService.onProgress((progress) => {
     mainWindow?.webContents.send('aiIndex:progress', progress);
@@ -149,7 +152,7 @@ async function initializeServices() {
       aiSearchService.invalidateCache();
     }
   });
-  aiSearchService = new AiSearchService(db, dataPath, aiEmbeddingService);
+  aiSearchService = new AiSearchService(db, dataPath, aiEmbeddingService, translateService);
   trashService = new TrashService(db, configService);
 
   // S8: 检查并恢复中断的扫描
