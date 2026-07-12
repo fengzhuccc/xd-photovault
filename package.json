@@ -1,7 +1,7 @@
 {
   "name": "xd-photovault",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "小呆相册 - 照片管理与去重应用",
   "main": "dist-electron/main.js",
   "author": "小呆相册",
