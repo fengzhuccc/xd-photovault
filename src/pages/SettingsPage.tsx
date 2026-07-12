@@ -680,7 +680,7 @@ export function SettingsPage() {
               </div>
               <div className="min-w-0">
                 <h3 className="text-lg font-semibold text-zinc-100">小呆相册</h3>
-                <p className="text-sm text-amber-500 font-medium mt-0.5">版本 v1.0.0</p>
+                <p className="text-sm text-amber-500 font-medium mt-0.5">版本 v2.0.0</p>
                 <p className="text-sm text-zinc-400 mt-2 leading-relaxed">
                   专注于本地照片管理、智能去重与地图浏览的桌面应用。
                   支持时间线浏览、AI 语义搜索、重复照片检测与地理位置可视化，
