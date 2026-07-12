@@ -54,6 +54,9 @@ export interface PhotoRow {
   duration: number | null;
   frame_hash: string | null;
   image_seed: string | null;
+  deleted_at: string | null;
+  original_path: string | null;
+  trash_path: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -245,6 +248,9 @@ export class DatabaseService {
         media_type TEXT DEFAULT 'image' CHECK(media_type IN ('image', 'video')),
         duration REAL,
         frame_hash TEXT,
+        deleted_at DATETIME,
+        original_path TEXT,
+        trash_path TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE
@@ -372,6 +378,23 @@ export class DatabaseService {
             );
             CREATE INDEX IF NOT EXISTS idx_photo_embeddings_model ON photo_embeddings(model);
           `);
+        },
+      },
+      {
+        version: 7,
+        up: () => {
+          // 回收站：软删除字段
+          const columns = (this.db.prepare('PRAGMA table_info(photos)').all() as ColumnInfoRow[]).map(c => c.name);
+          if (!columns.includes('deleted_at')) {
+            this.db.exec('ALTER TABLE photos ADD COLUMN deleted_at DATETIME');
+          }
+          if (!columns.includes('original_path')) {
+            this.db.exec('ALTER TABLE photos ADD COLUMN original_path TEXT');
+          }
+          if (!columns.includes('trash_path')) {
+            this.db.exec('ALTER TABLE photos ADD COLUMN trash_path TEXT');
+          }
+          this.db.exec('CREATE INDEX IF NOT EXISTS idx_photos_deleted_at ON photos(deleted_at)');
         },
       },
     ];
@@ -503,7 +526,7 @@ export class DatabaseService {
   }
 
   getPhotoCountByFolder(folderId: string): number {
-    const row = this.db.prepare('SELECT COUNT(*) as count FROM photos WHERE folder_id = ?').get(folderId) as { count: number };
+    const row = this.db.prepare('SELECT COUNT(*) as count FROM photos WHERE folder_id = ? AND deleted_at IS NULL').get(folderId) as { count: number };
     return row.count;
   }
 
@@ -547,7 +570,7 @@ export class DatabaseService {
   }
 
   getPhotos(filter: PhotoFilter = {}): PhotoRow[] {
-    let sql = 'SELECT * FROM photos WHERE 1=1';
+    let sql = 'SELECT * FROM photos WHERE deleted_at IS NULL';
     const params: (string | number)[] = [];
 
     if (filter.folderId) {
@@ -599,7 +622,7 @@ export class DatabaseService {
         COUNT(*) as count,
         MIN(taken_at) as first_date
       FROM photos
-      WHERE 1=1
+      WHERE deleted_at IS NULL
     `;
     const params: (string | number)[] = [];
 
@@ -649,7 +672,7 @@ export class DatabaseService {
    * 照片按 taken_at DESC 排序，offset 即 taken_at 大于该月份最大 taken_at 的照片数量。
    */
   getPhotoOffsetByMonth(filter: PhotoFilter = {}, monthKey: string): number | null {
-    const baseWhere: string[] = ['1=1'];
+    const baseWhere: string[] = ['deleted_at IS NULL'];
     const baseParams: (string | number)[] = [];
 
     if (filter.folderId) {
@@ -716,7 +739,7 @@ export class DatabaseService {
     const offset = filter.offset || 0;
 
     // 先查总数
-    let countSql = 'SELECT COUNT(*) as total FROM photos WHERE 1=1';
+    let countSql = 'SELECT COUNT(*) as total FROM photos WHERE deleted_at IS NULL';
     const countParams: (string | number)[] = [];
     if (filter.folderId) {
       countSql += ' AND folder_id = ?';
@@ -752,7 +775,7 @@ export class DatabaseService {
   }
 
   getPhotoById(id: string): PhotoRow | null {
-    const stmt = this.db.prepare('SELECT * FROM photos WHERE id = ?');
+    const stmt = this.db.prepare('SELECT * FROM photos WHERE id = ? AND deleted_at IS NULL');
     return stmt.get(id) as PhotoRow | null;
   }
 
@@ -764,7 +787,7 @@ export class DatabaseService {
     for (let i = 0; i < ids.length; i += BATCH) {
       const batch = ids.slice(i, i + BATCH);
       const placeholders = batch.map(() => '?').join(',');
-      const rows = this.db.prepare(`SELECT * FROM photos WHERE id IN (${placeholders})`).all(...batch) as PhotoRow[];
+      const rows = this.db.prepare(`SELECT * FROM photos WHERE id IN (${placeholders}) AND deleted_at IS NULL`).all(...batch) as PhotoRow[];
       result.push(...rows);
     }
     return result;
@@ -783,10 +806,11 @@ export class DatabaseService {
          )) as duplicates,
         (SELECT COUNT(*) FROM folders) as folders
       FROM photos
+      WHERE deleted_at IS NULL
     `).get() as { total: number; with_location: number; duplicates: number; folders: number };
 
     const cameras = this.db.prepare(
-      'SELECT camera, COUNT(*) as count FROM photos WHERE camera IS NOT NULL GROUP BY camera ORDER BY count DESC LIMIT 10'
+      'SELECT camera, COUNT(*) as count FROM photos WHERE camera IS NOT NULL AND deleted_at IS NULL GROUP BY camera ORDER BY count DESC LIMIT 10'
     ).all() as CameraRow[];
 
     return {
@@ -800,27 +824,28 @@ export class DatabaseService {
   }
 
   findDuplicatesByHash(hash: string): PhotoRow[] {
-    const stmt = this.db.prepare('SELECT * FROM photos WHERE file_hash = ?');
+    const stmt = this.db.prepare('SELECT * FROM photos WHERE file_hash = ? AND deleted_at IS NULL');
     return stmt.all(hash) as PhotoRow[];
   }
 
   findDuplicatesByPHash(phash: string): PhotoRow[] {
-    const stmt = this.db.prepare('SELECT * FROM photos WHERE perceptual_hash = ?');
+    const stmt = this.db.prepare('SELECT * FROM photos WHERE perceptual_hash = ? AND deleted_at IS NULL');
     return stmt.all(phash) as PhotoRow[];
   }
 
   updatePhotoPerceptualHash(id: string, phash: string): void {
-    this.db.prepare('UPDATE photos SET perceptual_hash = ? WHERE id = ?').run(phash, id);
+    this.db.prepare('UPDATE photos SET perceptual_hash = ? WHERE id = ? AND deleted_at IS NULL').run(phash, id);
   }
 
   updatePhotoFileHash(id: string, fileHash: string): void {
-    this.db.prepare('UPDATE photos SET file_hash = ? WHERE id = ?').run(fileHash, id);
+    this.db.prepare('UPDATE photos SET file_hash = ? WHERE id = ? AND deleted_at IS NULL').run(fileHash, id);
   }
 
   getPhotosWithLegacyMd5Hashes(limit: number, offset: number): { id: string; path: string }[] {
     return this.db.prepare(`
       SELECT id, path FROM photos
-      WHERE file_hash IS NOT NULL
+      WHERE deleted_at IS NULL
+        AND file_hash IS NOT NULL
         AND LENGTH(file_hash) = 32
         AND file_hash GLOB '[a-fA-F0-9]*'
       LIMIT ? OFFSET ?
@@ -828,22 +853,22 @@ export class DatabaseService {
   }
 
   getPhotosWithoutPHash(): PhotoRow[] {
-    return this.db.prepare('SELECT * FROM photos WHERE perceptual_hash IS NULL').all() as PhotoRow[];
+    return this.db.prepare('SELECT * FROM photos WHERE perceptual_hash IS NULL AND deleted_at IS NULL').all() as PhotoRow[];
   }
 
   getAllPhotoHashes(): { id: string; perceptual_hash: string | null; path: string }[] {
-    return this.db.prepare('SELECT id, perceptual_hash, path FROM photos').all() as { id: string; perceptual_hash: string | null; path: string }[];
+    return this.db.prepare('SELECT id, perceptual_hash, path FROM photos WHERE deleted_at IS NULL').all() as { id: string; perceptual_hash: string | null; path: string }[];
   }
 
   getPhotoHashBatch(limit: number, offset: number): { id: string; perceptual_hash: string | null; file_size: number }[] {
     return this.db.prepare(
-      'SELECT id, perceptual_hash, file_size FROM photos WHERE perceptual_hash IS NOT NULL LIMIT ? OFFSET ?'
+      'SELECT id, perceptual_hash, file_size FROM photos WHERE perceptual_hash IS NOT NULL AND deleted_at IS NULL LIMIT ? OFFSET ?'
     ).all(limit, offset) as { id: string; perceptual_hash: string | null; file_size: number }[];
   }
 
   getPhotoCountWithPHash(): number {
     const row = this.db.prepare(
-      "SELECT COUNT(*) as count FROM photos WHERE perceptual_hash IS NOT NULL AND perceptual_hash != '0000000000000000'"
+      "SELECT COUNT(*) as count FROM photos WHERE perceptual_hash IS NOT NULL AND perceptual_hash != '0000000000000000' AND deleted_at IS NULL"
     ).get() as { count: number };
     return row.count;
   }
@@ -855,11 +880,11 @@ export class DatabaseService {
       FROM (
         SELECT id, taken_at, file_hash as key
         FROM photos
-        WHERE media_type = 'image' AND file_hash IS NOT NULL
+        WHERE deleted_at IS NULL AND media_type = 'image' AND file_hash IS NOT NULL
         UNION ALL
         SELECT id, taken_at, frame_hash || '_' || file_size as key
         FROM photos
-        WHERE media_type = 'video' AND frame_hash IS NOT NULL
+        WHERE deleted_at IS NULL AND media_type = 'video' AND frame_hash IS NOT NULL
       )
       GROUP BY key
       HAVING COUNT(*) > 1
@@ -873,7 +898,7 @@ export class DatabaseService {
     const stmt = this.db.prepare(`
       SELECT file_hash as key, GROUP_CONCAT(id) as photo_ids, COUNT(*) as count
       FROM photos
-      WHERE media_type = 'image' AND file_hash IN (${placeholders})
+      WHERE deleted_at IS NULL AND media_type = 'image' AND file_hash IN (${placeholders})
       GROUP BY file_hash
       HAVING COUNT(*) > 1
     `);
@@ -886,7 +911,7 @@ export class DatabaseService {
     const stmt = this.db.prepare(`
       SELECT frame_hash || '_' || file_size as key, GROUP_CONCAT(id) as photo_ids, COUNT(*) as count
       FROM photos
-      WHERE media_type = 'video' AND frame_hash IN (${placeholders})
+      WHERE deleted_at IS NULL AND media_type = 'video' AND frame_hash IN (${placeholders})
       GROUP BY frame_hash, file_size
       HAVING COUNT(*) > 1
     `);
@@ -919,7 +944,7 @@ export class DatabaseService {
     return this.db.prepare(`
       SELECT p.* FROM photos p
       JOIN photo_duplicates pd ON p.id = pd.photo_id
-      WHERE pd.group_id = ?
+      WHERE pd.group_id = ? AND p.deleted_at IS NULL
     `).all(groupId) as PhotoRow[];
   }
 
@@ -939,7 +964,7 @@ export class DatabaseService {
     const row = this.db.prepare(`
       SELECT p.id FROM photos p
       JOIN photo_duplicates pd ON pd.photo_id = p.id
-      WHERE pd.group_id = ?
+      WHERE pd.group_id = ? AND p.deleted_at IS NULL
       ORDER BY
         (p.latitude IS NOT NULL AND p.longitude IS NOT NULL) DESC,
         p.file_size DESC,
@@ -966,7 +991,7 @@ export class DatabaseService {
              p.latitude, p.longitude, p.width, p.height, p.camera
       FROM photo_duplicates pd
       JOIN photos p ON pd.photo_id = p.id
-      WHERE pd.group_id IN (${placeholders})
+      WHERE pd.group_id IN (${placeholders}) AND p.deleted_at IS NULL
     `).all(...groupIds) as (PhotoRow & { group_id: string })[];
 
     // 按组 ID 分组，并按拍摄时间倒序排列组内照片
@@ -1018,7 +1043,7 @@ export class DatabaseService {
              p.latitude, p.longitude, p.width, p.height, p.camera
       FROM photo_duplicates pd
       JOIN photos p ON pd.photo_id = p.id
-      WHERE pd.group_id IN (${placeholders})
+      WHERE pd.group_id IN (${placeholders}) AND p.deleted_at IS NULL
     `).all(...groupIds) as (PhotoRow & { group_id: string })[];
 
     const photosByGroup = new Map<string, PhotoRow[]>();
@@ -1120,27 +1145,110 @@ export class DatabaseService {
     return affectedGroupIds;
   }
 
+  // region Trash
+  movePhotosToTrash(entries: { id: string; trashPath: string }[]): void {
+    if (entries.length === 0) return;
+    const transaction = this.db.transaction(() => {
+      const stmt = this.db.prepare(`
+        UPDATE photos
+        SET deleted_at = CURRENT_TIMESTAMP,
+            original_path = path,
+            trash_path = ?,
+            path = ?
+        WHERE id = ? AND deleted_at IS NULL
+      `);
+      for (const entry of entries) {
+        stmt.run(entry.trashPath, entry.trashPath, entry.id);
+      }
+    });
+    transaction();
+  }
+
+  restorePhotosFromTrash(photoIds: string[]): { id: string; restoredPath: string }[] {
+    if (photoIds.length === 0) return [];
+    const result: { id: string; restoredPath: string }[] = [];
+    const transaction = this.db.transaction(() => {
+      const selectStmt = this.db.prepare('SELECT id, original_path FROM photos WHERE id = ? AND deleted_at IS NOT NULL');
+      const updateStmt = this.db.prepare(`
+        UPDATE photos
+        SET path = original_path,
+            original_path = NULL,
+            trash_path = NULL,
+            deleted_at = NULL
+        WHERE id = ?
+      `);
+      for (const id of photoIds) {
+        const row = selectStmt.get(id) as { id: string; original_path: string } | undefined;
+        if (row?.original_path) {
+          updateStmt.run(id);
+          result.push({ id: row.id, restoredPath: row.original_path });
+        }
+      }
+    });
+    transaction();
+    return result;
+  }
+
+  getTrashedPhotos(): PhotoRow[] {
+    return this.db
+      .prepare('SELECT * FROM photos WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC')
+      .all() as PhotoRow[];
+  }
+
+  getTrashedPhotosByIds(ids: string[]): PhotoRow[] {
+    if (ids.length === 0) return [];
+    const BATCH = 900;
+    const result: PhotoRow[] = [];
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const batch = ids.slice(i, i + BATCH);
+      const placeholders = batch.map(() => '?').join(',');
+      const rows = this.db
+        .prepare(`SELECT * FROM photos WHERE id IN (${placeholders}) AND deleted_at IS NOT NULL`)
+        .all(...batch) as PhotoRow[];
+      result.push(...rows);
+    }
+    return result;
+  }
+
+  getTrashStats(): { count: number; totalSize: number } {
+    const row = this.db
+      .prepare(`
+        SELECT COUNT(*) as count, COALESCE(SUM(file_size), 0) as total_size
+        FROM photos WHERE deleted_at IS NOT NULL
+      `)
+      .get() as { count: number; total_size: number };
+    return { count: row.count, totalSize: row.total_size };
+  }
+
+  getTrashCount(): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) as count FROM photos WHERE deleted_at IS NOT NULL')
+      .get() as { count: number };
+    return row.count;
+  }
+  // endregion
+
   updatePhotoLocation(id: string, lat: number, lng: number): void {
     const stmt = this.db.prepare(`
-      UPDATE photos SET latitude = ?, longitude = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+      UPDATE photos SET latitude = ?, longitude = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL
     `);
     stmt.run(lat, lng, id);
   }
 
   updatePhotoDate(id: string, date: string): void {
     const stmt = this.db.prepare(`
-      UPDATE photos SET taken_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+      UPDATE photos SET taken_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL
     `);
     stmt.run(date, id);
   }
 
   getAllPhotoPaths(): { id: string; path: string }[] {
-    const stmt = this.db.prepare('SELECT id, path FROM photos');
+    const stmt = this.db.prepare('SELECT id, path FROM photos WHERE deleted_at IS NULL');
     return stmt.all() as { id: string; path: string }[];
   }
 
   getPhotosByFolder(folderId: string): PhotoRow[] {
-    const stmt = this.db.prepare('SELECT * FROM photos WHERE folder_id = ?');
+    const stmt = this.db.prepare('SELECT * FROM photos WHERE folder_id = ? AND deleted_at IS NULL');
     return stmt.all(folderId) as PhotoRow[];
   }
 
@@ -1148,42 +1256,42 @@ export class DatabaseService {
     if (paths.length === 0) return [];
     const placeholders = paths.map(() => '?').join(',');
     return this.db.prepare(
-      `SELECT id, path, file_hash, file_size, modified_time FROM photos WHERE path IN (${placeholders})`
+      `SELECT id, path, file_hash, file_size, modified_time FROM photos WHERE deleted_at IS NULL AND path IN (${placeholders})`
     ).all(...paths) as { id: string; path: string; file_hash: string | null; file_size: number; modified_time: string | null }[];
   }
 
   getPhotoPathsByFolder(folderId: string, limit: number, offset: number): { id: string; path: string }[] {
     return this.db.prepare(
-      'SELECT id, path FROM photos WHERE folder_id = ? LIMIT ? OFFSET ?'
+      'SELECT id, path FROM photos WHERE folder_id = ? AND deleted_at IS NULL LIMIT ? OFFSET ?'
     ).all(folderId, limit, offset) as { id: string; path: string }[];
   }
 
   getAllPhotoPathsByFolder(folderId: string): { id: string; path: string }[] {
     return this.db.prepare(
-      'SELECT id, path FROM photos WHERE folder_id = ?'
+      'SELECT id, path FROM photos WHERE folder_id = ? AND deleted_at IS NULL'
     ).all(folderId) as { id: string; path: string }[];
   }
 
   getAllPhotoIds(): string[] {
-    const rows = this.db.prepare('SELECT id FROM photos').all() as { id: string }[];
+    const rows = this.db.prepare('SELECT id FROM photos WHERE deleted_at IS NULL').all() as { id: string }[];
     return rows.map(r => r.id);
   }
 
   getPhotoByPath(path: string): PhotoRow | null {
-    const stmt = this.db.prepare('SELECT * FROM photos WHERE path = ?');
+    const stmt = this.db.prepare('SELECT * FROM photos WHERE path = ? AND deleted_at IS NULL');
     return stmt.get(path) as PhotoRow | null;
   }
 
   getPhotosWithLocation(): PhotoWithLocationRow[] {
     const stmt = this.db.prepare(
-      'SELECT id, path, filename, latitude, longitude, taken_at, camera, width, height, file_size FROM photos WHERE latitude IS NOT NULL AND longitude IS NOT NULL'
+      'SELECT id, path, filename, latitude, longitude, taken_at, camera, width, height, file_size FROM photos WHERE deleted_at IS NULL AND latitude IS NOT NULL AND longitude IS NOT NULL'
     );
     return stmt.all() as PhotoWithLocationRow[];
   }
 
   getPhotosInBounds(south: number, west: number, north: number, east: number): PhotoWithLocationRow[] {
     const stmt = this.db.prepare(
-      'SELECT id, path, filename, latitude, longitude, taken_at, camera, width, height, file_size FROM photos WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?'
+      'SELECT id, path, filename, latitude, longitude, taken_at, camera, width, height, file_size FROM photos WHERE deleted_at IS NULL AND latitude IS NOT NULL AND longitude IS NOT NULL AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?'
     );
     return stmt.all(south, north, west, east) as PhotoWithLocationRow[];
   }
@@ -1204,13 +1312,14 @@ export class DatabaseService {
           COUNT(*) AS count,
           MIN(id) AS representative_id
         FROM photos
-        WHERE latitude IS NOT NULL
+        WHERE deleted_at IS NULL
+          AND latitude IS NOT NULL
           AND longitude IS NOT NULL
           AND latitude BETWEEN ? AND ?
           AND longitude BETWEEN ? AND ?
         GROUP BY cluster_lat, cluster_lng
       ) c
-      JOIN photos p ON p.id = c.representative_id
+      JOIN photos p ON p.id = c.representative_id AND p.deleted_at IS NULL
     `);
     return stmt.all(precision, precision, precision, precision, south, north, west, east) as PhotoClusterRow[];
   }
@@ -1256,7 +1365,7 @@ export class DatabaseService {
   }
 
   updatePhotoThumbnail(id: string, thumbnailPath: string): void {
-    const stmt = this.db.prepare('UPDATE photos SET thumbnail_path = ? WHERE id = ?');
+    const stmt = this.db.prepare('UPDATE photos SET thumbnail_path = ? WHERE id = ? AND deleted_at IS NULL');
     stmt.run(thumbnailPath, id);
   }
 
@@ -1316,7 +1425,7 @@ export class DatabaseService {
       return this.db.prepare(`
         SELECT p.id, p.path, p.filename, p.media_type FROM photos p
         LEFT JOIN photo_embeddings pe ON p.id = pe.photo_id
-        WHERE pe.photo_id IS NULL AND p.media_type = 'image'
+        WHERE p.deleted_at IS NULL AND pe.photo_id IS NULL AND p.media_type = 'image'
         LIMIT ?
       `).all(limit) as { id: string; path: string; filename: string; media_type: 'image' | 'video' }[];
     }
@@ -1324,7 +1433,7 @@ export class DatabaseService {
     return this.db.prepare(`
       SELECT p.id, p.path, p.filename, p.media_type FROM photos p
       LEFT JOIN photo_embeddings pe ON p.id = pe.photo_id
-      WHERE pe.photo_id IS NULL AND p.media_type = 'image'
+      WHERE p.deleted_at IS NULL AND pe.photo_id IS NULL AND p.media_type = 'image'
       AND p.id NOT IN (${placeholders})
       LIMIT ?
     `).all(...excludeIds, limit) as { id: string; path: string; filename: string; media_type: 'image' | 'video' }[];
@@ -1340,7 +1449,7 @@ export class DatabaseService {
   }
 
   getTotalPhotoCount(): number {
-    const row = this.db.prepare("SELECT COUNT(*) as count FROM photos WHERE media_type = 'image'").get() as { count: number };
+    const row = this.db.prepare("SELECT COUNT(*) as count FROM photos WHERE deleted_at IS NULL AND media_type = 'image'").get() as { count: number };
     return row.count;
   }
 
@@ -1358,7 +1467,7 @@ export class DatabaseService {
     const rows = this.db.prepare(`
       SELECT p.*, pe.embedding FROM photos p
       JOIN photo_embeddings pe ON p.id = pe.photo_id
-      WHERE pe.model = ?
+      WHERE p.deleted_at IS NULL AND pe.model = ?
     `).all(model) as (PhotoRow & { embedding: Buffer })[];
 
     const results: { photo: PhotoRow; similarity: number }[] = [];
@@ -1377,7 +1486,7 @@ export class DatabaseService {
     const rows = this.db.prepare(`
       SELECT p.*, pe.embedding FROM photos p
       JOIN photo_embeddings pe ON p.id = pe.photo_id
-      WHERE pe.model = ?
+      WHERE p.deleted_at IS NULL AND pe.model = ?
     `).all(model) as (PhotoRow & { embedding: Buffer })[];
 
     return rows.map(row => ({

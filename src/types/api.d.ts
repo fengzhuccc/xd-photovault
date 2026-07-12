@@ -47,7 +47,7 @@ export interface WindowApi {
     getAll: (limit?: number, offset?: number, reason?: 'exact' | 'similar') => Promise<unknown>;
     detectExact: (fullRebuild?: boolean) => Promise<unknown>;
     detectSimilar: (fullRebuild?: boolean) => Promise<unknown>;
-    delete: (photoIds: string[]) => Promise<unknown>;
+    delete: (photoIds: string[]) => Promise<{ id: string; success: boolean; trashPath?: string; error?: string }[]>;
     onProgress: (callback: (progress: { stage: 'hashing' | 'exact' | 'similar' | 'complete'; current: number; total: number; message: string }) => void) => () => void;
   };
   thumbnail: {
@@ -80,6 +80,15 @@ export interface WindowApi {
   };
   app: {
     openPath: (path: string) => Promise<{ success: boolean; error?: string }>;
+  };
+  trash: {
+    moveToTrash: (photoIds: string[]) => Promise<{ id: string; success: boolean; trashPath?: string; error?: string }[]>;
+    restore: (photoIds: string[]) => Promise<{ id: string; success: boolean; restoredPath?: string; error?: string }[]>;
+    permanentDelete: (photoIds: string[]) => Promise<{ id: string; success: boolean; error?: string }[]>;
+    empty: () => Promise<{ id: string; success: boolean; error?: string }[]>;
+    list: () => Promise<unknown[]>;
+    getStats: () => Promise<{ count: number; totalSize: number }>;
+    getCount: () => Promise<number>;
   };
 }
 

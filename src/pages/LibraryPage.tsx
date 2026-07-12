@@ -66,6 +66,8 @@ export function LibraryPage() {
         if (result.conflict) {
           if (result.conflict.type === 'child') {
             toast('info', `该文件夹已被包含在 "${result.conflict.childFolderPaths[0]}" 中，无需重复添加。`);
+          } else if (result.conflict.type === 'trash') {
+            toast('warning', '不能将应用回收站（.xd-photovault-trash）添加为图库文件夹。');
           } else if (result.conflict.type === 'parent') {
             const folderList = result.conflict.childFolderPaths.join('、');
             const confirmed = await confirm(

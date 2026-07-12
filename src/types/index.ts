@@ -51,6 +51,9 @@ export interface Photo {
   duration: number | null;
   frame_hash: string | null;
   image_seed?: string;
+  deleted_at?: string | null;
+  original_path?: string | null;
+  trash_path?: string | null;
 }
 
 export interface PhotoDetail extends Photo {

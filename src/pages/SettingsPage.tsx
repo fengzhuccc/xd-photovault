@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Database, Trash2, FolderOpen, Save, FileText, Eye, ExternalLink, Map, Loader2, RefreshCw, Info } from 'lucide-react';
+import { Database, Trash2, FolderOpen, Save, FileText, Eye, ExternalLink, Map, Loader2, RefreshCw, Info, FolderInput } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
@@ -360,6 +360,33 @@ export function SettingsPage() {
                   恢复默认
                 </button>
               </div>
+            </div>
+          </div>
+
+          {/* 回收站说明 */}
+          <div className="card card-section">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-amber-500/10 rounded-lg">
+                <FolderInput size={20} className="text-amber-500" />
+              </div>
+              <div>
+                <h2 className="text-lg font-medium text-zinc-100">回收站</h2>
+                <p className="text-sm text-zinc-400">两级回收站的工作方式</p>
+              </div>
+            </div>
+
+            <div className="space-y-3 text-sm text-zinc-300">
+              <p>
+                应用在每张原图所在磁盘的根目录下创建隐藏文件夹 <code className="px-1.5 py-0.5 bg-zinc-800 rounded text-amber-400">.xd-photovault-trash</code>，删除的照片会先移动到这里。
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-zinc-400">
+                <li>在应用内点击“删除”：照片移入应用回收站（隐藏文件夹）。</li>
+                <li>在回收站点击“彻底删除”：照片进入系统回收站。</li>
+                <li>清空系统回收站后，照片才真正从磁盘上消失。</li>
+              </ul>
+              <p className="text-xs text-zinc-500">
+                Windows 下该文件夹已设置隐藏属性；macOS/Linux 下以点号开头自动隐藏。
+              </p>
             </div>
           </div>
 

@@ -11,6 +11,7 @@ import { toast } from '@/stores/toastStore';
 const BrowsePage = lazy(() => import('@/pages/BrowsePage'));
 const DuplicatesPage = lazy(() => import('@/pages/DuplicatesPage'));
 const MapPage = lazy(() => import('@/pages/MapPage'));
+const TrashPage = lazy(() => import('@/pages/TrashPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 
 function DuplicateProgressSubscriber() {
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="browse" element={<BrowsePage />} />
             <Route path="duplicates" element={<DuplicatesPage />} />
             <Route path="map" element={<MapPage />} />
+            <Route path="trash" element={<TrashPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
         </Routes>

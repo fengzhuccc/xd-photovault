@@ -38,6 +38,8 @@ interface AppState {
   aiGpuActualProvider: string;
   /** 浏览页切走前保存的滚动位置（全局索引） */
   browseScrollState: BrowseScrollState | null;
+  trashCount: number;
+  trashTotalSize: number;
 
   setFolders: (folders: Folder[]) => void;
   addFolder: (folder: Folder) => void;
@@ -89,6 +91,11 @@ interface AppState {
   loadDuplicatesPage: (append?: boolean) => Promise<{ hasMore: boolean; total: number } | undefined>;
   duplicateReason: 'all' | 'exact' | 'similar';
   setDuplicateReason: (reason: 'all' | 'exact' | 'similar') => void;
+
+  setTrashCount: (count: number) => void;
+  setTrashTotalSize: (size: number) => void;
+  loadTrashCount: () => Promise<void>;
+  loadTrashStats: () => Promise<void>;
 }
 
 // AI 搜索请求令牌，用于取消过期请求
@@ -124,6 +131,27 @@ export const useAppStore = create<AppState>((set, get) => ({
   aiGpuEnabled: false,
   aiGpuActualProvider: 'cpu',
   browseScrollState: null,
+  trashCount: 0,
+  trashTotalSize: 0,
+
+  setTrashCount: (count) => set({ trashCount: count }),
+  setTrashTotalSize: (size) => set({ trashTotalSize: size }),
+  loadTrashCount: async () => {
+    try {
+      const count = await window.api.trash.getCount();
+      set({ trashCount: count });
+    } catch (e) {
+      console.error('[Trash] 加载回收站数量失败:', e);
+    }
+  },
+  loadTrashStats: async () => {
+    try {
+      const stats = await window.api.trash.getStats();
+      set({ trashCount: stats.count, trashTotalSize: stats.totalSize });
+    } catch (e) {
+      console.error('[Trash] 加载回收站统计失败:', e);
+    }
+  },
 
   setFolders: (folders) => set({ folders }),
   addFolder: (folder) => set((state) => ({ folders: [folder, ...state.folders] })),

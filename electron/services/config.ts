@@ -64,15 +64,15 @@ export class ConfigService {
     
     const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
     if (isDev) {
-      const devPath = join(__dirname, '..', 'data');
+      const devPath = join(__dirname, '..', 'xd-photovault-data');
       if (!existsSync(devPath)) {
         mkdirSync(devPath, { recursive: true });
       }
       return devPath;
     }
-    
+
     const userDataPath = app.getPath('userData');
-    const defaultPath = join(userDataPath, 'data');
+    const defaultPath = join(userDataPath, 'xd-photovault-data');
     if (!existsSync(defaultPath)) {
       mkdirSync(defaultPath, { recursive: true });
     }

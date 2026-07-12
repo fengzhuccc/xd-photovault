@@ -2,9 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Calendar, MapPin, X, ChevronLeft, ChevronRight, Pencil, MapPinned, Trash2, Loader2 } from 'lucide-react';
 import { MapPickerModal } from '@/components/MapPickerModal';
+import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
 import { cn } from '@/lib/utils';
+import { confirmFirstTrashMove } from '@/lib/trashPrompt';
 import type { Photo, PhotoDetail } from '@/types';
 
 interface PhotoDetailModalProps {
@@ -179,15 +181,19 @@ export function PhotoDetailModal({
 
   const handleDelete = async () => {
     if (!photo) return;
-    if (!await confirm(`确定要删除这张照片吗？\n\n${photo.filename}\n\n照片将移到系统回收站，可从回收站恢复。`, { variant: 'danger', confirmText: '删除' })) {
+    if (!await confirm(`确定要将这张照片移到回收站吗？\n\n${photo.filename}\n\n可在回收站中还原或彻底删除。`, { variant: 'danger', confirmText: '移到回收站' })) {
+      return;
+    }
+    if (!await confirmFirstTrashMove()) {
       return;
     }
     try {
       await window.api.photo.delete([photo.id]);
       await onDelete?.(photo);
+      useAppStore.getState().loadTrashCount();
       onClose();
     } catch (error) {
-      toast('error', '删除失败：' + error);
+      toast('error', '移到回收站失败：' + error);
     }
   };
 

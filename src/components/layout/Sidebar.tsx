@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { 
   Library, 
@@ -6,7 +7,8 @@ import {
   Map, 
   ChevronLeft,
   ChevronRight,
-  Settings
+  Settings,
+  Trash2
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { cn } from '@/lib/utils';
@@ -16,10 +18,15 @@ const navItems = [
   { to: '/browse', icon: Images, label: '浏览' },
   { to: '/duplicates', icon: Copy, label: '去重' },
   { to: '/map', icon: Map, label: '地图' },
+  { to: '/trash', icon: Trash2, label: '回收站' },
 ];
 
 export function Sidebar() {
-  const { sidebarCollapsed, setSidebarCollapsed, stats } = useAppStore();
+  const { sidebarCollapsed, setSidebarCollapsed, stats, trashCount, loadTrashCount } = useAppStore();
+
+  useEffect(() => {
+    loadTrashCount();
+  }, [loadTrashCount]);
 
   const resetBrowseSearch = () => {
     // 点击侧边栏「浏览」时重置 AI 搜索状态，确保回到全部照片视图
@@ -67,6 +74,11 @@ export function Sidebar() {
           >
             <Icon size={20} />
             {!sidebarCollapsed && <span className="text-sm font-medium">{label}</span>}
+            {to === '/trash' && trashCount > 0 && !sidebarCollapsed && (
+              <span className="ml-auto text-xs bg-amber-500 text-zinc-950 px-1.5 py-0.5 rounded-full font-semibold">
+                {trashCount > 99 ? '99+' : trashCount}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>

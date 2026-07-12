@@ -5,6 +5,7 @@ import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
 import { cn, isTypingTarget } from '@/lib/utils';
+import { confirmFirstTrashMove } from '@/lib/trashPrompt';
 import type { DuplicateGroup, Photo } from '@/types';
 
 export function DuplicatesPage() {
@@ -17,6 +18,7 @@ export function DuplicatesPage() {
     loadDuplicates,
     loadDuplicatesPage,
     loadStats,
+    loadTrashCount,
     setDuplicateReason,
     setDuplicates,
     removePhotos,
@@ -334,20 +336,32 @@ export function DuplicatesPage() {
     if (!await confirm(`确定要删除 ${toDelete.length} 张重复照片吗？\n文件将被移动到回收站。`, { variant: 'danger', confirmText: '删除' })) {
       return;
     }
+    if (!await confirmFirstTrashMove()) {
+      return;
+    }
 
     setIsDeleting(true);
     try {
-      await window.api.duplicate.delete(toDelete);
-      applyPhotoDeletion(toDelete);
-      removePhotos(toDelete);
+      const results = await window.api.duplicate.delete(toDelete);
+      const successIds = results.filter(r => r.success).map(r => r.id);
+      const failed = results.filter(r => !r.success);
+      applyPhotoDeletion(successIds);
+      removePhotos(successIds);
       loadStats().catch((e) => console.error('[Duplicates] 删除后刷新统计失败:', e));
+      loadTrashCount().catch((e) => console.error('[Duplicates] 删除后刷新回收站数量失败:', e));
       setSelectedGroups(new Set());
+      if (successIds.length > 0) {
+        toast('success', `已移到回收站 ${successIds.length} 张照片`);
+      }
+      if (failed.length > 0) {
+        toast('error', `${failed.length} 张照片处理失败：${failed[0].error}`);
+      }
     } catch (error) {
       toast('error', '删除失败：' + error);
     } finally {
       setIsDeleting(false);
     }
-  }, [duplicates, selectedGroups, getPhotosToDelete, confirm, applyPhotoDeletion, removePhotos, loadStats, isDeleting]);
+  }, [duplicates, selectedGroups, getPhotosToDelete, confirm, applyPhotoDeletion, removePhotos, loadStats, loadTrashCount, isDeleting]);
 
   const handleDeleteGroup = useCallback(async (group: DuplicateGroup) => {
     const toDelete = getPhotosToDelete(group);
@@ -358,24 +372,36 @@ export function DuplicatesPage() {
     if (!await confirm(`确定要删除该组中 ${toDelete.length} 张重复照片吗？\n文件将被移动到回收站。`, { variant: 'danger', confirmText: '删除' })) {
       return;
     }
+    if (!await confirmFirstTrashMove()) {
+      return;
+    }
     setIsDeleting(true);
     try {
       const ids = toDelete.map(p => p.id);
-      await window.api.duplicate.delete(ids);
-      applyPhotoDeletion(ids);
-      removePhotos(ids);
+      const results = await window.api.duplicate.delete(ids);
+      const successIds = results.filter(r => r.success).map(r => r.id);
+      const failed = results.filter(r => !r.success);
+      applyPhotoDeletion(successIds);
+      removePhotos(successIds);
       loadStats().catch((e) => console.error('[Duplicates] 删除后刷新统计失败:', e));
+      loadTrashCount().catch((e) => console.error('[Duplicates] 删除后刷新回收站数量失败:', e));
       setSelectedGroups(prev => {
         const next = new Set(prev);
         next.delete(group.id);
         return next;
       });
+      if (successIds.length > 0) {
+        toast('success', `已移到回收站 ${successIds.length} 张照片`);
+      }
+      if (failed.length > 0) {
+        toast('error', `${failed.length} 张照片处理失败：${failed[0].error}`);
+      }
     } catch (error) {
       toast('error', '删除失败：' + error);
     } finally {
       setIsDeleting(false);
     }
-  }, [getPhotosToDelete, confirm, applyPhotoDeletion, removePhotos, loadStats]);
+  }, [getPhotosToDelete, confirm, applyPhotoDeletion, removePhotos, loadStats, loadTrashCount]);
 
   const handleDeleteCurrentPhoto = useCallback(async () => {
     if (!selectedPhoto || !currentGroup) return;
@@ -386,18 +412,29 @@ export function DuplicatesPage() {
     if (!await confirm(`确定要删除这张照片吗？\n${selectedPhoto.filename}\n文件将被移动到回收站。`, { variant: 'danger', confirmText: '删除' })) {
       return;
     }
+    if (!await confirmFirstTrashMove()) {
+      return;
+    }
     try {
-      await window.api.duplicate.delete([selectedPhoto.id]);
-      applyPhotoDeletion([selectedPhoto.id]);
-      removePhotos([selectedPhoto.id]);
+      const results = await window.api.duplicate.delete([selectedPhoto.id]);
+      const successIds = results.filter(r => r.success).map(r => r.id);
+      const failed = results.filter(r => !r.success);
+      applyPhotoDeletion(successIds);
+      removePhotos(successIds);
       loadStats().catch((e) => console.error('[Duplicates] 删除后刷新统计失败:', e));
+      loadTrashCount().catch((e) => console.error('[Duplicates] 删除后刷新回收站数量失败:', e));
       setSelectedPhoto(null);
       setCurrentGroup(null);
-      toast('success', '已删除');
+      if (successIds.length > 0) {
+        toast('success', '已移到回收站');
+      }
+      if (failed.length > 0) {
+        toast('error', `处理失败：${failed[0].error}`);
+      }
     } catch (error) {
       toast('error', '删除失败：' + error);
     }
-  }, [selectedPhoto, currentGroup, isPhotoKept, confirm, applyPhotoDeletion, removePhotos, loadStats]);
+  }, [selectedPhoto, currentGroup, isPhotoKept, confirm, applyPhotoDeletion, removePhotos, loadStats, loadTrashCount]);
 
   // ===== 详情弹窗 =====
 

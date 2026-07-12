@@ -13,6 +13,7 @@ import { AiIndexService } from './services/aiIndexService';
 import { AiSearchService } from './services/aiSearchService';
 import { AiEmbeddingService } from './services/aiEmbedding';
 import { setAiConfig } from './services/aiConfig';
+import { TrashService } from './services/trashService';
 
 // 配置 electron-log
 log.transports.file.level = 'info';
@@ -35,6 +36,7 @@ let videoService: VideoService;
 let aiIndexService: AiIndexService;
 let aiSearchService: AiSearchService;
 let aiEmbeddingService: AiEmbeddingService;
+let trashService: TrashService;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -148,7 +150,8 @@ async function initializeServices() {
     }
   });
   aiSearchService = new AiSearchService(db, dataPath, aiEmbeddingService);
-  
+  trashService = new TrashService(db, configService);
+
   // S8: 检查并恢复中断的扫描
   const recovery = scanner.recoverInterruptedScans();
   if (recovery.recoveredCount > 0) {
@@ -304,7 +307,7 @@ function setupIpcHandlers() {
   });
 
   ipcMain.handle('duplicate:delete', async (_event, photoIds: string[]) => {
-    return await scanner.deletePhotos(photoIds);
+    return await trashService.moveToTrash(photoIds);
   });
 
   ipcMain.handle('photo:updateLocation', async (_event, id: string, lat: number, lng: number) => {
@@ -350,7 +353,7 @@ function setupIpcHandlers() {
   });
 
   ipcMain.handle('photo:delete', async (_event, photoIds: string[]) => {
-    return await scanner.deletePhotos(photoIds);
+    return await trashService.moveToTrash(photoIds);
   });
 
   ipcMain.handle('photo:getWithLocation', async () => {
@@ -524,6 +527,36 @@ function setupIpcHandlers() {
       return { success: false, error: String(error) };
     }
   });
+
+  // 回收站
+  ipcMain.handle('trash:moveToTrash', async (_event, photoIds: string[]) => {
+    return trashService.moveToTrash(photoIds);
+  });
+
+  ipcMain.handle('trash:restore', async (_event, photoIds: string[]) => {
+    return trashService.restoreFromTrash(photoIds);
+  });
+
+  ipcMain.handle('trash:permanentDelete', async (_event, photoIds: string[]) => {
+    return trashService.permanentDelete(photoIds);
+  });
+
+  ipcMain.handle('trash:empty', async () => {
+    return trashService.emptyTrash();
+  });
+
+  ipcMain.handle('trash:list', async () => {
+    return trashService.listTrash();
+  });
+
+  ipcMain.handle('trash:getStats', async () => {
+    return trashService.getStats();
+  });
+
+  ipcMain.handle('trash:getCount', async () => {
+    return trashService.getCount();
+  });
+
 }
 
 // 单实例模式：请求锁，若已有实例运行则退出当前进程

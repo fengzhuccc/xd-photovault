@@ -1,7 +1,6 @@
 import { readdir, stat } from 'fs/promises';
 import { join, extname, sep } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { shell } from 'electron';
 import { DatabaseService, PhotoRow, PhotoInsert } from './database';
 import { HashService } from './hash';
 import { ExifService } from './exif';
@@ -72,8 +71,8 @@ async function* walkImageFiles(dirPath: string): AsyncGenerator<string> {
     return;
   }
 
-  // 跳过 Windows / macOS / NAS 系统目录和回收站，避免权限错误和无效遍历
-  const SKIP_DIRS = new Set(['$RECYCLE.BIN', 'System Volume Information', '.Trashes', '.Spotlight-V100', '.fseventsd', '@eaDir']);
+  // 跳过 Windows / macOS / NAS 系统目录、回收站以及应用回收站，避免权限错误和无效遍历
+  const SKIP_DIRS = new Set(['$RECYCLE.BIN', 'System Volume Information', '.Trashes', '.Spotlight-V100', '.fseventsd', '@eaDir', '.xd-photovault-trash']);
 
   for (const entry of entries) {
     const fullPath = join(dirPath, entry.name);
@@ -469,14 +468,22 @@ export class ScannerService {
     log.info(`[Scanner] 扫描结束后缩略图生成完成`);
   }
 
-  async addFolder(path: string): Promise<{ id: string; path: string; isNew: boolean; conflict?: { type: 'child' | 'parent'; childFolderIds: string[]; childFolderPaths: string[] } }> {
+  async addFolder(path: string): Promise<{ id: string; path: string; isNew: boolean; conflict?: { type: 'child' | 'parent' | 'trash'; childFolderIds: string[]; childFolderPaths: string[] } }> {
     const existing = this.db.getFolderByPath(path);
     if (existing) {
       return { id: existing.id, path: existing.path, isNew: false };
     }
 
-    // 嵌套校验
+    // 禁止将应用回收站或其子目录添加为图库
     const normalizedPath = path.replace(/\\/g, '/').replace(/\/+$/, '');
+    if (normalizedPath.split('/').some(part => part.toLowerCase() === '.xd-photovault-trash')) {
+      return {
+        id: '', path, isNew: false,
+        conflict: { type: 'trash', childFolderIds: [], childFolderPaths: [] },
+      };
+    }
+
+    // 嵌套校验
     const folders = this.db.getFolders();
     const childFolderIds: string[] = [];
     const childFolderPaths: string[] = [];
@@ -1297,44 +1304,4 @@ export class ScannerService {
     );
   }
 
-  async deletePhotos(photoIds: string[]): Promise<void> {
-    const photos = this.db.getPhotosByIds(photoIds);
-    if (photos.length === 0) return;
-
-    // M-26: 移动文件到回收站，回收失败的跳过 DB 删除，避免文件残留但记录丢失
-    const successfullyTrashed: PhotoRow[] = [];
-    const failedToTrash: PhotoRow[] = [];
-    for (const photo of photos) {
-      try {
-        await shell.trashItem(photo.path);
-        successfullyTrashed.push(photo);
-      } catch (e) {
-        log.warn(`[Scanner] 移动文件到回收站失败: ${photo.path}`, e);
-        failedToTrash.push(photo);
-      }
-    }
-
-    if (successfullyTrashed.length === 0) {
-      throw new Error('所有文件移动到回收站失败，未删除任何数据库记录');
-    }
-
-    // 批量删除缩略图文件（含新版多尺寸和旧版无分片）
-    this.thumbnailService.deleteThumbnailsByPhotoIds(successfullyTrashed.map(p => p.id));
-
-    // 批量删除数据库记录，并获取受影响且仍存在的重复组
-    const affectedGroupIds = this.db.deletePhotosBatch(successfullyTrashed.map(p => p.id));
-
-    // 对每个受影响组重新选择推荐照片，避免 recommended_photo_id 为 NULL
-    for (const groupId of affectedGroupIds) {
-      const remaining = this.db.getPhotosInDuplicateGroup(groupId);
-      if (remaining.length > 0) {
-        const newRecommended = this.selectBestPhoto(remaining);
-        this.db.updateDuplicateGroupRecommended(groupId, newRecommended.id);
-      }
-    }
-
-    if (failedToTrash.length > 0) {
-      log.warn(`[Scanner] ${failedToTrash.length} 个文件回收失败，已保留其数据库记录: ${failedToTrash.map(p => p.path).join(', ')}`);
-    }
-  }
 }

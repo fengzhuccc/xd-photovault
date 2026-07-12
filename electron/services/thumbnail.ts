@@ -108,7 +108,7 @@ export class ThumbnailService {
   private async doGetThumbnail(photoId: string, photoPath: string, thumbSize: ThumbnailSize): Promise<string> {
     // 源文件已不存在（例如被删除但数据库记录还在），直接返回原图 URL 避免报错
     if (!existsSync(photoPath)) {
-      log.warn(`[Thumbnail] 源文件不存在，跳过缩略图生成: ${photoPath}`);
+      log.debug(`[Thumbnail] 源文件不存在，跳过缩略图生成: ${photoPath}`);
       return this.fileUrl(photoPath);
     }
 

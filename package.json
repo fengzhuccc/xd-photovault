@@ -1,5 +1,5 @@
 {
-  "name": "xiaodai-album",
+  "name": "xd-photovault",
   "private": true,
   "version": "1.0.0",
   "description": "小呆相册 - 照片管理与去重应用",
@@ -51,7 +51,6 @@
     "react-virtuoso": "^4.18.7",
     "sharp": "^0.33.5",
     "tailwind-merge": "^3.0.2",
-    "trash": "^8.1.1",
     "uuid": "^10.0.0",
     "zustand": "^5.0.3"
   },
@@ -92,7 +91,7 @@
   },
   "build": {
     "appId": "com.xiaodai.album",
-    "productName": "PhotoVault",
+    "productName": "xd-PhotoVault",
     "directories": {
       "output": "release"
     },

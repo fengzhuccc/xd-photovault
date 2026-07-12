@@ -69,7 +69,7 @@ export const api = {
     getAll: (limit?: number, offset?: number, reason?: 'exact' | 'similar') => ipcRenderer.invoke('duplicate:getAll', limit, offset, reason),
     detectExact: (fullRebuild?: boolean) => ipcRenderer.invoke('duplicate:detectExact', fullRebuild) as Promise<DuplicateDetectionResult>,
     detectSimilar: (fullRebuild?: boolean) => ipcRenderer.invoke('duplicate:detectSimilar', fullRebuild) as Promise<DuplicateDetectionResult>,
-    delete: (photoIds: string[]) => ipcRenderer.invoke('duplicate:delete', photoIds),
+    delete: (photoIds: string[]) => ipcRenderer.invoke('duplicate:delete', photoIds) as Promise<{ id: string; success: boolean; trashPath?: string; error?: string }[]>,
     onProgress: (callback: (progress: { stage: 'hashing' | 'exact' | 'similar' | 'complete'; current: number; total: number; message: string }) => void) => {
       const listener = (_event: unknown, progress: { stage: 'hashing' | 'exact' | 'similar' | 'complete'; current: number; total: number; message: string }) => callback(progress);
       ipcRenderer.on('duplicate:progress', listener);
@@ -118,6 +118,16 @@ export const api = {
 
   app: {
     openPath: (path: string) => ipcRenderer.invoke('app:openPath', path),
+  },
+
+  trash: {
+    moveToTrash: (photoIds: string[]) => ipcRenderer.invoke('trash:moveToTrash', photoIds),
+    restore: (photoIds: string[]) => ipcRenderer.invoke('trash:restore', photoIds),
+    permanentDelete: (photoIds: string[]) => ipcRenderer.invoke('trash:permanentDelete', photoIds),
+    empty: () => ipcRenderer.invoke('trash:empty'),
+    list: () => ipcRenderer.invoke('trash:list'),
+    getStats: () => ipcRenderer.invoke('trash:getStats'),
+    getCount: () => ipcRenderer.invoke('trash:getCount'),
   },
 };
 

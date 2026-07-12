@@ -8,6 +8,7 @@ import { useAppStore } from '@/stores/appStore';
 import { toast } from '@/stores/toastStore';
 import { confirm } from '@/stores/confirmStore';
 import { cn, isTypingTarget } from '@/lib/utils';
+import { confirmFirstTrashMove } from '@/lib/trashPrompt';
 import { PhotoDetailModal } from '@/components/PhotoDetailModal';
 import type { Photo } from '@/types';
 
@@ -140,6 +141,7 @@ export function BrowsePage() {
     loadPreviousPhotosPage,
     loadTimeline,
     loadStats,
+    loadTrashCount,
     currentFilter,
     setCurrentFilter,
     thumbnails,
@@ -495,7 +497,10 @@ export function BrowsePage() {
   const handleBatchDelete = async () => {
     const count = selectedIds.size;
     if (count === 0) return;
-    if (!await confirm(`确定要删除选中的 ${count} 张照片吗？\n\n照片将移到系统回收站，可从回收站恢复。`, { variant: 'danger', confirmText: '删除' })) {
+    if (!await confirm(`确定要将选中的 ${count} 张照片移到回收站吗？\n\n可在回收站中还原或彻底删除。`, { variant: 'danger', confirmText: '移到回收站' })) {
+      return;
+    }
+    if (!await confirmFirstTrashMove()) {
       return;
     }
     try {
@@ -530,8 +535,9 @@ export function BrowsePage() {
         }
       }
       loadStats();
+      loadTrashCount();
     } catch (error) {
-      toast('error', '删除失败：' + error);
+      toast('error', '移到回收站失败：' + error);
     }
   };
 
@@ -886,7 +892,7 @@ export function BrowsePage() {
                 )}
               >
                 <Trash2 size={16} />
-                删除{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+                移到回收站{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
               </button>
             </div>
           </div>
