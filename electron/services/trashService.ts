@@ -1,4 +1,5 @@
 import { join, parse, dirname, basename } from 'path';
+import { homedir } from 'os';
 import { spawnSync } from 'child_process';
 import {
   existsSync,
@@ -53,30 +54,45 @@ const METADATA_FILE = '.metadata.json';
 export class TrashService {
   private db: DatabaseService;
   private config: ConfigService;
+  // 已设置隐藏属性的回收站根目录（attrib 每个 root 只 spawn 一次，批量删除不再逐张起进程）
+  private hiddenTrashRoots = new Set<string>();
 
   constructor(databaseService: DatabaseService, configService: ConfigService) {
     this.db = databaseService;
     this.config = configService;
   }
 
-  private resolveTrashRoot(originalPath: string): string {
+  /**
+   * 解析照片所在盘的回收站根目录，保证"同盘移动"（rename 瞬时完成，无需跨盘复制）：
+   * - 系统盘（与用户主目录同卷，通常是 C:）：卷根目录普通用户无写权限，改放用户主目录下
+   * - 数据盘（D:/E: 等普通本地盘）：放卷根目录
+   * - 不支持的盘（网络盘等）：返回 null，由调用方记为失败
+   */
+  private resolveTrashRoot(originalPath: string): string | null {
     const { root } = parse(originalPath);
-    if (root) {
-      const trashRoot = join(root, TRASH_FOLDER_NAME);
+    if (!root) {
+      log.error('[TrashService] 无法解析照片所在磁盘:', originalPath);
+      return null;
+    }
+
+    const trashRoot = root === parse(homedir()).root
+      ? join(homedir(), TRASH_FOLDER_NAME)
+      : join(root, TRASH_FOLDER_NAME);
+
+    try {
       if (!existsSync(trashRoot)) {
         mkdirSync(trashRoot, { recursive: true });
       }
-      setWindowsHiddenAttribute(trashRoot);
-      return trashRoot;
+    } catch (error) {
+      log.error('[TrashService] 所在磁盘不支持创建回收站目录:', trashRoot, error);
+      return null;
     }
 
-    // 兜底：使用数据目录下的回收站
-    const fallback = join(this.config.getDataPath(), TRASH_FOLDER_NAME);
-    if (!existsSync(fallback)) {
-      mkdirSync(fallback, { recursive: true });
+    if (!this.hiddenTrashRoots.has(trashRoot)) {
+      setWindowsHiddenAttribute(trashRoot);
+      this.hiddenTrashRoots.add(trashRoot);
     }
-    setWindowsHiddenAttribute(fallback);
-    return fallback;
+    return trashRoot;
   }
 
   private ensureTrashFolder(trashRoot: string, photoId: string): string {
@@ -160,6 +176,10 @@ export class TrashService {
         }
 
         const trashRoot = this.resolveTrashRoot(photo.original_path || photo.path);
+        if (!trashRoot) {
+          results.push({ id: photo.id, success: false, error: '所在磁盘不支持回收站' });
+          continue;
+        }
         const trashFolder = this.ensureTrashFolder(trashRoot, photo.id);
         const trashPath = join(trashFolder, photo.filename);
 
