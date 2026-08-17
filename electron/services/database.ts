@@ -1106,6 +1106,7 @@ export class DatabaseService {
       FROM photo_duplicates pd
       JOIN photos p ON pd.photo_id = p.id
       WHERE pd.group_id IN (${placeholders}) AND p.deleted_at IS NULL
+      ORDER BY pd.group_id, p.taken_at DESC NULLS LAST, p.id
     `).all(...groupIds) as (PhotoRow & { group_id: string })[];
 
     const photosByGroup = new Map<string, PhotoRow[]>();
@@ -1113,9 +1114,6 @@ export class DatabaseService {
       const gid = row.group_id;
       if (!photosByGroup.has(gid)) photosByGroup.set(gid, []);
       photosByGroup.get(gid)!.push(row);
-    }
-    for (const photos of photosByGroup.values()) {
-      photos.sort((a, b) => compareDateDesc(a.taken_at, b.taken_at));
     }
 
     return {
