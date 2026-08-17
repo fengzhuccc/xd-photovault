@@ -207,11 +207,46 @@ export class DatabaseService {
       this.db.pragma('cache_size = -64000');      // 64MB page cache
       this.db.pragma('temp_store = MEMORY');
       this.db.pragma('busy_timeout = 5000');
+      // 开启外键约束：否则所有 ON DELETE CASCADE 声明都不生效，
+      // 删除照片时会残留 photo_duplicates / photo_embeddings 孤儿行
+      this.db.pragma('foreign_keys = ON');
       this.createTables();
+      // 清理历史孤儿数据（开启外键前删除照片残留的关联行，一次性兜底）
+      this.cleanupOrphanRows();
       log.info('DatabaseService - Database initialized successfully');
     } catch (error) {
       log.error('DatabaseService - Failed to initialize database:', error);
       throw error;
+    }
+  }
+
+  /**
+   * 将数组按 SQLite 变量上限分批（保守取 900，兼容默认 999 上限的编译版本）。
+   * 所有 IN (...) 查询/删除必须经过分批，否则大库批量操作会抛 too many SQL variables。
+   */
+  static chunk<T>(items: T[], size = 900): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < items.length; i += size) {
+      chunks.push(items.slice(i, i + size));
+    }
+    return chunks;
+  }
+
+  /** 清理指向已不存在照片的关联行（历史版本未开启外键时残留的孤儿数据） */
+  private cleanupOrphanRows(): void {
+    try {
+      const embOrphans = this.db.prepare(
+        'DELETE FROM photo_embeddings WHERE photo_id NOT IN (SELECT id FROM photos)'
+      ).run().changes;
+      const dupOrphans = this.db.prepare(
+        'DELETE FROM photo_duplicates WHERE photo_id NOT IN (SELECT id FROM photos)'
+      ).run().changes;
+      if (embOrphans > 0 || dupOrphans > 0) {
+        log.info(`[DB] Cleaned orphan rows: ${embOrphans} embeddings, ${dupOrphans} duplicate members`);
+      }
+    } catch (error) {
+      // 清理失败不阻断启动
+      log.warn('[DB] Orphan rows cleanup failed:', error);
     }
   }
 
@@ -497,6 +532,13 @@ export class DatabaseService {
           }
         }
       }
+
+      // 清理该文件夹照片的 embedding（CASCADE 兜底历史孤儿行）
+      this.db.prepare(`
+        DELETE FROM photo_embeddings WHERE photo_id IN (
+          SELECT id FROM photos WHERE folder_id = ?
+        )
+      `).run(folderId);
 
       this.db.prepare('DELETE FROM photos WHERE folder_id = ?').run(folderId);
     });
@@ -894,28 +936,38 @@ export class DatabaseService {
 
   findExactDuplicatesByHashes(hashes: string[]): ExactDuplicateRow[] {
     if (hashes.length === 0) return [];
-    const placeholders = hashes.map(() => '?').join(',');
-    const stmt = this.db.prepare(`
-      SELECT file_hash as key, GROUP_CONCAT(id) as photo_ids, COUNT(*) as count
-      FROM photos
-      WHERE deleted_at IS NULL AND media_type = 'image' AND file_hash IN (${placeholders})
-      GROUP BY file_hash
-      HAVING COUNT(*) > 1
-    `);
-    return stmt.all(...hashes) as ExactDuplicateRow[];
+    // 分批查询：每个 hash 只属于一批，组内 GROUP BY 结果跨批合并后语义不变
+    const result: ExactDuplicateRow[] = [];
+    for (const batch of DatabaseService.chunk(hashes)) {
+      const placeholders = batch.map(() => '?').join(',');
+      const stmt = this.db.prepare(`
+        SELECT file_hash as key, GROUP_CONCAT(id) as photo_ids, COUNT(*) as count
+        FROM photos
+        WHERE deleted_at IS NULL AND media_type = 'image' AND file_hash IN (${placeholders})
+        GROUP BY file_hash
+        HAVING COUNT(*) > 1
+      `);
+      result.push(...(stmt.all(...batch) as ExactDuplicateRow[]));
+    }
+    return result;
   }
 
   findExactDuplicatesByFrameHashes(frameHashes: string[]): ExactDuplicateRow[] {
     if (frameHashes.length === 0) return [];
-    const placeholders = frameHashes.map(() => '?').join(',');
-    const stmt = this.db.prepare(`
-      SELECT frame_hash || '_' || file_size as key, GROUP_CONCAT(id) as photo_ids, COUNT(*) as count
-      FROM photos
-      WHERE deleted_at IS NULL AND media_type = 'video' AND frame_hash IN (${placeholders})
-      GROUP BY frame_hash, file_size
-      HAVING COUNT(*) > 1
-    `);
-    return stmt.all(...frameHashes) as ExactDuplicateRow[];
+    const result: ExactDuplicateRow[] = [];
+    for (const batch of DatabaseService.chunk(frameHashes)) {
+      const placeholders = batch.map(() => '?').join(',');
+      const stmt = this.db.prepare(`
+        SELECT frame_hash || '_' || file_size as key, GROUP_CONCAT(id) as photo_ids, COUNT(*) as count
+        FROM photos
+        WHERE deleted_at IS NULL AND media_type = 'video' AND frame_hash IN (${placeholders})
+          AND file_size IS NOT NULL
+        GROUP BY frame_hash, file_size
+        HAVING COUNT(*) > 1
+      `);
+      result.push(...(stmt.all(...batch) as ExactDuplicateRow[]));
+    }
+    return result;
   }
 
   getPhotoDuplicateGroup(photoId: string): string | null {
@@ -983,16 +1035,18 @@ export class DatabaseService {
 
     if (groups.length === 0) return [];
 
-    const groupIds = groups.map(g => g.id);
-    const placeholders = groupIds.map(() => '?').join(',');
-
-    const photoRows = this.db.prepare(`
-      SELECT pd.group_id, p.id, p.path, p.filename, p.file_size, p.taken_at,
-             p.latitude, p.longitude, p.width, p.height, p.camera
-      FROM photo_duplicates pd
-      JOIN photos p ON pd.photo_id = p.id
-      WHERE pd.group_id IN (${placeholders}) AND p.deleted_at IS NULL
-    `).all(...groupIds) as (PhotoRow & { group_id: string })[];
+    // 分批查询组内照片（大库可能有上万重复组，IN 变量数需分批）
+    const photoRows: (PhotoRow & { group_id: string })[] = [];
+    for (const batch of DatabaseService.chunk(groups.map(g => g.id))) {
+      const placeholders = batch.map(() => '?').join(',');
+      photoRows.push(...(this.db.prepare(`
+        SELECT pd.group_id, p.id, p.path, p.filename, p.file_size, p.taken_at,
+               p.latitude, p.longitude, p.width, p.height, p.camera
+        FROM photo_duplicates pd
+        JOIN photos p ON pd.photo_id = p.id
+        WHERE pd.group_id IN (${placeholders}) AND p.deleted_at IS NULL
+      `).all(...batch) as (PhotoRow & { group_id: string })[]));
+    }
 
     // 按组 ID 分组，并按拍摄时间倒序排列组内照片
     const photosByGroup = new Map<string, PhotoRow[]>();
@@ -1085,6 +1139,9 @@ export class DatabaseService {
         UPDATE duplicate_groups SET recommended_photo_id = NULL WHERE recommended_photo_id = ?
       `).run(id);
 
+      // 显式清理 embedding（CASCADE 兜底：历史数据在开启外键前可能残留孤儿行）
+      this.db.prepare('DELETE FROM photo_embeddings WHERE photo_id = ?').run(id);
+
       // 删除照片（CASCADE 会清理 photo_duplicates）
       this.db.prepare('DELETE FROM photos WHERE id = ?').run(id);
 
@@ -1109,6 +1166,17 @@ export class DatabaseService {
    */
   deletePhotosBatch(ids: string[]): string[] {
     if (ids.length === 0) return [];
+    // 分批处理：SQLite 变量数有上限（默认 999 / 编译版 32766），
+    // 大库批量删除（如文件夹被清空时全量 id）会直接抛 too many SQL variables
+    const BATCH = 900;
+    const allAffected: string[] = [];
+    for (let i = 0; i < ids.length; i += BATCH) {
+      allAffected.push(...this.deletePhotosBatchInner(ids.slice(i, i + BATCH)));
+    }
+    return [...new Set(allAffected)];
+  }
+
+  private deletePhotosBatchInner(ids: string[]): string[] {
     const affectedGroupIds: string[] = [];
     const transaction = this.db.transaction(() => {
       const placeholders = ids.map(() => '?').join(',');
@@ -1124,6 +1192,9 @@ export class DatabaseService {
       const affected = this.db.prepare(`
         SELECT DISTINCT group_id FROM photo_duplicates WHERE photo_id IN (${placeholders})
       `).all(...ids) as { group_id: string }[];
+
+      // 显式清理 embedding（CASCADE 兜底：历史数据在开启外键前可能残留孤儿行）
+      this.db.prepare(`DELETE FROM photo_embeddings WHERE photo_id IN (${placeholders})`).run(...ids);
 
       // 批量删除照片（CASCADE 会清理 photo_duplicates）
       this.db.prepare(`DELETE FROM photos WHERE id IN (${placeholders})`).run(...ids);
@@ -1254,10 +1325,14 @@ export class DatabaseService {
 
   getPhotosByPaths(paths: string[]): { id: string; path: string; file_hash: string | null; file_size: number; modified_time: string | null }[] {
     if (paths.length === 0) return [];
-    const placeholders = paths.map(() => '?').join(',');
-    return this.db.prepare(
-      `SELECT id, path, file_hash, file_size, modified_time FROM photos WHERE deleted_at IS NULL AND path IN (${placeholders})`
-    ).all(...paths) as { id: string; path: string; file_hash: string | null; file_size: number; modified_time: string | null }[];
+    const result: { id: string; path: string; file_hash: string | null; file_size: number; modified_time: string | null }[] = [];
+    for (const batch of DatabaseService.chunk(paths)) {
+      const placeholders = batch.map(() => '?').join(',');
+      result.push(...(this.db.prepare(
+        `SELECT id, path, file_hash, file_size, modified_time FROM photos WHERE deleted_at IS NULL AND path IN (${placeholders})`
+      ).all(...batch) as { id: string; path: string; file_hash: string | null; file_size: number; modified_time: string | null }[]));
+    }
+    return result;
   }
 
   getPhotoPathsByFolder(folderId: string, limit: number, offset: number): { id: string; path: string }[] {
@@ -1429,14 +1504,26 @@ export class DatabaseService {
         LIMIT ?
       `).all(limit) as { id: string; path: string; filename: string; media_type: 'image' | 'video' }[];
     }
-    const placeholders = excludeIds.map(() => '?').join(',');
-    return this.db.prepare(`
+    // 排除列表用临时表承载：失败照片可能累积数千个 id，
+    // 直接拼 NOT IN 会超出 SQLite 变量上限导致索引任务崩溃
+    this.db.exec('CREATE TEMP TABLE IF NOT EXISTS tmp_embedding_exclude (id TEXT PRIMARY KEY)');
+    this.db.prepare('DELETE FROM tmp_embedding_exclude').run();
+    const insertStmt = this.db.prepare('INSERT OR IGNORE INTO tmp_embedding_exclude (id) VALUES (?)');
+    const insertAll = this.db.transaction((ids: string[]) => {
+      for (const id of ids) insertStmt.run(id);
+    });
+    for (const batch of DatabaseService.chunk(excludeIds)) {
+      insertAll(batch);
+    }
+    const rows = this.db.prepare(`
       SELECT p.id, p.path, p.filename, p.media_type FROM photos p
       LEFT JOIN photo_embeddings pe ON p.id = pe.photo_id
       WHERE p.deleted_at IS NULL AND pe.photo_id IS NULL AND p.media_type = 'image'
-      AND p.id NOT IN (${placeholders})
+        AND p.id NOT IN (SELECT id FROM tmp_embedding_exclude)
       LIMIT ?
-    `).all(...excludeIds, limit) as { id: string; path: string; filename: string; media_type: 'image' | 'video' }[];
+    `).all(limit) as { id: string; path: string; filename: string; media_type: 'image' | 'video' }[];
+    this.db.prepare('DELETE FROM tmp_embedding_exclude').run();
+    return rows;
   }
 
   getEmbeddingCount(model?: string): number {
@@ -1455,8 +1542,10 @@ export class DatabaseService {
 
   deletePhotoEmbeddings(photoIds: string[]): void {
     if (photoIds.length === 0) return;
-    const placeholders = photoIds.map(() => '?').join(',');
-    this.db.prepare(`DELETE FROM photo_embeddings WHERE photo_id IN (${placeholders})`).run(...photoIds);
+    for (const batch of DatabaseService.chunk(photoIds)) {
+      const placeholders = batch.map(() => '?').join(',');
+      this.db.prepare(`DELETE FROM photo_embeddings WHERE photo_id IN (${placeholders})`).run(...batch);
+    }
   }
 
   searchPhotosByEmbedding(

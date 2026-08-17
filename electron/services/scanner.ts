@@ -5,7 +5,7 @@ import { DatabaseService, PhotoRow, PhotoInsert } from './database';
 import { HashService } from './hash';
 import { ExifService } from './exif';
 import { ThumbnailService } from './thumbnail';
-import { VideoService } from './video';
+import { VideoService, type VideoMetadata } from './video';
 import { scorePhoto } from './scoring';
 import log from 'electron-log';
 
@@ -282,12 +282,23 @@ export class ScannerService {
     folderId: string,
     photoId: string,
     stats: { size: number; mtime: Date }
-  ): Promise<{ photo: PhotoInsert; hash: null; frameHash: string }> {
-    const metadata = await this.videoService.getMetadata(filePath);
+  ): Promise<{ photo: PhotoInsert; hash: null; frameHash: string | null }> {
+    // 元数据读取失败时降级（duration=0、宽高 null）而不是丢弃整个视频
+    let metadata: VideoMetadata = { duration: 0, width: null, height: null };
+    try {
+      metadata = await this.videoService.getMetadata(filePath);
+    } catch (error) {
+      log.warn(`[Scanner] 读取视频元数据失败，降级入库: ${filePath}`, error);
+    }
 
-    // 抽取第一帧并计算其 hash，作为视频去重依据
-    const frameBuffer = await this.videoService.extractFirstFrame(filePath);
-    const frameHash = await this.hashService.calculateHash(frameBuffer);
+    // 抽取第一帧并计算其 hash，作为视频去重依据；失败时 frameHash 置 null（不参与视频去重）
+    let frameHash: string | null = null;
+    try {
+      const frameBuffer = await this.videoService.extractFirstFrame(filePath);
+      frameHash = await this.hashService.calculateHash(frameBuffer);
+    } catch (error) {
+      log.warn(`[Scanner] 抽取视频首帧失败，跳过去重哈希: ${filePath}`, error);
+    }
 
     const photo: PhotoInsert = {
       id: photoId,
@@ -1032,8 +1043,10 @@ export class ScannerService {
       }
     }
 
-    // 全量模式下，原子性批量写入：先清空旧 exact 组，再写入所有新组
-    if (fullRebuild && newGroups.length > 0) {
+    // 全量模式下，原子性批量写入：先清空旧 exact 组，再写入所有新组。
+    // 无论新组是否为空都要 rebuild——重复照片删光后再次全量检测时，
+    // newGroups 为 [] 也要清掉旧组，否则 UI 继续展示已不存在的重复组
+    if (fullRebuild) {
       this.db.rebuildDuplicateGroups('exact', newGroups);
     }
 
@@ -1088,8 +1101,13 @@ export class ScannerService {
 
   /**
    * 基于 pHash 的 LSH（局部敏感哈希）检测相似图片。
-   * 把 64 位 pHash 分成 4 个 16 位 band，共享任一 band 的照片才进入汉明距离精细比较，
+   * 把 64 位 pHash 分成 8 个 8 位 band，共享任一 band 的照片进入汉明距离精细比较，
    * 将 O(n²) 降为接近 O(n)。
+   *
+   * band 大小取舍：阈值 distance<10 时，差异位平均分散到各 band。
+   * 16 位 band 要求完全相同，命中率仅约 20%（八成相似对被漏掉）；
+   * 8 位 band 命中率约 90%，代价是桶内两两比较次数增加（仍有文件大小剪枝
+   * 和 union 跳过兜底，10 万张库的精细比较约 1.5 亿次，秒级完成）。
    * 阈值 < 10 视为相似（64 位哈希中差异不超过 10 位）
    */
   private async runSimilarDuplicateDetection(fullRebuild: boolean): Promise<number> {
@@ -1100,9 +1118,11 @@ export class ScannerService {
 
     try {
     const PHASH_THRESHOLD = 10;
-    const LSH_BANDS = 4;
-    const LSH_BAND_SIZE = 16; // 64 / 4
+    const LSH_BANDS = 8;
+    const LSH_BAND_SIZE = 8; // 64 / 8
     const BATCH_SIZE = 5000;
+    // 单桶过大时跳过精细比较，防止极端情况（大量同 band 照片）卡死
+    const MAX_BUCKET_SIZE = 1500;
 
     // 统计有 pHash 的照片总数
     const totalCount = this.db.getPhotoCountWithPHash();
@@ -1136,13 +1156,17 @@ export class ScannerService {
     const phashMap = new Map<string, string>();
     const fileSizeMap = new Map<string, number>();
     const lshBuckets = new Map<string, Set<string>>();
-    const ZERO_PREFIX = '0'.repeat(16);
+    const ZERO_PREFIX = '0'.repeat(8);
 
     // 第一趟：分批读取 pHash，构建 LSH 桶
+    // 注意 getPhotoHashBatch 不排除全零 hash，分页以 batch 实际返回长度驱动，
+    // 避免 totalCount（已排除全零）与分页行数错位导致提前结束漏读
     let loaded = 0;
     let offset = 0;
-    while (offset < totalCount) {
+    let skippedOversizedBuckets = 0;
+    while (true) {
       const batch = this.db.getPhotoHashBatch(BATCH_SIZE, offset);
+      if (batch.length === 0) break;
       for (const row of batch) {
         const phash = row.perceptual_hash;
         if (!phash || phash === '0'.repeat(64)) continue;
@@ -1161,16 +1185,15 @@ export class ScannerService {
       }
       loaded += batch.length;
       offset += BATCH_SIZE;
-      if (loaded % 20000 === 0) {
-        this.emitDuplicateProgress({
-          stage: 'similar',
-          current: loaded,
-          total: totalCount,
-          message: `正在构建相似索引 ${loaded}/${totalCount}`
-        });
-        await yieldToMain();
-        log.info(`[Scanner] LSH 建桶进度: ${loaded}/${totalCount}`);
-      }
+      if (batch.length < BATCH_SIZE) break;
+      this.emitDuplicateProgress({
+        stage: 'similar',
+        current: loaded,
+        total: totalCount,
+        message: `正在构建相似索引 ${loaded}`
+      });
+      await yieldToMain();
+      log.info(`[Scanner] LSH 建桶进度: ${loaded}`);
     }
 
     // 第二趟：在每个桶内做精细汉明距离比较
@@ -1178,6 +1201,10 @@ export class ScannerService {
     let bucketIndex = 0;
     for (const [, ids] of lshBuckets) {
       if (ids.size < 2) continue;
+      if (ids.size > MAX_BUCKET_SIZE) {
+        skippedOversizedBuckets++;
+        continue;
+      }
 
       const idList = Array.from(ids);
       // 额外按文件大小排序，大小差 2 倍以上跳过，减少无效比较
@@ -1278,7 +1305,7 @@ export class ScannerService {
       }
     }
 
-    log.info(`[Scanner] 相似图片检测完成: ${newGroups.length} 组 (比较 ${comparisons} 对，桶数 ${lshBuckets.size})`);
+    log.info(`[Scanner] 相似图片检测完成: ${newGroups.length} 组 (比较 ${comparisons} 对，桶数 ${lshBuckets.size}${skippedOversizedBuckets > 0 ? `，跳过超大桶 ${skippedOversizedBuckets} 个` : ''})`);
     return newGroups.length;
     } catch (err) {
       // M-5: 异常时保留旧相似组数据，避免感知哈希计算失败导致已有相似组被清空

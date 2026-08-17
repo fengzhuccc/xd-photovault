@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, writeFileSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { fileURLToPath } from 'url';
 import sharp from 'sharp';
 import { ThumbnailService } from '../thumbnail';
 
@@ -77,7 +78,8 @@ describe('ThumbnailService', () => {
     const sourcePath = await createSourceImage('source3.jpg');
 
     const url1 = await service.getThumbnail(photoId, sourcePath, 'small');
-    const filePath = url1.replace('file:///', '').replace(/\//g, '\\');
+    // file:// URL 转本地路径需按平台处理（fileURLToPath 对 win/linux 都正确）
+    const filePath = fileURLToPath(url1);
 
     // 把缩略图 mtime 改旧
     const oldTime = new Date('2000-01-01');

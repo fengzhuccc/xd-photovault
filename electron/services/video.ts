@@ -1,14 +1,16 @@
 import { path as ffmpegPath } from '@ffmpeg-installer/ffmpeg';
+import { path as ffprobePath } from '@ffprobe-installer/ffprobe';
 import ffmpeg from 'fluent-ffmpeg';
 import { app } from 'electron';
 import log from 'electron-log';
 
-// 设置 ffmpeg 二进制路径（@ffmpeg-installer 会按平台自动选择）
 // 打包后二进制文件位于 app.asar.unpacked，需要修正路径
-const resolvedFfmpegPath = app.isPackaged
-  ? ffmpegPath.replace(/app\.asar(?=\\|\/|$)/, 'app.asar.unpacked')
-  : ffmpegPath;
-ffmpeg.setFfmpegPath(resolvedFfmpegPath);
+const unpacked = (p: string) =>
+  app.isPackaged ? p.replace(/app\.asar(?=\\|\/|$)/, 'app.asar.unpacked') : p;
+
+// 设置 ffmpeg / ffprobe 二进制路径（installer 包按平台自动选择）
+ffmpeg.setFfmpegPath(unpacked(ffmpegPath));
+ffmpeg.setFfprobePath(unpacked(ffprobePath));
 
 export interface VideoMetadata {
   duration: number;
@@ -77,10 +79,24 @@ export class VideoService {
 
   /**
    * 读取视频元数据：时长、分辨率。
+   * 添加 15 秒超时：损坏容器/网络盘卡住时 ffprobe 可能永久挂起，
+   * 会占死扫描 worker 导致扫描永不完成。
    */
   async getMetadata(videoPath: string): Promise<VideoMetadata> {
+    const TIMEOUT_MS = 15000;
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          reject(new Error(`ffprobe 读取元数据超时 (${TIMEOUT_MS}ms): ${videoPath}`));
+        }
+      }, TIMEOUT_MS);
+
       ffmpeg.ffprobe(videoPath, (err, metadata) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
         if (err) {
           log.warn(`[VideoService] 读取视频元数据失败: ${videoPath}`, err.message);
           return reject(err);

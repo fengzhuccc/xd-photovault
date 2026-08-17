@@ -54,6 +54,8 @@ export class ExifService {
           'ModifyDate',
           'GPSLatitude',
           'GPSLongitude',
+          'GPSLatitudeRef',
+          'GPSLongitudeRef',
           'ImageWidth',
           'ImageHeight',
           'ExifImageWidth',

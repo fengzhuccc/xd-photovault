@@ -1,5 +1,5 @@
 import { join } from 'path';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
 import { app } from 'electron';
 import log from 'electron-log';
 
@@ -43,16 +43,40 @@ export class ConfigService {
         return { ...DEFAULT_CONFIG, ...JSON.parse(content) };
       }
     } catch (error) {
-      log.error('Failed to load config:', error);
+      // 配置损坏（如写入中途断电留下的截断 JSON）：备份残留文件并告警，
+      // 避免静默回退默认配置导致 dataPath "丢失"、用户数据看起来全部消失
+      log.error('Failed to load config (file may be corrupted):', error);
+      this.backupCorruptedConfig();
     }
     return { ...DEFAULT_CONFIG };
   }
 
-  private saveConfig(): void {
+  /** 备份损坏的配置文件，便于用户手动找回 dataPath */
+  private backupCorruptedConfig(): void {
     try {
-      writeFileSync(this.configPath, JSON.stringify(this.config, null, 2), 'utf-8');
+      if (existsSync(this.configPath)) {
+        const backupPath = `${this.configPath}.corrupted-${Date.now()}`;
+        copyFileSync(this.configPath, backupPath);
+        log.error(`Corrupted config backed up to: ${backupPath}`);
+      }
+    } catch {
+      // 备份失败不影响启动
+    }
+  }
+
+  private saveConfig(): void {
+    // 原子写：先写临时文件再 rename，避免写入中途崩溃/断电留下截断的 JSON
+    const tmpPath = `${this.configPath}.tmp`;
+    try {
+      writeFileSync(tmpPath, JSON.stringify(this.config, null, 2), 'utf-8');
+      renameSync(tmpPath, this.configPath);
     } catch (error) {
       log.error('Failed to save config:', error);
+      try {
+        if (existsSync(tmpPath)) rmSync(tmpPath, { force: true });
+      } catch {
+        // 清理失败忽略
+      }
     }
   }
 
