@@ -535,7 +535,7 @@ export class ScannerService {
     for (const childFolderId of childFolderIds) {
       const childPhotos = this.db.getPhotosByFolder(childFolderId);
       if (childPhotos.length > 0) {
-        this.thumbnailService.deleteThumbnailsByPhotoIds(childPhotos.map((p: PhotoRow) => p.id));
+        await this.thumbnailService.deleteThumbnailsByPhotoIds(childPhotos.map((p: PhotoRow) => p.id));
       }
       this.db.deletePhotosByFolder(childFolderId);
       this.db.removeFolder(childFolderId);
@@ -575,7 +575,7 @@ export class ScannerService {
         if (existingPhotos.length > 0) {
           log.info(`[Scanner] 强制重新扫描：清除文件夹 ${existingPhotos.length} 条照片记录及缓存`);
           // 删除缩略图缓存
-          this.thumbnailService.deleteThumbnailsByPhotoIds(existingPhotos.map((p: PhotoRow) => p.id));
+          await this.thumbnailService.deleteThumbnailsByPhotoIds(existingPhotos.map((p: PhotoRow) => p.id));
           // 删除数据库中该文件夹的所有照片和重复记录
           this.db.deletePhotosByFolder(folderId);
         }
@@ -604,7 +604,7 @@ export class ScannerService {
         if (existingPhotos.length > 0) {
           log.info(`[Scanner] 文件夹已清空，删除 ${existingPhotos.length} 条旧照片记录`);
           const deletedIds = existingPhotos.map(p => p.id);
-          this.thumbnailService.deleteThumbnailsByPhotoIds(deletedIds);
+          await this.thumbnailService.deleteThumbnailsByPhotoIds(deletedIds);
           this.db.deletePhotosBatch(deletedIds);
         }
         this.db.updateFolderScanTime(folderId, 0);
@@ -691,7 +691,7 @@ export class ScannerService {
           const batch = toDelete.slice(i, i + DELETE_BATCH_SIZE);
           const deletedIds = batch.map(p => p.id);
           try {
-            this.thumbnailService.deleteThumbnailsByPhotoIds(deletedIds);
+            await this.thumbnailService.deleteThumbnailsByPhotoIds(deletedIds);
             this.db.deletePhotosBatch(deletedIds);
             deletedCount += batch.length;
           } catch (err) {
@@ -782,15 +782,18 @@ export class ScannerService {
       const photos = this.db.getPhotosWithLegacyMd5Hashes(BATCH, 0);
       if (photos.length === 0) break;
 
+      // 批量计算后单事务回写，替代逐条 UPDATE 的 N 次独立写事务
+      const updates: { id: string; fileHash: string }[] = [];
       for (const photo of photos) {
         try {
           const newHash = await this.hashService.calculateFileHash(photo.path);
-          this.db.updatePhotoFileHash(photo.id, newHash);
+          updates.push({ id: photo.id, fileHash: newHash });
           migrated++;
         } catch (error) {
           log.warn(`[Scanner] 迁移旧 hash 失败: ${photo.path}`, error);
         }
       }
+      this.db.updatePhotoFileHashBatch(updates);
 
       await yieldToMain();
       if (photos.length < BATCH) break;
@@ -906,6 +909,8 @@ export class ScannerService {
     });
 
     const verifiedResults: { key: string; photo_ids: string; count: number }[] = [];
+    // 抽样 hash 先攒后批量回写，替代逐条 UPDATE 的 N 次独立写事务
+    const hashUpdates: { id: string; fileHash: string }[] = [];
 
     for (let i = 0; i < videoGroups.length; i++) {
       const { dup, photos } = videoGroups[i];
@@ -915,7 +920,7 @@ export class ScannerService {
       for (const photo of photos) {
         const hash = await this.hashService.calculateSampledHash(photo.path, photo.file_size);
         sampledHashMap.set(photo.id, hash);
-        this.db.updatePhotoFileHash(photo.id, hash);
+        hashUpdates.push({ id: photo.id, fileHash: hash });
       }
 
       // 按抽样 hash 拆分组，只保留仍重复的
@@ -949,6 +954,7 @@ export class ScannerService {
       }
     }
 
+    this.db.updatePhotoFileHashBatch(hashUpdates);
     return [...nonVideoResults, ...verifiedResults];
   }
 
@@ -1068,16 +1074,29 @@ export class ScannerService {
     let failed = 0;
     let index = 0;
 
+    // 两个 worker 共享待写缓冲，攒批单事务回写，替代逐条 UPDATE 的 N 次独立写事务。
+    // flush 是同步调用，JS 单线程下与 worker 不会交错
+    const pending: { id: string; phash: string }[] = [];
+    const FLUSH_SIZE = 100;
+    const flush = () => {
+      if (pending.length === 0) return;
+      this.db.updatePhotoPerceptualHashBatch(pending.splice(0, pending.length));
+    };
+
     const worker = async () => {
       while (index < photos.length) {
         const photo = photos[index++];
         try {
           const phash = await this.hashService.calculatePerceptualHash(photo.path);
-          this.db.updatePhotoPerceptualHash(photo.id, phash);
+          pending.push({ id: photo.id, phash });
           computed++;
         } catch (error) {
           failed++;
           log.warn(`[Scanner] 计算感知哈希失败: ${photo.path}`, error);
+        }
+
+        if (pending.length >= FLUSH_SIZE) {
+          flush();
         }
 
         if ((computed + failed) % 50 === 0) {
@@ -1095,6 +1114,7 @@ export class ScannerService {
 
     const workers = Array.from({ length: Math.min(CONCURRENCY, photos.length) }, () => worker());
     await Promise.all(workers);
+    flush();
 
     log.info(`[Scanner] 感知哈希计算完成: 成功 ${computed}, 失败 ${failed}, 总计 ${photos.length}`);
   }

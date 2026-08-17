@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, Menu, globalShortcut } from 'electron';
 import { join, resolve } from 'path';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, openSync, readSync, closeSync } from 'fs';
+import { existsSync, mkdirSync, unlinkSync } from 'fs';
+import { stat, open } from 'fs/promises';
 import log from 'electron-log';
 import { DatabaseService } from './services/database';
 import { ScannerService } from './services/scanner';
@@ -298,10 +299,10 @@ function setupIpcHandlers() {
     db.removeFolder(id);
     // 数据库删除后再清理缩略图文件
     if (photos.length > 0) {
-      thumbnailService.deleteThumbnailsByPhotoIds(photos.map((p: { id: string }) => p.id));
+      await thumbnailService.deleteThumbnailsByPhotoIds(photos.map((p: { id: string }) => p.id));
     }
     // 清理孤立的缩略图文件（数据库中已无对应照片的）
-    thumbnailService.cleanOrphanThumbnails(db);
+    await thumbnailService.cleanOrphanThumbnails(db);
   });
 
   ipcMain.handle('folder:getAll', async () => {
@@ -472,24 +473,24 @@ function setupIpcHandlers() {
   ipcMain.handle('log:read', async (_event, lines: number = 200) => {
     try {
       const logFile = log.transports.file.getFile().path;
-      if (!existsSync(logFile)) {
-        return '暂无日志';
-      }
-      // M-8: 从文件尾部读取，避免大日志文件全部读入内存
-      const fileSize = statSync(logFile).size;
+      // M-8: 从文件尾部读取，避免大日志文件全部读入内存（异步 fs，不阻塞主进程）
+      const { size: fileSize } = await stat(logFile);
       const maxBytes = Math.min(fileSize, lines * 512); // 估算每行最多 512 字节
-      const fd = openSync(logFile, 'r');
+      const handle = await open(logFile, 'r');
       try {
         const buffer = Buffer.alloc(maxBytes);
-        const bytesRead = readSync(fd, buffer, 0, maxBytes, fileSize - maxBytes);
+        const { bytesRead } = await handle.read(buffer, 0, maxBytes, fileSize - maxBytes);
         const content = buffer.slice(0, bytesRead).toString('utf-8');
         const allLines = content.trim().split('\n');
         const selectedLines = allLines.slice(-lines);
         return selectedLines.join('\n');
       } finally {
-        closeSync(fd);
+        await handle.close();
       }
     } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return '暂无日志';
+      }
       log.error('读取日志失败:', error);
       return '读取日志失败';
     }

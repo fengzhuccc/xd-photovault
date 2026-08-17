@@ -109,7 +109,7 @@ describe('ThumbnailService', () => {
     await service.getThumbnail(photoId, sourcePath, 'small');
     await service.getThumbnail(photoId, sourcePath, 'medium');
 
-    service.deleteThumbnailsByPhotoIds([photoId]);
+    await service.deleteThumbnailsByPhotoIds([photoId]);
 
     const shardDir = join(tmpDir, 'thumbnails', 'im');
     expect(existsSync(join(shardDir, `${photoId}_small.webp`))).toBe(false);
@@ -123,7 +123,7 @@ describe('ThumbnailService', () => {
     await service.getThumbnail(photoId, sourcePath, 'small');
     await service.getThumbnail(photoId, sourcePath, 'medium');
 
-    const stats = service.getStats();
+    const stats = await service.getStats();
     expect(stats.count).toBeGreaterThanOrEqual(2);
     expect(stats.totalSize).toBeGreaterThan(0);
     expect(stats.smallCount).toBeGreaterThanOrEqual(1);

@@ -1,5 +1,6 @@
 import { join, extname } from 'path';
-import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, rmdirSync } from 'fs';
+import { mkdirSync, existsSync } from 'fs';
+import { stat, unlink, readdir, mkdir, rmdir } from 'fs/promises';
 import sharp from 'sharp';
 import { VideoService } from './video';
 import log from 'electron-log';
@@ -36,13 +37,14 @@ export class ThumbnailService {
     }
   }
 
-  private getShardDir(photoId: string, ensureExists: boolean = true): string {
-    const prefix = photoId.slice(0, 2);
-    const dir = join(this.thumbnailDir, prefix);
-    // M-28: 仅在需要写入时创建目录，避免查询/删除路径时产生空目录
-    if (ensureExists && !existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
+  private getShardDirPath(photoId: string): string {
+    return join(this.thumbnailDir, photoId.slice(0, 2));
+  }
+
+  /** 写入前确保分片目录存在（异步；recursive mkdir 幂等，无需先 exists） */
+  private async ensureShardDir(photoId: string): Promise<string> {
+    const dir = this.getShardDirPath(photoId);
+    await mkdir(dir, { recursive: true });
     return dir;
   }
 
@@ -52,17 +54,26 @@ export class ThumbnailService {
 
   private getThumbnailPath(photoId: string, thumbSize: ThumbnailSize): string {
     // 查询路径时不创建目录
-    return join(this.getShardDir(photoId, false), `${photoId}_${thumbSize}.webp`);
+    return join(this.getShardDirPath(photoId), `${photoId}_${thumbSize}.webp`);
   }
 
-  private isThumbnailFresh(thumbnailPath: string, photoPath: string): boolean {
-    if (!existsSync(thumbnailPath)) return false;
+  private async isThumbnailFresh(thumbnailPath: string, photoPath: string): Promise<boolean> {
     try {
-      const thumbStat = statSync(thumbnailPath);
-      const sourceStat = statSync(photoPath);
+      const [thumbStat, sourceStat] = await Promise.all([stat(thumbnailPath), stat(photoPath)]);
       return sourceStat.mtime <= thumbStat.mtime;
     } catch {
       return false;
+    }
+  }
+
+  /** 异步删除单个文件；文件不存在（ENOENT）静默，其余失败告警。 */
+  private async deleteFileQuietly(filePath: string, label: string): Promise<void> {
+    try {
+      await unlink(filePath);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+        log.warn(`[Thumbnail] ${label}失败: ${filePath}`, e);
+      }
     }
   }
 
@@ -107,36 +118,32 @@ export class ThumbnailService {
 
   private async doGetThumbnail(photoId: string, photoPath: string, thumbSize: ThumbnailSize): Promise<string> {
     // 源文件已不存在（例如被删除但数据库记录还在），直接返回原图 URL 避免报错
-    if (!existsSync(photoPath)) {
+    try {
+      await stat(photoPath);
+    } catch {
       log.debug(`[Thumbnail] 源文件不存在，跳过缩略图生成: ${photoPath}`);
       return this.fileUrl(photoPath);
     }
 
     const thumbnailPath = this.getThumbnailPath(photoId, thumbSize);
 
-    if (this.isThumbnailFresh(thumbnailPath, photoPath)) {
+    if (await this.isThumbnailFresh(thumbnailPath, photoPath)) {
       return this.fileUrl(thumbnailPath);
     }
 
     // 兼容旧版无分片的 512px 缩略图（视为 medium）
     if (thumbSize === 'medium') {
       const legacyPath = this.getLegacyPath(photoId);
-      if (this.isThumbnailFresh(legacyPath, photoPath)) {
+      if (await this.isThumbnailFresh(legacyPath, photoPath)) {
         return this.fileUrl(legacyPath);
       }
       // 旧文件已过期则删除
-      try {
-        if (existsSync(legacyPath)) {
-          unlinkSync(legacyPath);
-        }
-      } catch (e) {
-        log.warn(`[Thumbnail] 删除过期旧缩略图失败: ${legacyPath}`, e);
-      }
+      await this.deleteFileQuietly(legacyPath, '删除过期旧缩略图');
     }
 
     try {
       // 确保分片目录存在（getThumbnailPath 不再自动创建）
-      this.getShardDir(photoId, true);
+      await this.ensureShardDir(photoId);
       await this.generateThumbnail(photoPath, thumbnailPath, THUMBNAIL_CONFIG[thumbSize]);
       return this.fileUrl(thumbnailPath);
     } catch (error) {
@@ -151,7 +158,7 @@ export class ThumbnailService {
    */
   async getThumbnailsBatch(
     items: { photoId: string; photoPath: string; size?: ThumbnailSize }[],
-    concurrency: number = 4
+    concurrency: number = 8
   ): Promise<Record<string, string>> {
     const result: Record<string, string> = {};
     if (items.length === 0) return result;
@@ -176,14 +183,14 @@ export class ThumbnailService {
   }
 
   async clearThumbnails(): Promise<void> {
-    const entries = readdirSync(this.thumbnailDir, { withFileTypes: true });
+    const entries = await readdir(this.thumbnailDir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = join(this.thumbnailDir, entry.name);
       try {
         if (entry.isDirectory()) {
-          this.removeDirRecursive(fullPath);
+          await this.removeDirRecursive(fullPath);
         } else if (entry.name.endsWith('.webp')) {
-          unlinkSync(fullPath);
+          await unlink(fullPath);
         }
       } catch (e) {
         log.warn(`[Thumbnail] 清理缩略图失败: ${fullPath}`, e);
@@ -192,24 +199,28 @@ export class ThumbnailService {
     log.info('[Thumbnail] 缩略图缓存已清除');
   }
 
-  getStats(): { count: number; totalSize: number; smallCount: number; mediumCount: number } {
+  async getStats(): Promise<{ count: number; totalSize: number; smallCount: number; mediumCount: number }> {
     const stats = { count: 0, totalSize: 0, smallCount: 0, mediumCount: 0 };
-    this.collectStats(this.thumbnailDir, stats);
+    await this.collectStats(this.thumbnailDir, stats);
     return stats;
   }
 
-  private collectStats(dirPath: string, stats: { count: number; totalSize: number; smallCount: number; mediumCount: number }): void {
-    if (!existsSync(dirPath)) return;
-    const entries = readdirSync(dirPath, { withFileTypes: true });
+  private async collectStats(dirPath: string, stats: { count: number; totalSize: number; smallCount: number; mediumCount: number }): Promise<void> {
+    let entries;
+    try {
+      entries = await readdir(dirPath, { withFileTypes: true });
+    } catch {
+      return; // 目录不存在
+    }
     for (const entry of entries) {
       const fullPath = join(dirPath, entry.name);
       if (entry.isDirectory()) {
-        this.collectStats(fullPath, stats);
+        await this.collectStats(fullPath, stats);
       } else if (entry.name.endsWith('.webp')) {
         try {
-          const stat = statSync(fullPath);
+          const fileStat = await stat(fullPath);
           stats.count++;
-          stats.totalSize += stat.size;
+          stats.totalSize += fileStat.size;
           if (entry.name.endsWith('_small.webp')) {
             stats.smallCount++;
           } else if (entry.name.endsWith('_medium.webp')) {
@@ -222,66 +233,52 @@ export class ThumbnailService {
     }
   }
 
-  private removeDirRecursive(dirPath: string): void {
-    const entries = readdirSync(dirPath, { withFileTypes: true });
+  private async removeDirRecursive(dirPath: string): Promise<void> {
+    const entries = await readdir(dirPath, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = join(dirPath, entry.name);
       if (entry.isDirectory()) {
-        this.removeDirRecursive(fullPath);
+        await this.removeDirRecursive(fullPath);
       } else {
-        unlinkSync(fullPath);
+        await unlink(fullPath);
       }
     }
-    rmdirSync(dirPath);
+    await rmdir(dirPath);
   }
 
-  deleteThumbnailsByPhotoIds(photoIds: string[]): void {
+  async deleteThumbnailsByPhotoIds(photoIds: string[]): Promise<void> {
     for (const id of photoIds) {
       // 删除新版多尺寸缩略图
       for (const size of Object.keys(THUMBNAIL_CONFIG) as ThumbnailSize[]) {
-        const path = this.getThumbnailPath(id, size);
-        try {
-          if (existsSync(path)) {
-            unlinkSync(path);
-          }
-        } catch (e) {
-          log.warn(`[Thumbnail] 删除缩略图失败: ${path}`, e);
-        }
+        await this.deleteFileQuietly(this.getThumbnailPath(id, size), '删除缩略图');
       }
       // 删除旧版无分片缩略图
-      const legacyPath = this.getLegacyPath(id);
-      try {
-        if (existsSync(legacyPath)) {
-          unlinkSync(legacyPath);
-        }
-      } catch (e) {
-        log.warn(`[Thumbnail] 删除旧缩略图失败: ${legacyPath}`, e);
-      }
+      await this.deleteFileQuietly(this.getLegacyPath(id), '删除旧缩略图');
     }
   }
 
-  cleanOrphanThumbnails(db: { getAllPhotoIds: () => string[] }): void {
+  async cleanOrphanThumbnails(db: { getAllPhotoIds: () => string[] }): Promise<void> {
     try {
       const existingIds = new Set(db.getAllPhotoIds());
-      this.cleanOrphanDir(this.thumbnailDir, existingIds);
+      await this.cleanOrphanDir(this.thumbnailDir, existingIds);
     } catch (e) {
       log.warn('[Thumbnail] 清理孤立缩略图失败', e);
     }
   }
 
-  private cleanOrphanDir(dirPath: string, existingIds: Set<string>): void {
-    const entries = readdirSync(dirPath, { withFileTypes: true });
+  private async cleanOrphanDir(dirPath: string, existingIds: Set<string>): Promise<void> {
+    const entries = await readdir(dirPath, { withFileTypes: true });
     let fileCount = 0;
 
     for (const entry of entries) {
       const fullPath = join(dirPath, entry.name);
       if (entry.isDirectory()) {
-        this.cleanOrphanDir(fullPath, existingIds);
+        await this.cleanOrphanDir(fullPath, existingIds);
         // 如果目录已空则删除
         try {
-          const remaining = readdirSync(fullPath);
+          const remaining = await readdir(fullPath);
           if (remaining.length === 0) {
-            rmdirSync(fullPath);
+            await rmdir(fullPath);
           }
         } catch (e) {
           log.warn(`[Thumbnail] 删除空目录失败: ${fullPath}`, e);
@@ -292,11 +289,7 @@ export class ThumbnailService {
         const baseName = entry.name.replace(/\.webp$/, '');
         const photoId = baseName.includes('_') ? baseName.split('_')[0] : baseName;
         if (!existingIds.has(photoId)) {
-          try {
-            unlinkSync(fullPath);
-          } catch (e) {
-            log.warn(`[Thumbnail] 清理孤立缩略图失败: ${fullPath}`, e);
-          }
+          await this.deleteFileQuietly(fullPath, '清理孤立缩略图');
         }
       }
     }

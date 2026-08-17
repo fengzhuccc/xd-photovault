@@ -10,26 +10,6 @@ function compareDateDesc(a: string | null | undefined, b: string | null | undefi
   return b.localeCompare(a);
 }
 
-function cosineSimilarity(a: Float32Array, b: Float32Array): number {
-  // M-18: 维度不匹配时返回 0（完全不相似），而非静默截断导致错误的高相似度
-  if (a.length !== b.length) {
-    return 0;
-  }
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  const len = a.length;
-  for (let i = 0; i < len; i++) {
-    const av = a[i];
-    const bv = b[i];
-    dot += av * bv;
-    normA += av * av;
-    normB += bv * bv;
-  }
-  if (normA === 0 || normB === 0) return 0;
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
-}
-
 export interface PhotoRow {
   id: string;
   folder_id: string;
@@ -432,6 +412,22 @@ export class DatabaseService {
           this.db.exec('CREATE INDEX IF NOT EXISTS idx_photos_deleted_at ON photos(deleted_at)');
         },
       },
+      {
+        version: 8,
+        up: () => {
+          // 性能优化索引调整（结果等价，仅影响查询计划）：
+          // 1. 复合索引覆盖浏览/统计最常用的 WHERE deleted_at + media_type + ORDER BY taken_at
+          this.db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_photos_deleted_media_taken
+              ON photos(deleted_at, media_type, taken_at DESC);
+          `);
+          // 2. idx_photos_location 与 idx_photos_location_bounds 完全同列，删除冗余的一个
+          this.db.exec('DROP INDEX IF EXISTS idx_photos_location_bounds');
+          // 3. idx_photos_phash_prefix 全库无查询使用 SUBSTR(perceptual_hash,...)，属死索引，
+          //    只增加写入开销（相似检测在 JS 内按 band 分桶）
+          this.db.exec('DROP INDEX IF EXISTS idx_photos_phash_prefix');
+        },
+      },
     ];
 
     const pending = migrations.filter(m => m.version > currentVersion);
@@ -478,19 +474,12 @@ export class DatabaseService {
       `).run(id);
 
       // 删除受影响的重复组：仅删除变为空组（≤1 张照片）的组，保留跨文件夹的多照片组
-      for (const g of affectedGroupIds) {
-        const remaining = this.db.prepare(
-          'SELECT COUNT(*) as count FROM photo_duplicates WHERE group_id = ?'
-        ).get(g.group_id) as { count: number };
-        if (remaining.count <= 1) {
-          this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.group_id);
-          this.db.prepare('DELETE FROM photo_duplicates WHERE group_id = ?').run(g.group_id);
-        } else {
-          // 组内仍有多个照片，重新选择推荐照片
-          const bestId = this.pickBestPhotoForGroup(g.group_id);
-          if (bestId) {
-            this.updateDuplicateGroupRecommended(g.group_id, bestId);
-          }
+      const keptGroups = this.cleanupDuplicateGroups(affectedGroupIds.map(g => g.group_id), 1);
+      for (const gid of keptGroups) {
+        // 组内仍有多个照片，重新选择推荐照片
+        const bestId = this.pickBestPhotoForGroup(gid);
+        if (bestId) {
+          this.updateDuplicateGroupRecommended(gid, bestId);
         }
       }
 
@@ -517,19 +506,13 @@ export class DatabaseService {
         )
       `).run(folderId);
 
-      // 删除变为空的重复组，并为仍有多照片的组重新选择推荐照片
-      for (const g of affectedGroups) {
-        const remaining = this.db.prepare(
-          'SELECT COUNT(*) as count FROM photo_duplicates WHERE group_id = ?'
-        ).get(g.id) as { count: number };
-        if (remaining.count === 0) {
-          this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.id);
-        } else {
-          // 重新选择推荐照片，避免 recommended_photo_id 为 NULL
-          const bestId = this.pickBestPhotoForGroup(g.id);
-          if (bestId) {
-            this.updateDuplicateGroupRecommended(g.id, bestId);
-          }
+      // 删除变为空的重复组（沿用历史行为：仅删空组，保留单张组），并为剩余组重新选择推荐照片
+      const keptGroups = this.cleanupDuplicateGroups(affectedGroups.map(g => g.id), 0);
+      for (const gid of keptGroups) {
+        // 重新选择推荐照片，避免 recommended_photo_id 为 NULL
+        const bestId = this.pickBestPhotoForGroup(gid);
+        if (bestId) {
+          this.updateDuplicateGroupRecommended(gid, bestId);
         }
       }
 
@@ -758,9 +741,19 @@ export class DatabaseService {
       return row ? row.offset : null;
     }
 
-    // 先确认目标月份是否有照片
-    const checkSql = `SELECT COUNT(*) as count FROM photos WHERE ${whereSql} AND strftime('%Y-%m', taken_at) = ?`;
-    const checkRow = this.db.prepare(checkSql).get(...baseParams, monthKey) as { count: number } | undefined;
+    // 先确认目标月份是否有照片。
+    // taken_at 统一为 ISO 格式（toISOString），月份匹配用范围条件等价改写，
+    // 避免 strftime 作用在列上导致索引失效全表扫描。
+    // 注意：NULL 的 taken_at 在两种写法下都被排除（NULL 比较结果为 NULL）
+    const [year, month] = monthKey.split('-').map(Number);
+    const nextYear = month === 12 ? year + 1 : year;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const monthStart = `${monthKey}-01`;
+    const monthEndExclusive = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+    const monthRange = 'taken_at >= ? AND taken_at < ?';
+
+    const checkSql = `SELECT COUNT(*) as count FROM photos WHERE ${whereSql} AND ${monthRange}`;
+    const checkRow = this.db.prepare(checkSql).get(...baseParams, monthStart, monthEndExclusive) as { count: number } | undefined;
     if (!checkRow || checkRow.count === 0) {
       return null;
     }
@@ -769,9 +762,9 @@ export class DatabaseService {
     const offsetSql = `
       SELECT COUNT(*) as offset FROM photos
       WHERE ${whereSql}
-        AND taken_at > (SELECT MAX(taken_at) FROM photos WHERE ${whereSql} AND strftime('%Y-%m', taken_at) = ?)
+        AND taken_at > (SELECT MAX(taken_at) FROM photos WHERE ${whereSql} AND ${monthRange})
     `;
-    const offsetParams = [...baseParams, ...baseParams, monthKey];
+    const offsetParams = [...baseParams, ...baseParams, monthStart, monthEndExclusive];
     const row = this.db.prepare(offsetSql).get(...offsetParams) as { offset: number } | undefined;
     return row ? row.offset : null;
   }
@@ -875,12 +868,24 @@ export class DatabaseService {
     return stmt.all(phash) as PhotoRow[];
   }
 
-  updatePhotoPerceptualHash(id: string, phash: string): void {
-    this.db.prepare('UPDATE photos SET perceptual_hash = ? WHERE id = ? AND deleted_at IS NULL').run(phash, id);
+  /** 批量回写感知哈希：单事务复用 prepared statement，替代 N 次独立写事务 */
+  updatePhotoPerceptualHashBatch(entries: { id: string; phash: string }[]): void {
+    if (entries.length === 0) return;
+    const stmt = this.db.prepare('UPDATE photos SET perceptual_hash = ? WHERE id = ? AND deleted_at IS NULL');
+    const transaction = this.db.transaction((items: { id: string; phash: string }[]) => {
+      for (const e of items) stmt.run(e.phash, e.id);
+    });
+    transaction(entries);
   }
 
-  updatePhotoFileHash(id: string, fileHash: string): void {
-    this.db.prepare('UPDATE photos SET file_hash = ? WHERE id = ? AND deleted_at IS NULL').run(fileHash, id);
+  /** 批量回写文件哈希：单事务复用 prepared statement，替代 N 次独立写事务 */
+  updatePhotoFileHashBatch(entries: { id: string; fileHash: string }[]): void {
+    if (entries.length === 0) return;
+    const stmt = this.db.prepare('UPDATE photos SET file_hash = ? WHERE id = ? AND deleted_at IS NULL');
+    const transaction = this.db.transaction((items: { id: string; fileHash: string }[]) => {
+      for (const e of items) stmt.run(e.fileHash, e.id);
+    });
+    transaction(entries);
   }
 
   getPhotosWithLegacyMd5Hashes(limit: number, offset: number): { id: string; path: string }[] {
@@ -1126,6 +1131,45 @@ export class DatabaseService {
     };
   }
 
+  /**
+   * 照片删除后清理其重复组：剩余成员数 ≤ threshold 的组整组删除（含成员行），
+   * 其余组返回给调用方处理（重选推荐照片等）。
+   * 用一条 GROUP BY 统计剩余成员数，替代每组一次 COUNT 的 N+1 循环。
+   * @param threshold 删组阈值：deletePhoto 系列为 1（≤1 张即无重复意义），
+   *                  deletePhotosByFolder 沿用历史行为 0（仅删空组，保留单张组）
+   */
+  private cleanupDuplicateGroups(groupIds: string[], threshold: number): string[] {
+    if (groupIds.length === 0) return [];
+    const kept: string[] = [];
+    const BATCH = 900; // SQLite 变量数上限防御
+    for (let i = 0; i < groupIds.length; i += BATCH) {
+      const chunk = groupIds.slice(i, i + BATCH);
+      const placeholders = chunk.map(() => '?').join(',');
+      const rows = this.db.prepare(`
+        SELECT group_id, COUNT(*) as count FROM photo_duplicates
+        WHERE group_id IN (${placeholders})
+        GROUP BY group_id
+      `).all(...chunk) as { group_id: string; count: number }[];
+      const countByGroup = new Map(rows.map(r => [r.group_id, r.count]));
+
+      const empty: string[] = [];
+      for (const gid of chunk) {
+        if ((countByGroup.get(gid) ?? 0) <= threshold) {
+          empty.push(gid);
+        } else {
+          kept.push(gid);
+        }
+      }
+
+      if (empty.length > 0) {
+        const emptyPlaceholders = empty.map(() => '?').join(',');
+        this.db.prepare(`DELETE FROM photo_duplicates WHERE group_id IN (${emptyPlaceholders})`).run(...empty);
+        this.db.prepare(`DELETE FROM duplicate_groups WHERE id IN (${emptyPlaceholders})`).run(...empty);
+      }
+    }
+    return kept;
+  }
+
   deletePhoto(id: string): void {
     // 找到该照片所在的重复组
     const groups = this.db.prepare(`
@@ -1146,15 +1190,7 @@ export class DatabaseService {
       this.db.prepare('DELETE FROM photos WHERE id = ?').run(id);
 
       // 清理空重复组（组内仅剩1张或0张时删组）
-      for (const g of groups) {
-        const remaining = this.db.prepare(
-          'SELECT COUNT(*) as count FROM photo_duplicates WHERE group_id = ?'
-        ).get(g.group_id) as { count: number };
-        if (remaining.count <= 1) {
-          this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.group_id);
-          this.db.prepare('DELETE FROM photo_duplicates WHERE group_id = ?').run(g.group_id);
-        }
-      }
+      this.cleanupDuplicateGroups(groups.map(g => g.group_id), 1);
     });
     transaction();
   }
@@ -1203,17 +1239,7 @@ export class DatabaseService {
       this.db.prepare(`DELETE FROM photos WHERE id IN (${placeholders})${trashGuard}`).run(...ids);
 
       // 清理空重复组，收集仍存在的组供调用方修复推荐照片
-      for (const g of affected) {
-        const remaining = this.db.prepare(
-          'SELECT COUNT(*) as count FROM photo_duplicates WHERE group_id = ?'
-        ).get(g.group_id) as { count: number };
-        if (remaining.count <= 1) {
-          this.db.prepare('DELETE FROM duplicate_groups WHERE id = ?').run(g.group_id);
-          this.db.prepare('DELETE FROM photo_duplicates WHERE group_id = ?').run(g.group_id);
-        } else {
-          affectedGroupIds.push(g.group_id);
-        }
-      }
+      affectedGroupIds.push(...this.cleanupDuplicateGroups(affected.map(g => g.group_id), 1));
     });
     transaction();
     return affectedGroupIds;
@@ -1555,28 +1581,6 @@ export class DatabaseService {
       const placeholders = batch.map(() => '?').join(',');
       this.db.prepare(`DELETE FROM photo_embeddings WHERE photo_id IN (${placeholders})`).run(...batch);
     }
-  }
-
-  searchPhotosByEmbedding(
-    queryEmbedding: Float32Array,
-    model: string,
-    limit: number
-  ): { photo: PhotoRow; similarity: number }[] {
-    const rows = this.db.prepare(`
-      SELECT p.*, pe.embedding FROM photos p
-      JOIN photo_embeddings pe ON p.id = pe.photo_id
-      WHERE p.deleted_at IS NULL AND pe.model = ?
-    `).all(model) as (PhotoRow & { embedding: Buffer })[];
-
-    const results: { photo: PhotoRow; similarity: number }[] = [];
-    for (const row of rows) {
-      const embedding = new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.length / 4);
-      const similarity = cosineSimilarity(queryEmbedding, embedding);
-      results.push({ photo: row, similarity });
-    }
-
-    results.sort((a, b) => b.similarity - a.similarity);
-    return results.slice(0, limit);
   }
 
   /** 加载指定模型的所有 embedding 及对应照片，供搜索服务缓存使用 */
