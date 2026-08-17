@@ -184,7 +184,19 @@ export class TrashService {
         const trashPath = join(trashFolder, photo.filename);
 
         this.moveFileAcrossDevices(photo.path, trashPath);
-        this.writeMetadata(trashFolder, photo);
+        try {
+          this.writeMetadata(trashFolder, photo);
+        } catch (metaError) {
+          // 元数据写失败：把文件移回原路径，避免"文件已离开原位置但 DB 未标记删除"
+          // 导致照片在界面上看似存在、实际打开失败且无法找回
+          try {
+            this.moveFileAcrossDevices(trashPath, photo.path);
+            this.removeEmptyTrashFolder(trashFolder);
+          } catch (rollbackError) {
+            log.error('[TrashService] 回滚失败，文件滞留回收站目录:', trashPath, rollbackError);
+          }
+          throw metaError;
+        }
 
         dbEntries.push({ id: photo.id, trashPath });
         results.push({ id: photo.id, success: true, trashPath });
@@ -206,7 +218,8 @@ export class TrashService {
 
     const photos = this.db.getTrashedPhotosByIds(photoIds);
     const results: TrashRestoreResult[] = [];
-    const restoredIds: string[] = [];
+    // 记录每张成功移动的文件信息，供 DB 更新失败时补偿回滚
+    const moved: { id: string; trashPath: string; trashFolder: string; restoredPath: string }[] = [];
 
     for (const photo of photos) {
       try {
@@ -227,7 +240,7 @@ export class TrashService {
         const targetPath = this.ensureUniquePath(photo.original_path);
         this.moveFileAcrossDevices(photo.trash_path, targetPath);
 
-        restoredIds.push(photo.id);
+        moved.push({ id: photo.id, trashPath: photo.trash_path, trashFolder: dirname(photo.trash_path), restoredPath: targetPath });
         results.push({ id: photo.id, success: true, restoredPath: targetPath });
 
         // 清理空回收站子文件夹
@@ -240,18 +253,37 @@ export class TrashService {
       }
     }
 
-    if (restoredIds.length > 0) {
+    if (moved.length > 0) {
       try {
-        this.db.restorePhotosFromTrash(restoredIds);
+        // 按实际落点路径更新 DB（原位置冲突时文件会被改名为 "xxx (1).jpg"）
+        this.db.restorePhotosFromTrash(moved.map(m => ({ id: m.id, restoredPath: m.restoredPath })));
       } catch (error) {
-        log.error('[TrashService] 还原后更新数据库失败:', error);
-        for (const result of results) {
-          if (result.success) {
-            result.success = false;
-            result.error = '数据库更新失败';
+        log.error('[TrashService] 还原后更新数据库失败，尝试回滚文件:', error);
+        // DB 更新失败：文件已移回原位置，把文件重新移回回收站目录，
+        // 保持 DB（仍记录 trash_path）与文件系统一致，用户可重试恢复
+        let allRolledBack = true;
+        for (const m of moved) {
+          try {
+            if (!existsSync(m.trashFolder)) {
+              mkdirSync(m.trashFolder, { recursive: true });
+            }
+            this.moveFileAcrossDevices(m.restoredPath, m.trashPath);
+          } catch (rollbackError) {
+            allRolledBack = false;
+            log.error('[TrashService] 回滚失败，文件留在原位置但 DB 仍指向回收站:', m.restoredPath, rollbackError);
           }
         }
-        restoredIds.length = 0;
+        for (const result of results) {
+          if (result.success) {
+            if (allRolledBack) {
+              result.success = false;
+              result.error = '数据库更新失败';
+            } else {
+              result.success = false;
+              result.error = '数据库更新失败（部分文件已还原到原位置，请重试）';
+            }
+          }
+        }
       }
     }
 
@@ -296,7 +328,9 @@ export class TrashService {
     }
 
     if (deletedIds.length > 0) {
-      this.db.deletePhotosBatch(deletedIds);
+      // onlyTrashed：防止"永久删除执行中（trashItem await 让出事件循环）照片被并发恢复"
+      // 的竞态——恢复后 deleted_at 已置 NULL，无条件 DELETE 会把已恢复照片的记录一并删掉
+      this.db.deletePhotosBatch(deletedIds, { onlyTrashed: true });
     }
 
     return results;

@@ -78,9 +78,6 @@ export interface WindowApi {
     clear: () => Promise<{ success: boolean; error?: string }>;
     openFolder: () => Promise<{ success: boolean }>;
   };
-  app: {
-    openPath: (path: string) => Promise<{ success: boolean; error?: string }>;
-  };
   trash: {
     moveToTrash: (photoIds: string[]) => Promise<{ id: string; success: boolean; trashPath?: string; error?: string }[]>;
     restore: (photoIds: string[]) => Promise<{ id: string; success: boolean; restoredPath?: string; error?: string }[]>;

@@ -23,6 +23,7 @@ export function LibraryPage() {
     loadStats,
     loadPhotosPage,
     loadTimeline,
+    loadDuplicates,
     addFolder,
     removeFolder,
     setScanProgress,
@@ -140,6 +141,10 @@ export function LibraryPage() {
       try {
         await window.api.folder.remove(id);
         removeFolder(id);
+        // 删除文件夹会连带删除库内照片记录，刷新关联数据保持界面一致
+        loadStats().catch((e) => console.error('[LibraryPage] Failed to refresh stats:', e));
+        loadTimeline().catch((e) => console.error('[LibraryPage] Failed to refresh timeline:', e));
+        loadDuplicates().catch((e) => console.error('[LibraryPage] Failed to refresh duplicates:', e));
       } catch (error) {
         console.error('Remove folder failed:', error);
         toast('error', t('library.folder.toastRemoveFailed') + (error instanceof Error ? error.message : String(error)));

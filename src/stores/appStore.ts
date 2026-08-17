@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 import type { Folder, Photo, PhotoStats, DuplicateGroup, ScanProgress, PhotoFilter, TimelineGroup, AiIndexProgress } from '@/types';
 
+// 模块级请求令牌：快速切换筛选/翻页时，防止慢的旧响应覆盖新响应
+// （photos 三个加载函数共享一个序列；timeline、duplicates 各自独立）
+let photosRequestId = 0;
+let timelineRequestId = 0;
+let duplicatesRequestId = 0;
+
 export interface BrowseScrollState {
   /** 全局排序下的照片索引 */
   index: number;
@@ -320,9 +326,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadPhotosPage: async (filter, append = false, limit = 100) => {
+    const requestId = ++photosRequestId;
     const currentFilter = filter || get().currentFilter;
     const offset = append ? get().photos.length + get().photosOffset : 0;
     const result = await window.api.photo.getPage({ ...currentFilter, limit, offset });
+    if (requestId !== photosRequestId) {
+      // 已被更新的请求取代（如用户快速切换筛选），丢弃旧结果
+      return { hasMore: result.hasMore, total: result.total };
+    }
     const existingIds = new Set(get().photos.map(p => p.id));
     const newPhotos = append
       ? [...get().photos, ...result.photos.filter((p: Photo) => !existingIds.has(p.id))]
@@ -338,9 +349,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadPhotosAtOffset: async (filter, offset, limit = 500) => {
+    const requestId = ++photosRequestId;
     const currentFilter = filter || get().currentFilter;
     const safeOffset = Math.max(0, offset);
     const result = await window.api.photo.getPage({ ...currentFilter, limit, offset: safeOffset });
+    if (requestId !== photosRequestId) {
+      return { hasMore: result.hasMore, total: result.total };
+    }
     set({
       photos: result.photos,
       photosOffset: safeOffset,
@@ -352,6 +367,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadPreviousPhotosPage: async (filter, limit = 100) => {
+    const requestId = ++photosRequestId;
     const currentFilter = filter || get().currentFilter;
     const currentOffset = get().photosOffset;
     if (currentOffset <= 0) {
@@ -360,6 +376,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newOffset = Math.max(0, currentOffset - limit);
     const actualLimit = currentOffset - newOffset;
     const result = await window.api.photo.getPage({ ...currentFilter, limit: actualLimit, offset: newOffset });
+    if (requestId !== photosRequestId) {
+      return { hasMore: result.hasMore, total: result.total };
+    }
     const existingIds = new Set(get().photos.map(p => p.id));
     const newPhotos = [...result.photos.filter((p: Photo) => !existingIds.has(p.id)), ...get().photos];
     set({
@@ -375,14 +394,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadTimeline: async (filter) => {
+    const requestId = ++timelineRequestId;
     const currentFilter = filter || get().currentFilter;
     const timeline = await window.api.photo.getTimeline(currentFilter);
+    if (requestId !== timelineRequestId) return;
     set({ timeline, currentFilter });
   },
 
   loadDuplicates: async () => {
+    const requestId = ++duplicatesRequestId;
     const reason = get().duplicateReason;
     const result = await window.api.duplicate.getAll(50, 0, reason === 'all' ? undefined : reason);
+    if (requestId !== duplicatesRequestId) return;
     set({
       duplicates: result.groups,
       duplicatesTotal: result.total,
@@ -391,10 +414,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadDuplicatesPage: async (append = false) => {
+    const requestId = ++duplicatesRequestId;
     const limit = 50;
     const offset = append ? get().duplicates.length : 0;
     const reason = get().duplicateReason;
     const result = await window.api.duplicate.getAll(limit, offset, reason === 'all' ? undefined : reason);
+    if (requestId !== duplicatesRequestId) {
+      return { hasMore: offset + result.groups.length < result.total, total: result.total };
+    }
     const existingIds = new Set(get().duplicates.map(g => g.id));
     const newDuplicates = append
       ? [...get().duplicates, ...result.groups.filter((g: DuplicateGroup) => !existingIds.has(g.id))]
@@ -429,8 +456,10 @@ if (typeof window !== 'undefined' && window.api?.scan?.onProgress) {
     if (progress.status === 'complete') {
       useAppStore.setState({ lastScanResult: progress });
       const { loadPhotosPage, loadTimeline, loadFolders, loadStats } = useAppStore.getState();
-      loadPhotosPage({}).catch((e) => console.error('[ScanProgress] Failed to refresh photos:', e));
-      loadTimeline({}).catch((e) => console.error('[ScanProgress] Failed to refresh timeline:', e));
+      // 注意传 undefined（沿用当前筛选）：loadPhotosPage 的参数是 filter || currentFilter，
+      // 传 {} 会把用户正在使用的筛选（相机/媒体类型等）静默重置
+      loadPhotosPage().catch((e) => console.error('[ScanProgress] Failed to refresh photos:', e));
+      loadTimeline().catch((e) => console.error('[ScanProgress] Failed to refresh timeline:', e));
       loadFolders().catch((e) => console.error('[ScanProgress] Failed to refresh folders:', e));
       loadStats().catch((e) => console.error('[ScanProgress] Failed to refresh stats:', e));
     }

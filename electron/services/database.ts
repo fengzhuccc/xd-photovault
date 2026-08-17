@@ -1164,22 +1164,25 @@ export class DatabaseService {
    * @returns 受影响且仍然存在（剩余照片数 > 1）的重复组 ID 列表，
    *          调用方需对这些组重新选择推荐照片（避免 recommended_photo_id 为 NULL）。
    */
-  deletePhotosBatch(ids: string[]): string[] {
+  deletePhotosBatch(ids: string[], opts?: { onlyTrashed?: boolean }): string[] {
     if (ids.length === 0) return [];
     // 分批处理：SQLite 变量数有上限（默认 999 / 编译版 32766），
     // 大库批量删除（如文件夹被清空时全量 id）会直接抛 too many SQL variables
     const BATCH = 900;
     const allAffected: string[] = [];
     for (let i = 0; i < ids.length; i += BATCH) {
-      allAffected.push(...this.deletePhotosBatchInner(ids.slice(i, i + BATCH)));
+      allAffected.push(...this.deletePhotosBatchInner(ids.slice(i, i + BATCH), opts));
     }
     return [...new Set(allAffected)];
   }
 
-  private deletePhotosBatchInner(ids: string[]): string[] {
+  private deletePhotosBatchInner(ids: string[], opts?: { onlyTrashed?: boolean }): string[] {
     const affectedGroupIds: string[] = [];
     const transaction = this.db.transaction(() => {
       const placeholders = ids.map(() => '?').join(',');
+      // onlyTrashed：仅删除已在回收站中的记录。
+      // 防御"永久删除执行中照片被并发恢复"的竞态——不加条件会把已恢复的照片记录一并删掉
+      const trashGuard = opts?.onlyTrashed ? ' AND deleted_at IS NOT NULL' : '';
 
       // 这些照片被设为某些重复组的推荐照片，先解除外键约束避免删除失败
       this.db.prepare(`
@@ -1197,7 +1200,7 @@ export class DatabaseService {
       this.db.prepare(`DELETE FROM photo_embeddings WHERE photo_id IN (${placeholders})`).run(...ids);
 
       // 批量删除照片（CASCADE 会清理 photo_duplicates）
-      this.db.prepare(`DELETE FROM photos WHERE id IN (${placeholders})`).run(...ids);
+      this.db.prepare(`DELETE FROM photos WHERE id IN (${placeholders})${trashGuard}`).run(...ids);
 
       // 清理空重复组，收集仍存在的组供调用方修复推荐照片
       for (const g of affected) {
@@ -1235,24 +1238,30 @@ export class DatabaseService {
     transaction();
   }
 
-  restorePhotosFromTrash(photoIds: string[]): { id: string; restoredPath: string }[] {
-    if (photoIds.length === 0) return [];
+  /**
+   * 从回收站恢复照片。
+   * @param entries 每张照片的 id 与实际恢复落点路径——原位置存在同名文件时
+   *                恢复文件会被改名为 "xxx (1).jpg"，必须按实际路径更新 DB，
+   *                否则 DB 指向不存在的路径，后续打开/缩略图/再删除全部失效
+   */
+  restorePhotosFromTrash(entries: { id: string; restoredPath: string }[]): { id: string; restoredPath: string }[] {
+    if (entries.length === 0) return [];
     const result: { id: string; restoredPath: string }[] = [];
     const transaction = this.db.transaction(() => {
-      const selectStmt = this.db.prepare('SELECT id, original_path FROM photos WHERE id = ? AND deleted_at IS NOT NULL');
+      const selectStmt = this.db.prepare('SELECT id FROM photos WHERE id = ? AND deleted_at IS NOT NULL');
       const updateStmt = this.db.prepare(`
         UPDATE photos
-        SET path = original_path,
+        SET path = ?,
             original_path = NULL,
             trash_path = NULL,
             deleted_at = NULL
         WHERE id = ?
       `);
-      for (const id of photoIds) {
-        const row = selectStmt.get(id) as { id: string; original_path: string } | undefined;
-        if (row?.original_path) {
-          updateStmt.run(id);
-          result.push({ id: row.id, restoredPath: row.original_path });
+      for (const entry of entries) {
+        const row = selectStmt.get(entry.id) as { id: string } | undefined;
+        if (row) {
+          updateStmt.run(entry.restoredPath, entry.id);
+          result.push({ id: entry.id, restoredPath: entry.restoredPath });
         }
       }
     });

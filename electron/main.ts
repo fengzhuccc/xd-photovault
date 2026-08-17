@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, Menu, globalShortcut } from 'electron';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, openSync, readSync, closeSync } from 'fs';
 import log from 'electron-log';
 import { DatabaseService } from './services/database';
@@ -42,6 +42,38 @@ let trashService: TrashService;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
+// E2 安全加固：thumbnail 请求校验
+// photoId 由 uuidv4 生成（scanner.ts），固定 UUID 格式；
+// 限制格式可防止把 ../ 等内容拼进缩略图缓存路径造成穿越写入
+const PHOTO_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isValidPhotoId(photoId: unknown): photoId is string {
+  return typeof photoId === 'string' && PHOTO_ID_RE.test(photoId);
+}
+
+// photoPath 必须与数据库中该照片记录的 path 一致（回收站照片的 path
+// 在入站时已更新为回收站内路径，因此天然覆盖 TrashPage 场景），
+// 防止渲染进程被攻破后借 thumbnail 接口读取任意文件
+function filterValidThumbnailItems(items: { photoId: string; photoPath: string }[]): { photoId: string; photoPath: string }[] {
+  const valid = items.filter((i) => isValidPhotoId(i.photoId) && typeof i.photoPath === 'string');
+  if (valid.length === 0) return [];
+  try {
+    const ids = [...new Set(valid.map((i) => i.photoId))];
+    const pathById = new Map<string, string>();
+    // 普通照片 + 回收站照片一起查（getPhotosByIds 只返回未删除记录）
+    for (const row of [...db.getPhotosByIds(ids), ...db.getTrashedPhotosByIds(ids)]) {
+      pathById.set(row.id, row.path);
+    }
+    return valid.filter((i) => {
+      const recorded = pathById.get(i.photoId);
+      return recorded !== undefined && resolve(recorded) === resolve(i.photoPath);
+    });
+  } catch (error) {
+    log.error('[thumbnail] 请求校验失败，拒绝整批:', error);
+    return [];
+  }
+}
+
 function createWindow() {
   Menu.setApplicationMenu(null);
 
@@ -60,7 +92,8 @@ function createWindow() {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: false,
+      // 打包版开启 webSecurity（file:// 安全策略），开发模式关闭以便 Vite devServer 热更新
+      webSecurity: !isDev,
     },
     show: false,
   };
@@ -90,7 +123,10 @@ function createWindow() {
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    // 仅允许 https 链接唤起系统浏览器，防止 file:// 等协议逃逸
+    if (url.startsWith('https://')) {
+      shell.openExternal(url);
+    }
     return { action: 'deny' };
   });
 
@@ -391,11 +427,22 @@ function setupIpcHandlers() {
   });
 
   ipcMain.handle('thumbnail:get', async (_event, photoId: string, photoPath: string, size?: 'small' | 'medium') => {
-    return await thumbnailService.getThumbnail(photoId, photoPath, size);
+    // E2: 校验 photoId 格式与 photoPath 归属，防止任意文件读取 / 穿越写缓存
+    const [valid] = filterValidThumbnailItems([{ photoId, photoPath }]);
+    if (!valid) {
+      log.warn('[thumbnail:get] 拒绝非法请求:', photoId, photoPath);
+      throw new Error('Invalid thumbnail request');
+    }
+    return await thumbnailService.getThumbnail(valid.photoId, valid.photoPath, size);
   });
 
   ipcMain.handle('thumbnail:getBatch', async (_event, items: { photoId: string; photoPath: string; size?: 'small' | 'medium' }[]) => {
-    return await thumbnailService.getThumbnailsBatch(items);
+    // E2: 非法项过滤掉即可，避免单条非法导致整批失败
+    const validItems = filterValidThumbnailItems(items || []);
+    if (validItems.length < (items?.length ?? 0)) {
+      log.warn(`[thumbnail:getBatch] 已过滤非法请求 ${items.length - validItems.length} 项`);
+    }
+    return await thumbnailService.getThumbnailsBatch(validItems);
   });
 
   ipcMain.handle('thumbnail:stats', async () => {
@@ -469,11 +516,6 @@ function setupIpcHandlers() {
       shell.openPath(logDir);
     }
     return { success: true };
-  });
-
-  ipcMain.handle('app:openPath', async (_event, filePath: string) => {
-    const result = await shell.openPath(filePath);
-    return { success: result === '', error: result || undefined };
   });
 
   // AI 语义搜索

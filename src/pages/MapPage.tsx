@@ -314,12 +314,16 @@ function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick,
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialFitRef = useRef(false);
   const highlightFitRef = useRef(false);
+  // 视口加载请求令牌：连续拖动/缩放（超过 debounce 间隔）产生并发请求时，
+  // 旧视口的响应后到会覆盖新视口的标记，只应用最新一次
+  const viewportRequestIdRef = useRef(0);
 
   // 加载当前视口聚合簇
   const loadViewport = useCallback(async () => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
+    const requestId = ++viewportRequestIdRef.current;
     const bounds = map.getBounds();
     const sw = bounds.getSouthWest();
     const ne = bounds.getNorthEast();
@@ -330,6 +334,7 @@ function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick,
       // 高缩放时直接显示单张照片，低缩放时显示聚合簇
       if (zoom >= MIN_CLUSTER_ZOOM) {
         const photos = await window.api.photo.getInBounds(sw.lat, sw.lng, ne.lat, ne.lng);
+        if (requestId !== viewportRequestIdRef.current) return;
         // 把单张照片包装成 count=1 的簇格式，统一渲染
         setClusters(photos.map(p => ({
           cluster_lat: p.latitude,
@@ -341,12 +346,15 @@ function LeafletMap({ hasNoPhotos, transformCoord, onPhotoClick, onClusterClick,
         })));
       } else {
         const result = await window.api.photo.getClustersInBounds(sw.lat, sw.lng, ne.lat, ne.lng, zoom);
+        if (requestId !== viewportRequestIdRef.current) return;
         setClusters(result);
       }
     } catch (e) {
       console.error('Failed to load viewport photos:', e);
     } finally {
-      setViewportLoading(false);
+      if (requestId === viewportRequestIdRef.current) {
+        setViewportLoading(false);
+      }
     }
   }, []);
 

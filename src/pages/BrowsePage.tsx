@@ -149,6 +149,7 @@ export function BrowsePage() {
     setCurrentFilter,
     thumbnails,
     setThumbnails,
+    removePhotos,
     aiSearchQuery,
     aiSearchResults,
     aiSearchSimilarities,
@@ -200,8 +201,10 @@ export function BrowsePage() {
   useEffect(() => {
     // AI 搜索模式不恢复滚动状态（搜索结果是临时列表）
     if (!browseScrollState || isAiSearchMode) {
-      loadPhotosPage({});
-      loadTimeline({});
+      // 沿用当前筛选（loadPhotosPage({}) 会把筛选重置为空）；
+      // 用户切到其他页面再回来时，之前设置的相机/媒体类型筛选应保留
+      loadPhotosPage();
+      loadTimeline();
       loadStats();
       return;
     }
@@ -223,7 +226,7 @@ export function BrowsePage() {
       setLoadingMore(false);
       isRestoringScrollRef.current = true;
     });
-    loadTimeline({});
+    loadTimeline();
     loadStats();
   }, []);
 
@@ -424,40 +427,24 @@ export function BrowsePage() {
   };
 
   const handlePhotoDeleted = (photo: Photo) => {
-    // 后端删除已由 PhotoDetailModal.handleDelete 完成，此处只同步前端状态
-    const currentIndex = displayPhotos.findIndex(p => p.id === photo.id);
-    const newThumbnails = { ...get().thumbnails };
-    delete newThumbnails[photo.id];
-    setThumbnails(newThumbnails);
+    // 后端删除已由 PhotoDetailModal.handleDelete 完成，此处只同步前端状态。
+    // removePhotos 同时清理 photos/缩略图/AI 搜索结果——AI 搜索模式下删除的照片
+    // 若不同步出 photos，清空搜索后会在浏览网格中"复活"（只剩骨架屏）
+    removePhotos([photo.id]);
 
-    if (displayPhotos.length > 1 && currentIndex < displayPhotos.length - 1) {
-      setSelectedPhoto(displayPhotos[currentIndex + 1]);
-    } else if (displayPhotos.length > 1 && currentIndex > 0) {
-      setSelectedPhoto(displayPhotos[currentIndex - 1]);
-    } else {
-      setSelectedPhoto(null);
-    }
-
-    // AI 搜索模式下同步更新 aiSearchResults，避免已删除照片仍显示在网格中
     if (isAiSearchMode) {
-      const nextSimilarities = { ...aiSearchSimilarities };
-      delete nextSimilarities[photo.id];
       useAppStore.setState({
-        aiSearchResults: aiSearchResults.filter(p => p.id !== photo.id),
-        aiSearchSimilarities: nextSimilarities,
         photosTotal: Math.max(0, photosTotal - 1),
       });
     } else {
-      const nextPhotos = photos.filter(p => p.id !== photo.id);
       // M-25: 同步递减 photosOffset，避免后续 loadMore 跳过照片
       const deletedBeforeOrInView = photos.findIndex(p => p.id === photo.id);
       const offsetAdjust = deletedBeforeOrInView >= 0 ? 1 : 0;
       useAppStore.setState({
-        photos: nextPhotos,
         photosTotal: Math.max(0, photosTotal - 1),
         photosOffset: Math.max(0, useAppStore.getState().photosOffset - offsetAdjust),
       });
-      if (nextPhotos.length === 0) {
+      if (photos.length === 1) {
         loadPhotosPage(currentFilter);
       }
     }
@@ -501,34 +488,16 @@ export function BrowsePage() {
     }
     try {
       await window.api.photo.delete(Array.from(selectedIds));
-      // 清除已删除照片的缩略图缓存
-      const newThumbnails = { ...get().thumbnails };
-      for (const id of selectedIds) {
-        delete newThumbnails[id];
-      }
-      setThumbnails(newThumbnails);
       setSelectedIds(new Set());
       setSelectMode(false);
-      // AI 搜索模式下同步更新 aiSearchResults，浏览模式更新 photos
-      if (isAiSearchMode) {
-        const nextSimilarities = { ...aiSearchSimilarities };
-        for (const id of selectedIds) {
-          delete nextSimilarities[id];
-        }
-        useAppStore.setState({
-          aiSearchResults: aiSearchResults.filter(p => !selectedIds.has(p.id)),
-          aiSearchSimilarities: nextSimilarities,
-          photosTotal: Math.max(0, photosTotal - count),
-        });
-      } else {
-        const nextPhotos = photos.filter(p => !selectedIds.has(p.id));
-        useAppStore.setState({
-          photos: nextPhotos,
-          photosTotal: Math.max(0, photosTotal - count),
-        });
-        if (nextPhotos.length === 0) {
-          loadPhotosPage(currentFilter);
-        }
+      // removePhotos 同时清理 photos/缩略图/AI 搜索结果（AI 搜索模式删除的照片
+      // 若不同步出 photos，清空搜索后会在浏览网格中"复活"）
+      removePhotos(Array.from(selectedIds));
+      useAppStore.setState({
+        photosTotal: Math.max(0, photosTotal - count),
+      });
+      if (!isAiSearchMode && photos.length === count) {
+        loadPhotosPage(currentFilter);
       }
       loadStats();
       loadTrashCount();

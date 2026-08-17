@@ -118,10 +118,6 @@ export const api = {
     openFolder: () => ipcRenderer.invoke('log:openFolder'),
   },
 
-  app: {
-    openPath: (path: string) => ipcRenderer.invoke('app:openPath', path),
-  },
-
   trash: {
     moveToTrash: (photoIds: string[]) => ipcRenderer.invoke('trash:moveToTrash', photoIds),
     restore: (photoIds: string[]) => ipcRenderer.invoke('trash:restore', photoIds),
