@@ -620,12 +620,14 @@ export function BrowsePage() {
   }, [currentFilter, loadPhotosAtOffset, get]);
 
   const handleRangeChanged = useCallback(({ startIndex, endIndex }: { startIndex: number; endIndex: number }) => {
-    setVisibleRange({ startIndex, endIndex });
+    // 范围值未变化时保持引用不变，避免无效重渲染及 medium 升级 effect 重复走 debounce
+    setVisibleRange(prev => (prev.startIndex === startIndex && prev.endIndex === endIndex ? prev : { startIndex, endIndex }));
     // 用可视区域中间位置的照片所属月份作为高亮，比起始位置更贴合用户当前在看的内容
     const centerIndex = Math.floor((startIndex + endIndex) / 2);
     const photo = displayPhotosRef.current[centerIndex];
     if (photo) {
-      setActiveTimelineKey(getPhotoMonthKey(photo));
+      const key = getPhotoMonthKey(photo);
+      setActiveTimelineKey(prev => (prev === key ? prev : key));
     }
   }, [getPhotoMonthKey]);
 
