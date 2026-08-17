@@ -10,6 +10,18 @@ function compareDateDesc(a: string | null | undefined, b: string | null | undefi
   return b.localeCompare(a);
 }
 
+/**
+ * 面向渲染端的照片列清单（Photo 类型契约）。
+ * 浏览/回收站/重复组等列表查询只取这些列，减少 IPC 序列化负载；
+ * 详情弹窗走 photo:getById（getPhotoById 全列）。
+ * 新增渲染端依赖的列时需同步更新 src/types 的 Photo 类型。
+ */
+const PHOTO_LIST_COLUMNS = `
+  id, folder_id, path, filename, file_size, taken_at,
+  latitude, longitude, width, height, camera, media_type,
+  duration, frame_hash, deleted_at, original_path, trash_path
+`;
+
 export interface PhotoRow {
   id: string;
   folder_id: string;
@@ -595,7 +607,7 @@ export class DatabaseService {
   }
 
   getPhotos(filter: PhotoFilter = {}): PhotoRow[] {
-    let sql = 'SELECT * FROM photos WHERE deleted_at IS NULL';
+    let sql = `SELECT ${PHOTO_LIST_COLUMNS} FROM photos WHERE deleted_at IS NULL`;
     const params: (string | number)[] = [];
 
     if (filter.folderId) {
@@ -858,16 +870,6 @@ export class DatabaseService {
     };
   }
 
-  findDuplicatesByHash(hash: string): PhotoRow[] {
-    const stmt = this.db.prepare('SELECT * FROM photos WHERE file_hash = ? AND deleted_at IS NULL');
-    return stmt.all(hash) as PhotoRow[];
-  }
-
-  findDuplicatesByPHash(phash: string): PhotoRow[] {
-    const stmt = this.db.prepare('SELECT * FROM photos WHERE perceptual_hash = ? AND deleted_at IS NULL');
-    return stmt.all(phash) as PhotoRow[];
-  }
-
   /** 批量回写感知哈希：单事务复用 prepared statement，替代 N 次独立写事务 */
   updatePhotoPerceptualHashBatch(entries: { id: string; phash: string }[]): void {
     if (entries.length === 0) return;
@@ -899,8 +901,9 @@ export class DatabaseService {
     `).all(limit, offset) as { id: string; path: string }[];
   }
 
-  getPhotosWithoutPHash(): PhotoRow[] {
-    return this.db.prepare('SELECT * FROM photos WHERE perceptual_hash IS NULL AND deleted_at IS NULL').all() as PhotoRow[];
+  /** 待补算感知哈希的照片（调用方仅用 id/path） */
+  getPhotosWithoutPHash(): { id: string; path: string }[] {
+    return this.db.prepare('SELECT id, path FROM photos WHERE perceptual_hash IS NULL AND deleted_at IS NULL').all() as { id: string; path: string }[];
   }
 
   getAllPhotoHashes(): { id: string; perceptual_hash: string | null; path: string }[] {
@@ -1297,7 +1300,7 @@ export class DatabaseService {
 
   getTrashedPhotos(): PhotoRow[] {
     return this.db
-      .prepare('SELECT * FROM photos WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC')
+      .prepare(`SELECT ${PHOTO_LIST_COLUMNS} FROM photos WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`)
       .all() as PhotoRow[];
   }
 
