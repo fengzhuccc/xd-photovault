@@ -1178,15 +1178,16 @@ export class ScannerService {
     const lshBuckets = new Map<string, Set<string>>();
     const ZERO_PREFIX = '0'.repeat(8);
 
-    // 第一趟：分批读取 pHash，构建 LSH 桶
+    // 第一趟：分批读取 pHash，构建 LSH 桶（id 游标分页，避免深 OFFSET 逐批重扫）
     // 注意 getPhotoHashBatch 不排除全零 hash，分页以 batch 实际返回长度驱动，
     // 避免 totalCount（已排除全零）与分页行数错位导致提前结束漏读
     let loaded = 0;
-    let offset = 0;
+    let afterId: string | undefined;
     let skippedOversizedBuckets = 0;
     while (true) {
-      const batch = this.db.getPhotoHashBatch(BATCH_SIZE, offset);
+      const batch = this.db.getPhotoHashBatch(BATCH_SIZE, afterId);
       if (batch.length === 0) break;
+      afterId = batch[batch.length - 1].id;
       for (const row of batch) {
         const phash = row.perceptual_hash;
         if (!phash || phash === '0'.repeat(64)) continue;
@@ -1204,7 +1205,6 @@ export class ScannerService {
         }
       }
       loaded += batch.length;
-      offset += BATCH_SIZE;
       if (batch.length < BATCH_SIZE) break;
       this.emitDuplicateProgress({
         stage: 'similar',

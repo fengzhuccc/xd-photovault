@@ -910,10 +910,11 @@ export class DatabaseService {
     return this.db.prepare('SELECT id, perceptual_hash, path FROM photos WHERE deleted_at IS NULL').all() as { id: string; perceptual_hash: string | null; path: string }[];
   }
 
-  getPhotoHashBatch(limit: number, offset: number): { id: string; perceptual_hash: string | null; file_size: number }[] {
+  /** 游标分页读取 pHash（afterId 传上一批最后的 id，避免深 OFFSET 全表重扫） */
+  getPhotoHashBatch(limit: number, afterId?: string): { id: string; perceptual_hash: string | null; file_size: number }[] {
     return this.db.prepare(
-      'SELECT id, perceptual_hash, file_size FROM photos WHERE perceptual_hash IS NOT NULL AND deleted_at IS NULL LIMIT ? OFFSET ?'
-    ).all(limit, offset) as { id: string; perceptual_hash: string | null; file_size: number }[];
+      'SELECT id, perceptual_hash, file_size FROM photos WHERE perceptual_hash IS NOT NULL AND deleted_at IS NULL AND id > ? ORDER BY id LIMIT ?'
+    ).all(afterId ?? '', limit) as { id: string; perceptual_hash: string | null; file_size: number }[];
   }
 
   getPhotoCountWithPHash(): number {
